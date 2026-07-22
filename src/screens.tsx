@@ -63,7 +63,7 @@ export function UpcomingScreen() {
   );
 }
 
-type SettingsSection = { title: string; description: string; rows: { label: string; value: string }[] };
+type SettingsSection = { title: string; description: string; rows: { label: string; value: string; href?: string }[] };
 
 const settingsSections: SettingsSection[] = [
   { title: "General", description: "Global parsing and device conventions.", rows: [
@@ -91,8 +91,8 @@ const settingsSections: SettingsSection[] = [
   ]},
   { title: "Data", description: "Import, preserve, or restore your PeopleOS data.", rows: [
     { label: "Import contacts", value: "vCard file" },
-    { label: "Export backup", value: "Not created" },
-    { label: "Restore backup", value: "Preview required" }
+    { label: "Export backup", value: "Create local file", href: "/settings/export" },
+    { label: "Restore backup", value: "Preview required", href: "/settings/restore" }
   ]},
   { title: "About", description: "Product and technical information.", rows: [
     { label: "PeopleOS version", value: "0.1.0" },
@@ -100,7 +100,7 @@ const settingsSections: SettingsSection[] = [
   ]}
 ];
 
-export function SettingsScreen() {
+export function SettingsScreen({ navigate }: { navigate: (path: string) => void }) {
   return (
     <main className="screen settings-screen" id="main-content" tabIndex={-1}>
       <header className="page-heading">
@@ -118,7 +118,7 @@ export function SettingsScreen() {
             <dl>
               {section.rows.map((row) => (
                 <div className="settings-row" key={row.label}>
-                  <dt>{row.label}</dt>
+                  <dt>{row.href ? <a href={row.href} onClick={(event) => { event.preventDefault(); navigate(row.href!); }}>{row.label}</a> : row.label}</dt>
                   <dd>{row.value}</dd>
                 </div>
               ))}

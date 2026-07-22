@@ -63,4 +63,17 @@ describe("PeopleOS shell", () => {
     expect(document.body).not.toHaveTextContent("Real Friends");
     expect(document.title).toBe("PeopleOS");
   });
+
+  it("opens the V1-02 export and restore screens from Settings", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("link", { name: "Settings" }));
+    await user.click(screen.getByRole("link", { name: "Export backup" }));
+    expect(window.location.pathname).toBe("/settings/export");
+    expect(screen.getByRole("heading", { name: "Export backup" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "← Settings" }));
+    await user.click(screen.getByRole("link", { name: "Restore backup" }));
+    expect(window.location.pathname).toBe("/settings/restore");
+    expect(screen.getByRole("heading", { name: "Restore backup" })).toBeInTheDocument();
+  });
 });

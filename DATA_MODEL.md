@@ -29,11 +29,14 @@ Names and contact details may change. History remains attached to the same `Pers
 
 ## Core persisted models
 
+Every mutable record carries `revision`, starting at `1`. Updates require the expected revision, increment it exactly once, preserve `createdAt`, and replace `updatedAt` with a UTC ISO instant. Append-only lifecycle records do not carry a revision because they are never edited.
+
 ### Person
 
 ```ts
 type Person = {
   id: string;
+  revision: number;
   displayName: string;
   identityStatus: "provisional" | "confirmed" | "merged";
   mergedIntoPersonId?: string;
@@ -58,6 +61,7 @@ Do not put current phone, email, organisation, event, introducer, last-contact t
 type ContactMethod =
   | {
       id: string;
+      revision: number;
       personId: string;
       kind: "phone";
       label?: string;
@@ -71,6 +75,7 @@ type ContactMethod =
     }
   | {
       id: string;
+      revision: number;
       personId: string;
       kind: "email";
       label?: string;
@@ -90,6 +95,7 @@ One model supports multiple phones and emails without making either an identity.
 ```ts
 type ExternalIdentity = {
   id: string;
+  revision: number;
   personId: string;
   provider: "google_contacts" | "linkedin" | string;
   externalId: string;
@@ -107,11 +113,14 @@ type ExternalIdentity = {
 
 LinkedIn is only a planned identity link. No LinkedIn integration is approved.
 
+V1 defines this provider-neutral type boundary but does not create an ExternalIdentity object store, provider adapter, OAuth flow, or backup collection. Those become persistent only when an approved integration needs them.
+
 ### OrganisationAffiliation
 
 ```ts
 type OrganisationAffiliation = {
   id: string;
+  revision: number;
   personId: string;
   organisationName: string;
   role?: string;
@@ -120,6 +129,7 @@ type OrganisationAffiliation = {
   isCurrent: boolean;
   createdAt: string;
   updatedAt: string;
+  archivedAt?: string;
 };
 ```
 
@@ -143,6 +153,7 @@ type InteractionKind =
 
 type Interaction = {
   id: string;
+  revision: number;
   personId: string;
   kind: InteractionKind;
   occurredAt: string;
@@ -170,8 +181,9 @@ Person creation appears in the timeline from `Person.createdAt`; it does not cre
 ```ts
 type FollowUp = {
   id: string;
+  revision: number;
   personId: string;
-  dueAt: string;
+  dueDate: string; // YYYY-MM-DD local calendar date
   reason: string;
   actionType:
     | "message"
@@ -185,18 +197,56 @@ type FollowUp = {
   reachOutEntryId?: string;
   status: "pending" | "completed" | "cancelled" | "superseded";
   completedAt?: string;
-  snoozedUntil?: string;
+  snoozedUntilDate?: string; // YYYY-MM-DD local calendar date
   supersedesFollowUpId?: string;
+  supersededByFollowUpId?: string;
   createdAt: string;
   updatedAt: string;
 };
 ```
 
-`FollowUp` is the single source of truth for a dated promise or plan. There is no `followUpAt` on Person. Rescheduling marks the old follow-up superseded and creates a traceable replacement. Completing it creates a `follow_up_completed` interaction referencing `followUpId`.
+`FollowUp` is the single source of truth for a dated promise or plan. There is no `followUpAt` on Person. Rescheduling marks the old follow-up superseded, creates a replacement, and links both directions in one transaction. Completion with contact creates one contact Interaction linked to the FollowUp and no duplicate `follow_up_completed` Interaction. Completion without contact creates one `follow_up_completed` Interaction. Both cases append one matching FollowUpEvent.
 
 Recurring cadence remains a preference on Person. The Relationship Engine may suggest a date from cadence, but should not persist a FollowUp until the user accepts it.
 
 `reachOutEntryId` is optional. When present it records that the existing FollowUp is the dated plan for a Reach Out intention. It does not change FollowUp state transitions, Today eligibility, or completion semantics.
+
+### FollowUpEvent
+
+```ts
+type FollowUpEvent = {
+  id: string;
+  followUpId: string;
+  personId: string;
+  kind:
+    | "created"
+    | "snoozed"
+    | "rescheduled"
+    | "completed_with_contact"
+    | "completed_without_contact"
+    | "cancelled";
+  occurredAt: string;
+  fromDate?: string;
+  toDate?: string;
+  replacementFollowUpId?: string;
+  interactionId?: string;
+};
+```
+
+FollowUpEvent is append-only. It preserves repeated transitions while FollowUp remains the efficient current snapshot. Timeline coalesces a lifecycle event and its linked completion Interaction into one visible item.
+
+### TodaySkip
+
+```ts
+type TodaySkip = {
+  id: string; // `${personId}:${localDate}`
+  personId: string;
+  localDate: string; // YYYY-MM-DD in the user's local day
+  createdAt: string;
+};
+```
+
+The composite identity makes retry idempotent and enforces one skip per Person per local day. Undo deletes that exact record. Expired records are ignored and may be pruned opportunistically.
 
 ### ReachOutEntry
 
@@ -215,6 +265,7 @@ type ReachOutActionType =
 
 type ReachOutEntry = {
   id: string;
+  revision: number;
   personId: string;
   reason?: string;
   intendedActionType?: ReachOutActionType;
@@ -272,6 +323,7 @@ ReachOutEvent preserves completion and status history without pretending outreac
 ```ts
 type ReachOutContext = {
   id: string;
+  revision: number;
   kind: "project" | "organisation" | "event" | "fellowship" | "other";
   label: string;
   eventId?: string;
@@ -297,6 +349,7 @@ type MemoryFactKind =
 
 type MemoryFact = {
   id: string;
+  revision: number;
   personId: string;
   kind: MemoryFactKind;
   value: string;
@@ -324,6 +377,7 @@ Do not build an open-ended entity-attribute-value database. Fact kinds are a sma
 ```ts
 type Event = {
   id: string;
+  revision: number;
   name: string;
   occurredOn?: string;
   location?: string;
@@ -353,6 +407,20 @@ This singleton contains only editable global application preferences. Defaults a
 Device timezone, device locale, notification availability, application version, and schema version are runtime facts and must not be duplicated here. `lastBackupGeneratedAt` is backup metadata, not a preference. The singleton is versioned, validated, included in backup/restore, and protected by the same revision/idempotency contract as other mutable records.
 
 Do not store Person cadence, importance, communication preference, Reach Out state, or configurable engine weights in AppSettings. Deterministic relationship rules are versioned in code and shared by all users. `SETTINGS_SPEC.md` owns the complete visible behavior.
+
+### AppMetadata
+
+```ts
+type AppMetadata = {
+  id: "app";
+  datasetRevision: number;
+  lastBackupGeneratedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+```
+
+Metadata is device-local coordination state rather than a user preference. Every successful mutation increments `datasetRevision`; atomic restore increments it once so open views can rehydrate. `lastBackupGeneratedAt` changes only after a valid backup string has been produced. AppMetadata is not restored from another device.
 
 ## Derived relationship state
 
@@ -397,3 +465,5 @@ The UI must say which facts matched and allow: open existing Person, continue cr
 PeopleOS uses its own database name and export schema. Imports must validate referential integrity: every child references an existing Person, every linked Reach Out FollowUp references the same Person as its ReachOutEntry, ReachOut contexts exist, and provider identities are unique.
 
 A later Real Friends or Google Contacts import is explicit, previewable, and non-destructive. Import creates or links PeopleOS entities through application services; it never makes external provider data the live primary model.
+
+The V1 backup envelope is `{ product: "peopleos", schemaVersion, exportedAt, data }`. `data` contains every V1 domain store and the AppSettings singleton. Restore parses and migrates supported older PeopleOS schemas, validates the complete graph, previews counts, and only then replaces all data stores in one transaction. Unsupported future versions, invalid references, cancellation, or any transaction failure leave the current database unchanged.

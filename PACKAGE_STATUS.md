@@ -1,0 +1,19 @@
+# PeopleOS Version 1 Package Status
+
+Operational ledger only. Package scope and acceptance criteria remain authoritative in `VERSION1_SCOPE.md` and `IMPLEMENTATION_READINESS_REVIEW.md`.
+
+| Package | Name | Status | Commit | Automated tests | Manual verification | Dependencies | Notes / blockers |
+|---|---|---|---|---|---|---|---|
+| V1-01 | Independent shell and product identity | Complete | `87d40b9` | 5/5 tests; typecheck and production build passed | Five tabs, 390px no overflow, clean-origin PWA offline reload passed | None | Independent PeopleOS identity; no persistence or feature behavior |
+| V1-02 | Versioned local data and backup foundation | Complete | Pending package commit | 24/24 tests; typecheck, production build, and dependency audit passed | Clean-origin 390px shell/data screens, navigation, semantics, no overflow or console errors; offline reload passed | V1-01; RC-01, RC-02, RC-03, RC-08, RC-09, RC-10, RC-12 | Complete V1 persistence contract and backup/restore foundation; product behavior remains deferred |
+| V1-03 | Manual person capture and contact methods | Not started | — | — | — | V1-01–02 | Blocked until V1-02 completes |
+| V1-04 | Duplicate warning and vCard import | Not started | — | — | — | V1-01–03 | — |
+| V1-05 | Interactions and timeline | Not started | — | — | — | V1-01–04 | — |
+| V1-06 | Memory facts and affiliations | Not started | — | — | — | V1-01–05 | — |
+| V1-07 | Follow-ups and cadence | Not started | — | — | — | V1-01–06 | — |
+| V1-08 | Reach Out | Not started | — | — | — | V1-01–07 | — |
+| V1-09 | Relationship Engine core | Not started | — | — | — | V1-01–08 | — |
+| V1-10 | Today experience | Not started | — | — | — | V1-01–09 | — |
+| V1-11 | Search and complete person profile | Not started | — | — | — | V1-01–10 | — |
+| V1-12 | Batch networking capture | Not started | — | — | — | V1-01–11 | — |
+| V1-13 | Contact actions and product hardening | Not started | — | — | — | V1-01–12 | — |

@@ -117,7 +117,7 @@ type RelationshipAssessment = {
   };
   memoryCue?: { text: string; explanation: Explanation };
   overdueFollowUp?: { followUpId: string; explanation: Explanation };
-  suggestedReminder?: { dueAt: string; explanation: Explanation };
+  suggestedReminder?: { dueDate: string; explanation: Explanation };
   lastContactAt?: string;
   relationshipStartedAt: string;
 };

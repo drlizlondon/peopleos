@@ -2,22 +2,21 @@ import { useEffect, useState } from "react";
 import { Icon } from "./icons";
 import { routeFromPath, routes, type Route } from "./navigation";
 import { PeopleScreen, ReachOutScreen, SettingsScreen, TodayScreen, UpcomingScreen } from "./screens";
-
-const screens: Record<Route["id"], () => JSX.Element> = {
-  today: TodayScreen,
-  "reach-out": ReachOutScreen,
-  people: PeopleScreen,
-  upcoming: UpcomingScreen,
-  settings: SettingsScreen
-};
+import { ExportBackupScreen, RestoreBackupScreen } from "./dataScreens";
+import { getDatabase } from "./data/client";
 
 export default function App() {
   const [route, setRoute] = useState(() => routeFromPath(window.location.pathname));
+  const [storageError, setStorageError] = useState(false);
 
   useEffect(() => {
     const onPopState = () => setRoute(routeFromPath(window.location.pathname));
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  useEffect(() => {
+    getDatabase().catch(() => setStorageError(true));
   }, []);
 
   useEffect(() => {
@@ -32,7 +31,17 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "instant" });
   }
 
-  const Screen = screens[route.id];
+  function renderScreen() {
+    switch (route.id) {
+      case "today": return <TodayScreen />;
+      case "reach-out": return <ReachOutScreen />;
+      case "people": return <PeopleScreen />;
+      case "upcoming": return <UpcomingScreen />;
+      case "settings": return <SettingsScreen navigate={(path) => navigate(routeFromPath(path))} />;
+      case "export-backup": return <ExportBackupScreen navigate={(path) => navigate(routeFromPath(path))} />;
+      case "restore-backup": return <RestoreBackupScreen navigate={(path) => navigate(routeFromPath(path))} />;
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -45,18 +54,19 @@ export default function App() {
         <p>Remember people.</p>
       </header>
 
-      <Screen />
+      {storageError && <p className="storage-error" role="alert">PeopleOS could not open local storage. Your data actions are unavailable.</p>}
+      {renderScreen()}
 
       <nav className="primary-nav" aria-label="Primary navigation">
         {routes.map((item) => (
           <a
             key={item.id}
             href={item.path}
-            className={item.id === route.id ? "active" : undefined}
-            aria-current={item.id === route.id ? "page" : undefined}
+            className={item.id === route.primaryId ? "active" : undefined}
+            aria-current={item.id === route.primaryId ? "page" : undefined}
             onClick={(event) => { event.preventDefault(); navigate(item); }}
           >
-            <Icon name={item.id} />
+            <Icon name={item.primaryId} />
             <span>{item.label}</span>
           </a>
         ))}

@@ -21,7 +21,7 @@ PeopleOS is not a CRM, sales pipeline, lead-management tool, or a new version of
 
 ## Current status
 
-**Implementation has begun. V1-01 — Independent shell and product identity is complete; later product packages are not implemented.**
+**Implementation has begun. V1-01 — Independent shell and product identity and V1-02 — Versioned local data and backup foundation are complete; later product packages are not implemented.**
 
 The inherited Real Friends codebase was reviewed from `/Users/lizzie/Documents/real-friends`. PeopleOS now has an independent React/Vite PWA shell with five primary destinations and no shared runtime, storage, or product logic. Further implementation must proceed only through the packages in [VERSION1_SCOPE.md](./VERSION1_SCOPE.md), subject to the required corrections in [IMPLEMENTATION_READINESS_REVIEW.md](./IMPLEMENTATION_READINESS_REVIEW.md).
 
@@ -49,7 +49,7 @@ The inherited Real Friends codebase was reviewed from `/Users/lizzie/Documents/r
 
 ## Technical baseline
 
-PeopleOS uses React, TypeScript, Vite, `vite-plugin-pwa`, Vitest, and a local-first PWA deployment model. V1-01 deliberately includes no persistence or relationship behavior; IndexedDB begins in V1-02 after the required data-contract corrections are accepted.
+PeopleOS uses React, TypeScript, Vite, `vite-plugin-pwa`, Vitest, IndexedDB through `idb`, and a local-first PWA deployment model. V1-02 establishes the complete versioned V1 storage contract, runtime validation, optimistic revisions, and atomic JSON backup/restore. Person capture and relationship behavior begin in later packages.
 
 Development commands:
 

@@ -12,6 +12,7 @@
     "check": "npm run test && npm run build"
   },
   "dependencies": {
+    "idb": "^8.0.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
@@ -22,6 +23,7 @@
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^5.1.4",
+    "fake-indexeddb": "^6.2.5",
     "jsdom": "^25.0.1",
     "typescript": "^5.5.3",
     "vite": "^7.3.6",
