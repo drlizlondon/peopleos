@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { contactMethodsPath, personProfilePath, routeFromPath } from "./navigation";
 
-describe("V1-03 people routes", () => {
+describe("People secondary routes", () => {
   it("resolves manual capture as a People secondary route", () => {
     expect(routeFromPath("/people/new")).toMatchObject({ id: "add-person", primaryId: "people" });
     expect(routeFromPath("/people/new/")).toMatchObject({ id: "add-person", path: "/people/new" });
+  });
+
+  it("resolves vCard preview and results as People secondary routes", () => {
+    expect(routeFromPath("/people/import")).toMatchObject({ id: "import-contacts", primaryId: "people" });
+    expect(routeFromPath("/people/import/results")).toMatchObject({ id: "import-results", primaryId: "people" });
   });
 
   it("round-trips safe Person IDs through profile and contact-method paths", () => {

@@ -4,7 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { closeDatabase, getDatabase } from "./data/client";
 import { deletePeopleOsDatabase, readAllData } from "./data/database";
+import { createRepositories } from "./data/repositories";
 import { DATABASE_NAME } from "./domain/schema";
+import { fixedNow } from "./test/fixtures";
 
 async function resetDatabase() {
   await closeDatabase();
@@ -261,5 +263,87 @@ describe("V1-03 manual person capture", () => {
     await waitFor(() => expect(screen.queryByText("Contact detail removed.")).not.toBeInTheDocument());
     expect(screen.getByText("updated@example.com")).toBeInTheDocument();
     expect((await readAllData(await getDatabase())).contactMethods.find((contact) => contact.rawValue === "updated@example.com")?.archivedAt).toBeUndefined();
+  });
+
+  it("warns on a duplicate contact method and preserves the editor while the existing Person is inspected", async () => {
+    const db = await getDatabase();
+    const repositories = createRepositories(db);
+    await repositories.people.create({
+      id: "person-sarah",
+      revision: 1,
+      displayName: "Sarah Ahmed",
+      identityStatus: "confirmed",
+      importance: "normal",
+      tags: [],
+      createdAt: fixedNow,
+      updatedAt: fixedNow
+    });
+    await repositories.people.create({
+      id: "person-aaron",
+      revision: 1,
+      displayName: "Aaron Patel",
+      identityStatus: "confirmed",
+      importance: "normal",
+      tags: [],
+      createdAt: fixedNow,
+      updatedAt: fixedNow
+    });
+    await repositories.contactMethods.create({
+      id: "contact-aaron",
+      revision: 1,
+      personId: "person-aaron",
+      kind: "email",
+      rawValue: "shared@example.com",
+      canonicalValue: "shared@example.com",
+      isPreferred: true,
+      createdAt: fixedNow,
+      updatedAt: fixedNow
+    });
+
+    const user = userEvent.setup();
+    window.history.replaceState({ fromPath: "/people/person-sarah" }, "", "/people/person-sarah/contact-methods");
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Add email" }));
+    await user.type(screen.getByLabelText("Email address"), " Shared@Example.com ");
+    await user.click(screen.getByRole("button", { name: "Save contact detail" }));
+
+    const warning = await screen.findByRole("dialog", { name: "Contact detail already used" });
+    expect(within(warning).getByText("Same email address: shared@example.com")).toBeInTheDocument();
+    expect((await readAllData(db)).contactMethods).toHaveLength(1);
+    await user.click(within(warning).getByRole("button", { name: "Open existing person Aaron Patel" }));
+    expect(await screen.findByRole("heading", { name: "Aaron Patel" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "← Continue editing contact" }));
+
+    expect(await screen.findByLabelText("Email address")).toHaveValue("Shared@Example.com");
+    await user.click(screen.getByRole("button", { name: "Save contact detail" }));
+    const secondWarning = await screen.findByRole("dialog", { name: "Contact detail already used" });
+    await repositories.people.create({
+      id: "person-concurrent",
+      revision: 1,
+      displayName: "Concurrent colleague",
+      identityStatus: "confirmed",
+      importance: "normal",
+      tags: [],
+      createdAt: fixedNow,
+      updatedAt: fixedNow
+    });
+    await repositories.contactMethods.create({
+      id: "contact-concurrent",
+      revision: 1,
+      personId: "person-concurrent",
+      kind: "email",
+      rawValue: "shared@example.com",
+      canonicalValue: "shared@example.com",
+      isPreferred: true,
+      createdAt: fixedNow,
+      updatedAt: fixedNow
+    });
+
+    await user.click(within(secondWarning).getByRole("button", { name: "Keep contact detail on Sarah Ahmed" }));
+    const concurrentWarning = await screen.findByRole("dialog", { name: "Contact detail already used" });
+    expect(within(concurrentWarning).getByRole("heading", { level: 4, name: "Concurrent colleague" })).toBeInTheDocument();
+    await user.click(within(concurrentWarning).getByRole("button", { name: "Keep contact detail on Sarah Ahmed" }));
+    expect(await screen.findByText("Shared@Example.com")).toBeInTheDocument();
+    expect((await readAllData(db)).contactMethods).toHaveLength(3);
   });
 });

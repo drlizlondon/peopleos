@@ -1,5 +1,12 @@
 export type PrimaryRouteId = "today" | "reach-out" | "people" | "upcoming" | "settings";
-export type RouteId = PrimaryRouteId | "add-person" | "person-profile" | "contact-methods" | "export-backup" | "restore-backup";
+export type RouteId = PrimaryRouteId
+  | "add-person"
+  | "person-profile"
+  | "contact-methods"
+  | "import-contacts"
+  | "import-results"
+  | "export-backup"
+  | "restore-backup";
 
 export type Route = {
   id: RouteId;
@@ -18,6 +25,8 @@ export const routes: Route[] = [
 ];
 
 const secondaryRoutes: Route[] = [
+  { id: "import-contacts", path: "/people/import", label: "Import contacts", primaryId: "people" },
+  { id: "import-results", path: "/people/import/results", label: "Import results", primaryId: "people" },
   { id: "export-backup", path: "/settings/export", label: "Export backup", primaryId: "settings" },
   { id: "restore-backup", path: "/settings/restore", label: "Restore backup", primaryId: "settings" }
 ];

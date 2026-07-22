@@ -4,6 +4,8 @@ import { assertValidRecord } from "../domain/validation";
 import type { PeopleOsDatabase, PeopleOsDb } from "../data/database";
 import { RecordConflictError, StaleRevisionError } from "../data/repositories";
 import { normalizeContactValue } from "../integrations/contactValues";
+import { detectDuplicatePeople } from "../domain/duplicates";
+import { requireReviewedDuplicateMatches } from "./duplicateReview";
 
 export type ContactMethodDraft = {
   id: string;
@@ -17,6 +19,8 @@ export type ContactMethodDraft = {
 
 export type ContactMethodMutationHooks = {
   beforeCommit?: () => void | Promise<void>;
+  enforceDuplicateReview?: boolean;
+  acknowledgedDuplicatePersonIds?: readonly string[];
 };
 
 export type ContactMethodDraftOptions = {
@@ -83,6 +87,24 @@ async function requireWritablePerson(
   return person;
 }
 
+async function requireReviewedContactDuplicate(
+  peopleStore: IDBPObjectStore<PeopleOsDb, StoreNames<PeopleOsDb>[], "people", "readwrite">,
+  contactStore: IDBPObjectStore<PeopleOsDb, StoreNames<PeopleOsDb>[], "contactMethods", "readwrite">,
+  person: Person,
+  candidate: ContactMethod,
+  hooks: ContactMethodMutationHooks
+): Promise<void> {
+  if (!hooks.enforceDuplicateReview) return;
+  const [people, contactMethods] = await Promise.all([peopleStore.getAll(), contactStore.getAll()]);
+  requireReviewedDuplicateMatches(detectDuplicatePeople({
+    candidate: { person, contactMethods: [candidate] },
+    people,
+    contactMethods,
+    affiliations: [],
+    interactions: []
+  }), hooks.acknowledgedDuplicatePersonIds ?? []);
+}
+
 export async function addContactMethod(
   db: PeopleOsDatabase,
   draft: ContactMethodDraft,
@@ -105,7 +127,8 @@ export async function addContactMethod(
 
   const tx = db.transaction(["people", "contactMethods", "metadata"], "readwrite");
   try {
-    await requireWritablePerson(await tx.objectStore("people").get(draft.personId), draft.personId);
+    const people = tx.objectStore("people");
+    const person = await requireWritablePerson(await people.get(draft.personId), draft.personId);
     const store = tx.objectStore("contactMethods");
     const existing = await store.get(draft.id);
     if (existing) {
@@ -122,6 +145,7 @@ export async function addContactMethod(
     );
     const record = { ...base, isPreferred } as ContactMethod;
     assertValidRecord("contactMethods", record);
+    await requireReviewedContactDuplicate(people, store, person, record, hooks);
     await store.add(record);
     await updateMetadata(tx.objectStore("metadata"), draft.createdAt);
     await hooks.beforeCommit?.();
@@ -156,7 +180,8 @@ export async function editContactMethod(
     const store = tx.objectStore("contactMethods");
     const current = await store.get(input.id);
     if (!current) throw new RecordConflictError(`contactMethods does not contain id ${input.id}`);
-    await requireWritablePerson(await tx.objectStore("people").get(current.personId), current.personId);
+    const people = tx.objectStore("people");
+    const person = await requireWritablePerson(await people.get(current.personId), current.personId);
     if (current.revision !== input.expectedRevision) throw new StaleRevisionError();
     if (current.archivedAt) throw new RecordConflictError("Restore this contact method before editing it.");
 
@@ -181,6 +206,7 @@ export async function editContactMethod(
       updatedAt: now
     } as ContactMethod;
     assertValidRecord("contactMethods", updated);
+    await requireReviewedContactDuplicate(people, store, person, updated, hooks);
     await store.put(updated);
     await updateMetadata(tx.objectStore("metadata"), now);
     await hooks.beforeCommit?.();

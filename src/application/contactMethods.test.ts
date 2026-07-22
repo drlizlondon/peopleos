@@ -98,6 +98,83 @@ describe("contact method actions", () => {
     db.close();
   });
 
+  it("requires explicit review before a contact value is shared by active People", async () => {
+    const db = await databaseWithPerson("duplicate-review");
+    const repositories = createRepositories(db);
+    await repositories.people.create({
+      id: "person-aaron",
+      revision: 1,
+      displayName: "Aaron Patel",
+      identityStatus: "confirmed",
+      importance: "normal",
+      tags: [],
+      createdAt: fixedNow,
+      updatedAt: fixedNow
+    });
+    await addContactMethod(db, {
+      id: "email-aaron", personId: "person-aaron", kind: "email", value: "shared@example.com", createdAt: fixedNow
+    }, "GB");
+    const candidate = {
+      id: "email-sarah", personId: "person-sarah", kind: "email" as const, value: " Shared@Example.com ", createdAt: fixedNow
+    };
+
+    await expect(addContactMethod(db, candidate, "GB", {
+      enforceDuplicateReview: true
+    })).rejects.toMatchObject({
+      name: "DuplicateReviewRequiredError",
+      matches: [expect.objectContaining({ person: expect.objectContaining({ id: "person-aaron" }) })]
+    });
+    expect(await db.get("contactMethods", candidate.id)).toBeUndefined();
+
+    const saved = await addContactMethod(db, candidate, "GB", {
+      enforceDuplicateReview: true,
+      acknowledgedDuplicatePersonIds: ["person-aaron"]
+    });
+    expect(saved).toMatchObject({ personId: "person-sarah", canonicalValue: "shared@example.com" });
+  });
+
+  it("applies the same duplicate guard when an existing contact method is edited", async () => {
+    const db = await databaseWithPerson("duplicate-edit-review");
+    const repositories = createRepositories(db);
+    await repositories.people.create({
+      id: "person-aaron",
+      revision: 1,
+      displayName: "Aaron Patel",
+      identityStatus: "confirmed",
+      importance: "normal",
+      tags: [],
+      createdAt: fixedNow,
+      updatedAt: fixedNow
+    });
+    await addContactMethod(db, {
+      id: "email-aaron", personId: "person-aaron", kind: "email", value: "shared@example.com", createdAt: fixedNow
+    }, "GB");
+    const sarah = await addContactMethod(db, {
+      id: "email-sarah", personId: "person-sarah", kind: "email", value: "unique@example.com", createdAt: fixedNow
+    }, "GB");
+
+    await expect(editContactMethod(db, {
+      id: sarah.id,
+      expectedRevision: sarah.revision,
+      kind: "email",
+      value: "shared@example.com"
+    }, "GB", fixedNow, { enforceDuplicateReview: true })).rejects.toMatchObject({
+      name: "DuplicateReviewRequiredError"
+    });
+    expect((await db.get("contactMethods", sarah.id))?.canonicalValue).toBe("unique@example.com");
+
+    const saved = await editContactMethod(db, {
+      id: sarah.id,
+      expectedRevision: sarah.revision,
+      kind: "email",
+      value: "shared@example.com"
+    }, "GB", fixedNow, {
+      enforceDuplicateReview: true,
+      acknowledgedDuplicatePersonIds: ["person-aaron"]
+    });
+    expect(saved).toMatchObject({ revision: 2, canonicalValue: "shared@example.com" });
+  });
+
   it("changes preference atomically and archives without selecting a replacement", async () => {
     const db = await databaseWithPerson("preference");
     await addContactMethod(db, {

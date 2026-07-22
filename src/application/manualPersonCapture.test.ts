@@ -136,6 +136,38 @@ describe("manual Person capture", () => {
     db.close();
   });
 
+  it("checks duplicate evidence inside the creation transaction and requires each match to be acknowledged", async () => {
+    const db = await openDatabase(databaseName("duplicate-guard"));
+    const existing = prepareManualPersonCapture(draft({
+      personId: "person-existing",
+      affiliationId: "affiliation-existing",
+      metInteractionId: "interaction-existing",
+      contactMethods: [{ id: "contact-existing", kind: "email", value: "shared@example.com" }]
+    }), "GB");
+    await savePreparedManualPersonCapture(db, existing);
+    const candidate = prepareManualPersonCapture(draft({
+      personId: "person-candidate",
+      affiliationId: "affiliation-candidate",
+      metInteractionId: "interaction-candidate",
+      displayName: "Another Sarah",
+      contactMethods: [{ id: "contact-candidate", kind: "email", value: "Shared@Example.com" }]
+    }), "GB");
+
+    await expect(savePreparedManualPersonCapture(db, candidate, {
+      enforceDuplicateReview: true
+    })).rejects.toMatchObject({
+      name: "DuplicateReviewRequiredError",
+      matches: [expect.objectContaining({ person: expect.objectContaining({ id: "person-existing" }) })]
+    });
+    expect(await db.get("people", candidate.person.id)).toBeUndefined();
+
+    await savePreparedManualPersonCapture(db, candidate, {
+      enforceDuplicateReview: true,
+      acknowledgedDuplicatePersonIds: ["person-existing"]
+    });
+    expect(await db.get("people", candidate.person.id)).toEqual(candidate.person);
+  });
+
   it("rolls back every child when an atomic write fails before commit", async () => {
     const db = await openDatabase(databaseName("rollback"));
     const prepared = prepareManualPersonCapture(draft({

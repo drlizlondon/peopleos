@@ -8,6 +8,8 @@ import { assertValidRecord, ValidationError } from "../domain/validation";
 import { RecordConflictError } from "../data/repositories";
 import type { PeopleOsDatabase } from "../data/database";
 import { normalizeContactValue } from "../integrations/contactValues";
+import { detectDuplicatePeople } from "../domain/duplicates";
+import { requireReviewedDuplicateMatches } from "./duplicateReview";
 
 export type ManualContactMethodDraft = {
   id: string;
@@ -42,6 +44,8 @@ export type PreparedManualPersonCapture = {
 
 export type ManualCaptureHooks = {
   beforeCommit?: () => void | Promise<void>;
+  enforceDuplicateReview?: boolean;
+  acknowledgedDuplicatePersonIds?: readonly string[];
 };
 
 export type DraftFactoryOptions = {
@@ -225,7 +229,7 @@ export async function savePreparedManualPersonCapture(
     ...(capture.metInteraction ? [["interactions", capture.metInteraction] as const] : [])
   ] as const;
 
-  const tx = db.transaction(["people", "contactMethods", "affiliations", "interactions", "metadata"], "readwrite");
+  const tx = db.transaction(["people", "contactMethods", "affiliations", "interactions", "events", "metadata"], "readwrite");
   try {
     const existing = await Promise.all(records.map(async ([store, record]) =>
       tx.objectStore(store).get(record.id as never) as Promise<unknown>
@@ -238,6 +242,29 @@ export async function savePreparedManualPersonCapture(
     if (collisionIndex >= 0) {
       const [store, record] = records[collisionIndex];
       throw new RecordConflictError(`${store} already contains id ${record.id}`);
+    }
+
+    if (hooks.enforceDuplicateReview) {
+      const [people, contactMethods, affiliations, interactions, events] = await Promise.all([
+        tx.objectStore("people").getAll(),
+        tx.objectStore("contactMethods").getAll(),
+        tx.objectStore("affiliations").getAll(),
+        tx.objectStore("interactions").getAll(),
+        tx.objectStore("events").getAll()
+      ]);
+      requireReviewedDuplicateMatches(detectDuplicatePeople({
+        candidate: {
+          person: capture.person,
+          contactMethods: capture.contactMethods,
+          affiliations: capture.affiliation ? [capture.affiliation] : [],
+          interactions: capture.metInteraction ? [capture.metInteraction] : []
+        },
+        people,
+        contactMethods,
+        affiliations,
+        interactions,
+        events
+      }), hooks.acknowledgedDuplicatePersonIds ?? []);
     }
 
     for (const [store, record] of records) {

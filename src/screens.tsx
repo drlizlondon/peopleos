@@ -90,7 +90,7 @@ const settingsSections: SettingsSection[] = [
     { label: "Accounts and analytics", value: "None" }
   ]},
   { title: "Data", description: "Import, preserve, or restore your PeopleOS data.", rows: [
-    { label: "Import contacts", value: "vCard file" },
+    { label: "Import contacts", value: "vCard file", href: "/people/import" },
     { label: "Export backup", value: "Create local file", href: "/settings/export" },
     { label: "Restore backup", value: "Preview required", href: "/settings/restore" }
   ]},

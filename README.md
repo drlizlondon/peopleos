@@ -21,7 +21,7 @@ PeopleOS is not a CRM, sales pipeline, lead-management tool, or a new version of
 
 ## Current status
 
-**V1-01 — Independent shell and product identity, V1-02 — Versioned local data and backup foundation, and V1-03 — Manual person capture and contact methods are complete. V1-04 and later packages remain unimplemented.**
+**V1-01 — Independent shell and product identity, V1-02 — Versioned local data and backup foundation, V1-03 — Manual person capture and contact methods, and V1-04 — Duplicate warning and vCard import are complete. V1-05 and later packages remain unimplemented.**
 
 The inherited Real Friends codebase was reviewed from `/Users/lizzie/Documents/real-friends`. PeopleOS now has an independent React/Vite PWA shell with five primary destinations and no shared runtime, storage, or product logic. Further implementation must proceed only through the packages in [VERSION1_SCOPE.md](./VERSION1_SCOPE.md), subject to the required corrections in [IMPLEMENTATION_READINESS_REVIEW.md](./IMPLEMENTATION_READINESS_REVIEW.md).
 
@@ -51,7 +51,9 @@ The inherited Real Friends codebase was reviewed from `/Users/lizzie/Documents/r
 
 PeopleOS uses React, TypeScript, Vite, `vite-plugin-pwa`, Vitest, IndexedDB through `idb`, and a local-first PWA deployment model. V1-02 establishes the complete versioned V1 storage contract, runtime validation, optimistic revisions, and atomic JSON backup/restore.
 
-The V1-03 slice adds `/people/new`, `/people/:personId`, and `/people/:personId/contact-methods`. Manual capture writes a Person and any contact methods, first affiliation, and met context through one application command. Phone parsing uses the `libphonenumber-js/min` entry point; each phone row can use the global or an explicitly selected region, and the stored contact preserves the trimmed input alongside canonical E.164 and parsed region data. Duplicate warnings, contact import, general interaction capture, follow-ups, relationship intelligence, Today recommendations, and Reach Out workflows remain assigned to later packages.
+The V1-03 slice adds `/people/new`, `/people/:personId`, and `/people/:personId/contact-methods`. Manual capture writes a Person and any contact methods, first affiliation, and met context through one application command. Phone parsing uses the `libphonenumber-js/min` entry point; each phone row can use the global or an explicitly selected region, and the stored contact preserves the trimmed input alongside canonical E.164 and parsed region data.
+
+V1-04 adds explained duplicate review to Person creation, contact-method changes, and local contact import. `/people/import` accepts user-selected UTF-8 vCard 3.0/4.0 files up to 5 MiB and 5,000 cards, previews every row without writing, detects stored and same-file matches deterministically, and commits one reviewed Person row per transaction. Import sessions remain transient and no contact-book permission, provider link, interaction, follow-up, or merge is created. General interaction capture, follow-ups, relationship intelligence, Today recommendations, and Reach Out workflows remain assigned to later packages.
 
 Development commands:
 

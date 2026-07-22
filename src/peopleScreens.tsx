@@ -15,6 +15,8 @@ import {
   type ManualPersonCaptureDraft,
   type PreparedManualPersonCapture
 } from "./application/manualPersonCapture";
+import { findDuplicateMatches } from "./application/duplicateDetection";
+import { addReviewedDetailsToExistingPerson } from "./application/duplicateResolution";
 import {
   addContactMethod,
   archiveContactMethod,
@@ -34,6 +36,7 @@ import {
 import { getDatabase } from "./data/client";
 import { StaleRevisionError } from "./data/repositories";
 import type { ContactMethod } from "./domain/schema";
+import type { DuplicateMatch } from "./domain/duplicates";
 import { ValidationError } from "./domain/validation";
 import {
   ContactValueValidationError,
@@ -42,6 +45,8 @@ import {
   normalizeContactValue
 } from "./integrations/contactValues";
 import { contactMethodsPath, personProfilePath, routeFromPath } from "./navigation";
+import DuplicateWarningSheet, { type DuplicateLinkSelection } from "./DuplicateWarningSheet";
+import { DuplicateReviewRequiredError } from "./application/duplicateReview";
 
 type Navigate = (path: string, options?: { replace?: boolean }) => void;
 
@@ -53,6 +58,12 @@ function actionButton(label: string, onClick: () => void) {
       <Icon name="plus" />
       {label}
     </button>
+  );
+}
+
+function importAction(navigate: Navigate, label = "Import a vCard file") {
+  return (
+    <button className="secondary-action" type="button" onClick={() => navigate("/people/import")}>{label}</button>
   );
 }
 
@@ -83,7 +94,12 @@ export function TodayScreen({ navigate }: { navigate: Navigate }) {
         title="No one needs your attention yet"
         description="PeopleOS helps you remember who to contact and why. Add your first person to begin."
         note="Your data stays on this device unless you export it."
-        action={!loading && people.length === 0 ? actionButton("Add your first person", () => navigate("/people/new")) : undefined}
+        action={!loading && people.length === 0 ? (
+          <div className="empty-action-stack">
+            {actionButton("Add your first person", () => navigate("/people/new"))}
+            {importAction(navigate)}
+          </div>
+        ) : undefined}
       />
     </main>
   );
@@ -95,8 +111,19 @@ function affiliationLine(summary: PersonSummary): string | undefined {
   return [affiliation.role, affiliation.organisationName].filter(Boolean).join(" · ");
 }
 
-export function PeopleScreen({ navigate }: { navigate: Navigate }) {
+export function PeopleScreen({
+  navigate,
+  importedPersonIds = null,
+  onClearImportedFilter
+}: {
+  navigate: Navigate;
+  importedPersonIds?: string[] | null;
+  onClearImportedFilter?: () => void;
+}) {
   const { people, loading, error } = usePeople();
+  const visiblePeople = importedPersonIds
+    ? people.filter((summary) => importedPersonIds.includes(summary.person.id))
+    : people;
 
   if (!loading && people.length === 0 && !error) {
     return (
@@ -105,7 +132,12 @@ export function PeopleScreen({ navigate }: { navigate: Navigate }) {
           eyebrow="People"
           title="Your people will live here"
           description="Add someone manually, even if all you know is enough to recognise them later."
-          action={actionButton("Add person", () => navigate("/people/new"))}
+          action={(
+            <div className="empty-action-stack">
+              {actionButton("Add person", () => navigate("/people/new"))}
+              {importAction(navigate, "Import contacts")}
+            </div>
+          )}
         />
       </main>
     );
@@ -116,18 +148,26 @@ export function PeopleScreen({ navigate }: { navigate: Navigate }) {
       <header className="page-heading page-heading-with-action">
         <div>
           <p className="eyebrow">People</p>
-          <h2>People you remember</h2>
-          <p>A simple list for now. Search and relationship summaries arrive in later packages.</p>
+          <h2>{importedPersonIds ? "Imported people" : "People you remember"}</h2>
+          <p>{importedPersonIds
+            ? "People created or updated in the most recent import."
+            : "A simple list for now. Search and relationship summaries arrive in later packages."}</p>
         </div>
-        <button className="primary-action" type="button" onClick={() => navigate("/people/new")}>
-          <Icon name="plus" /> Add person
-        </button>
+        <div className="page-actions">
+          <button className="secondary-action" type="button" onClick={() => navigate("/people/import")}>Import contacts</button>
+          {importedPersonIds && onClearImportedFilter && (
+            <button type="button" onClick={onClearImportedFilter}>Show all people</button>
+          )}
+          <button className="primary-action" type="button" onClick={() => navigate("/people/new")}>
+            <Icon name="plus" /> Add person
+          </button>
+        </div>
       </header>
       {loading && <p className="screen-status" role="status">Loading people…</p>}
       {error && <p className="error-message screen-status" role="alert">{error}</p>}
       {!loading && !error && (
         <ul className="people-list" aria-label="People">
-          {people.map((summary) => (
+          {visiblePeople.map((summary) => (
             <li key={summary.person.id}>
               <a
                 href={personProfilePath(summary.person.id)}
@@ -144,11 +184,20 @@ export function PeopleScreen({ navigate }: { navigate: Navigate }) {
           ))}
         </ul>
       )}
+      {!loading && !error && importedPersonIds && visiblePeople.length === 0 && (
+        <p className="screen-status">No imported people are available in this session.</p>
+      )}
     </main>
   );
 }
 
 type FieldErrors = Record<string, string>;
+
+export type ManualCaptureResumeState = {
+  draft: ManualPersonCaptureDraft;
+  tagsText: string;
+  cadenceText: string;
+};
 
 function firstIssue(error: unknown): string {
   if (error instanceof ValidationError) return error.issues[0] ?? "Check the form and try again.";
@@ -164,37 +213,58 @@ function parseTags(value: string): string[] {
   return value.split(",").map((tag) => tag.trim()).filter(Boolean);
 }
 
+function mergePersonIds(
+  existing: readonly string[],
+  additional: readonly string[]
+): string[] {
+  return [...new Set([...existing, ...additional])].sort();
+}
+
 export function AddPersonScreen({
   navigate,
   dismiss,
   onDirtyChange,
-  onSavingChange
+  onSavingChange,
+  initialCapture,
+  onOpenDuplicatePerson,
+  onCaptureFinished
 }: {
   navigate: Navigate;
   dismiss: () => void;
   onDirtyChange: (dirty: boolean) => void;
   onSavingChange: (saving: boolean) => void;
+  initialCapture?: ManualCaptureResumeState | null;
+  onOpenDuplicatePerson: (personId: string, capture: ManualCaptureResumeState) => void;
+  onCaptureFinished: () => void;
 }) {
-  const [draft, setDraft] = useState<ManualPersonCaptureDraft>(() => ({
+  const [draft, setDraft] = useState<ManualPersonCaptureDraft>(() => initialCapture?.draft ?? ({
     ...createManualPersonCaptureDraft(),
     contactMethods: [createManualContactMethodDraft("phone")]
   }));
-  const [tagsText, setTagsText] = useState("");
-  const [cadenceText, setCadenceText] = useState("");
+  const [tagsText, setTagsText] = useState(initialCapture?.tagsText ?? "");
+  const [cadenceText, setCadenceText] = useState(initialCapture?.cadenceText ?? "");
   const [defaultPhoneRegion, setDefaultPhoneRegion] = useState("GB");
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
   const preparedRef = useRef<PreparedManualPersonCapture | null>(null);
+  const validatedDraftRef = useRef<ManualPersonCaptureDraft | null>(null);
   const submittingRef = useRef(false);
   const dirtyRef = useRef(false);
   const identityRef = useRef<HTMLInputElement>(null);
+  const saveButtonRef = useRef<HTMLButtonElement>(null);
+  const acknowledgedDuplicatePersonIdsRef = useRef<string[]>([]);
+  const [duplicateMatches, setDuplicateMatches] = useState<DuplicateMatch[]>([]);
 
   useEffect(() => {
     const focusFrame = requestAnimationFrame(() => identityRef.current?.focus());
+    if (initialCapture) {
+      dirtyRef.current = true;
+      onDirtyChange(true);
+    }
     getDatabase().then(getAppSettings).then((settings) => setDefaultPhoneRegion(settings.defaultPhoneRegion)).catch(() => undefined);
     return () => cancelAnimationFrame(focusFrame);
-  }, []);
+  }, [initialCapture, onDirtyChange]);
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -212,6 +282,9 @@ export function AddPersonScreen({
 
   function changed(update: (current: ManualPersonCaptureDraft) => ManualPersonCaptureDraft) {
     preparedRef.current = null;
+    validatedDraftRef.current = null;
+    acknowledgedDuplicatePersonIdsRef.current = [];
+    setDuplicateMatches([]);
     dirtyRef.current = true;
     setDraft(update);
     onDirtyChange(true);
@@ -287,6 +360,25 @@ export function AddPersonScreen({
     return { ...draft, displayName, tags, contactCadenceDays };
   }
 
+  function markCaptureFinished() {
+    dirtyRef.current = false;
+    onDirtyChange(false);
+    onSavingChange(false);
+    onCaptureFinished();
+  }
+
+  async function createPreparedCapture(
+    prepared: PreparedManualPersonCapture,
+    acknowledgedDuplicatePersonIds: readonly string[] = []
+  ) {
+    await savePreparedManualPersonCapture(await getDatabase(), prepared, {
+      enforceDuplicateReview: true,
+      acknowledgedDuplicatePersonIds
+    });
+    markCaptureFinished();
+    navigate(personProfilePath(prepared.person.id), { replace: true });
+  }
+
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submittingRef.current) return;
@@ -300,18 +392,92 @@ export function AddPersonScreen({
     try {
       const prepared = preparedRef.current ?? prepareManualPersonCapture(validated, defaultPhoneRegion);
       preparedRef.current = prepared;
-      await savePreparedManualPersonCapture(await getDatabase(), prepared);
-      dirtyRef.current = false;
-      onDirtyChange(false);
-      onSavingChange(false);
-      navigate(personProfilePath(prepared.person.id), { replace: true });
+      validatedDraftRef.current = validated;
+      const matches = await findDuplicateMatches(await getDatabase(), prepared);
+      acknowledgedDuplicatePersonIdsRef.current = [];
+      if (matches.length) {
+        setDuplicateMatches(matches);
+      } else {
+        await createPreparedCapture(prepared);
+      }
     } catch (error) {
-      setFormError(firstIssue(error));
+      if (error instanceof DuplicateReviewRequiredError) setDuplicateMatches(error.matches);
+      else setFormError(firstIssue(error));
     } finally {
       submittingRef.current = false;
       onSavingChange(false);
       setSaving(false);
     }
+  }
+
+  async function createSeparate() {
+    const prepared = preparedRef.current;
+    if (!prepared || submittingRef.current) return;
+    submittingRef.current = true;
+    onSavingChange(true);
+    setSaving(true);
+    setFormError("");
+    const acknowledgedPersonIds = mergePersonIds(
+      acknowledgedDuplicatePersonIdsRef.current,
+      duplicateMatches.map((match) => match.person.id)
+    );
+    try {
+      await createPreparedCapture(prepared, acknowledgedPersonIds);
+    } catch (error) {
+      if (error instanceof DuplicateReviewRequiredError) {
+        acknowledgedDuplicatePersonIdsRef.current = acknowledgedPersonIds;
+        setDuplicateMatches(error.matches);
+      }
+      else {
+        acknowledgedDuplicatePersonIdsRef.current = [];
+        setFormError(firstIssue(error));
+        setDuplicateMatches([]);
+        requestAnimationFrame(() => saveButtonRef.current?.focus());
+      }
+    } finally {
+      submittingRef.current = false;
+      onSavingChange(false);
+      setSaving(false);
+    }
+  }
+
+  async function addDetailsToExisting(match: DuplicateMatch, selection: DuplicateLinkSelection) {
+    const prepared = preparedRef.current;
+    if (!prepared || submittingRef.current) return;
+    submittingRef.current = true;
+    onSavingChange(true);
+    setSaving(true);
+    setFormError("");
+    try {
+      await addReviewedDetailsToExistingPerson(await getDatabase(), {
+        targetPersonId: match.person.id,
+        expectedPersonRevision: match.person.revision,
+        candidate: prepared,
+        selectedContactMethodIds: selection.contactMethodIds,
+        includeAffiliation: selection.includeAffiliation,
+        now: prepared.person.createdAt
+      });
+      markCaptureFinished();
+      navigate(personProfilePath(match.person.id), { replace: true });
+    } catch (error) {
+      setFormError(firstIssue(error));
+      setDuplicateMatches([]);
+      requestAnimationFrame(() => saveButtonRef.current?.focus());
+    } finally {
+      submittingRef.current = false;
+      onSavingChange(false);
+      setSaving(false);
+    }
+  }
+
+  function openExisting(match: DuplicateMatch) {
+    const resumeDraft = validatedDraftRef.current ?? draft;
+    onOpenDuplicatePerson(match.person.id, { draft: resumeDraft, tagsText, cadenceText });
+  }
+
+  function returnToEdit() {
+    setDuplicateMatches([]);
+    requestAnimationFrame(() => saveButtonRef.current?.focus());
   }
 
   const identityLabel = draft.identityStatus === "provisional" ? "Temporary description" : "Name";
@@ -502,6 +668,8 @@ export function AddPersonScreen({
                 aria-describedby={`person-tags-hint${errors.tags ? " person-tags-error" : ""}`}
                 onChange={(event) => {
                   preparedRef.current = null;
+                  acknowledgedDuplicatePersonIdsRef.current = [];
+                  setDuplicateMatches([]);
                   dirtyRef.current = true;
                   setTagsText(event.target.value);
                   onDirtyChange(true);
@@ -523,6 +691,8 @@ export function AddPersonScreen({
                 aria-describedby={errors.cadence ? "person-cadence-error" : undefined}
                 onChange={(event) => {
                   preparedRef.current = null;
+                  acknowledgedDuplicatePersonIdsRef.current = [];
+                  setDuplicateMatches([]);
                   dirtyRef.current = true;
                   setCadenceText(event.target.value);
                   onDirtyChange(true);
@@ -540,12 +710,23 @@ export function AddPersonScreen({
           </div>
         )}
         <div className="form-actions">
-          <button className="primary-action" type="submit" disabled={saving || !draft.displayName.trim()}>
+          <button ref={saveButtonRef} className="primary-action" type="submit" disabled={saving || !draft.displayName.trim()}>
             {saving ? "Saving…" : "Save person"}
           </button>
           <button className="secondary-action" type="button" onClick={dismiss} disabled={saving}>Cancel</button>
         </div>
       </form>
+      {preparedRef.current && duplicateMatches.length > 0 && (
+        <DuplicateWarningSheet
+          candidate={preparedRef.current}
+          matches={duplicateMatches}
+          busy={saving}
+          onOpenExisting={openExisting}
+          onAddDetails={(match, selection) => void addDetailsToExisting(match, selection)}
+          onCreateSeparate={() => void createSeparate()}
+          onReturnToEdit={returnToEdit}
+        />
+      )}
     </main>
   );
 }
@@ -590,12 +771,28 @@ export function PersonProfileScreen({
 }) {
   const { summary, phoneRegion, error } = usePerson(personId);
   const requestedBackRoute = routeFromPath(backPath);
+  const resumesCapture = backPath === "/people/new";
+  const resumesImport = backPath === "/people/import";
+  const resumesContactEditor = requestedBackRoute.id === "contact-methods";
+  const resumesPreviousFlow = resumesCapture || resumesImport || resumesContactEditor;
   const backRoute = ["today", "reach-out", "people", "upcoming"].includes(requestedBackRoute.id)
     ? requestedBackRoute
     : routeFromPath("/people");
   return (
     <main className="screen person-profile-screen" id="main-content" tabIndex={-1}>
-      <button className="back-button" type="button" onClick={() => navigate(backRoute.path)}>← {backRoute.label}</button>
+      <button
+        className="back-button"
+        type="button"
+        onClick={() => resumesPreviousFlow ? window.history.back() : navigate(backRoute.path)}
+      >
+        ← {resumesCapture
+          ? "Continue adding person"
+          : resumesImport
+            ? "Continue import"
+            : resumesContactEditor
+              ? "Continue editing contact"
+              : backRoute.label}
+      </button>
       {summary === undefined && !error && <p role="status">Loading person…</p>}
       {error && <p className="error-message" role="alert">{error}</p>}
       {summary === null && (
@@ -653,37 +850,75 @@ export function PersonProfileScreen({
   );
 }
 
-type ContactEditor = {
+export type ContactEditorResumeState = {
   mode: "add" | "edit";
   draft: ContactMethodDraft;
   expectedRevision?: number;
 };
 
+function contactDuplicateCandidate(
+  summary: PersonSummary,
+  editor: ContactEditorResumeState,
+  defaultPhoneRegion: string,
+  existingContacts: ContactMethod[]
+): PreparedManualPersonCapture {
+  const normalised = normalizeContactValue(
+    editor.draft.kind,
+    editor.draft.value,
+    editor.draft.region ?? defaultPhoneRegion
+  );
+  const existing = existingContacts.find((contact) => contact.id === editor.draft.id);
+  const base = {
+    id: editor.draft.id,
+    revision: editor.mode === "edit" ? editor.expectedRevision ?? 1 : 1,
+    personId: summary.person.id,
+    ...(editor.draft.label?.trim() ? { label: editor.draft.label.trim() } : {}),
+    rawValue: normalised.rawValue,
+    canonicalValue: normalised.canonicalValue,
+    isPreferred: existing?.isPreferred ?? false,
+    createdAt: editor.draft.createdAt,
+    updatedAt: editor.draft.createdAt
+  };
+  const contactMethod: ContactMethod = editor.draft.kind === "phone"
+    ? { ...base, kind: "phone", ...(normalised.region ? { region: normalised.region } : {}) }
+    : { ...base, kind: "email" };
+  return { person: summary.person, contactMethods: [contactMethod] };
+}
+
 export function ContactMethodsScreen({
   personId,
   navigate,
   onDirtyChange,
-  onSavingChange
+  onSavingChange,
+  initialEditor,
+  onOpenDuplicatePerson,
+  onEditorFinished
 }: {
   personId: string;
   navigate: Navigate;
   onDirtyChange: (dirty: boolean) => void;
   onSavingChange: (saving: boolean) => void;
+  initialEditor?: ContactEditorResumeState | null;
+  onOpenDuplicatePerson: (personId: string, editor: ContactEditorResumeState) => void;
+  onEditorFinished: () => void;
 }) {
   const [person, setPerson] = useState<PersonSummary | null | undefined>(undefined);
   const [contacts, setContacts] = useState<ContactMethod[]>([]);
   const [phoneRegion, setPhoneRegion] = useState("GB");
-  const [editor, setEditor] = useState<ContactEditor | null>(null);
+  const [editor, setEditor] = useState<ContactEditorResumeState | null>(initialEditor ?? null);
   const [fieldError, setFieldError] = useState("");
   const [pageError, setPageError] = useState("");
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState("");
   const [removedContact, setRemovedContact] = useState<{ archived: ContactMethod; wasPreferred: boolean } | null>(null);
+  const [contactDuplicateMatches, setContactDuplicateMatches] = useState<DuplicateMatch[]>([]);
+  const [contactDuplicateCandidateState, setContactDuplicateCandidateState] = useState<PreparedManualPersonCapture | null>(null);
   const editorDirtyRef = useRef(false);
   const editorValueRef = useRef<HTMLInputElement>(null);
   const editorOpenerRef = useRef<HTMLElement | null>(null);
   const editorOpenerIdRef = useRef("");
   const mutationInFlightRef = useRef(false);
+  const acknowledgedContactDuplicatePersonIdsRef = useRef<string[]>([]);
 
   async function load() {
     const db = await getDatabase();
@@ -711,6 +946,15 @@ export function ContactMethodsScreen({
     }).catch(() => { if (active) setPageError("PeopleOS could not load contact details."); });
     return () => { active = false; };
   }, [personId]);
+
+  useEffect(() => {
+    if (!initialEditor) return;
+    editorDirtyRef.current = true;
+    editorOpenerIdRef.current = initialEditor.mode === "add"
+      ? `add-${initialEditor.draft.kind}-contact`
+      : `edit-contact-${initialEditor.draft.id}`;
+    onDirtyChange(true);
+  }, [initialEditor, onDirtyChange]);
 
   useEffect(() => () => {
     onDirtyChange(false);
@@ -779,14 +1023,21 @@ export function ContactMethodsScreen({
     if (saving) return;
     if (editorDirtyRef.current && !window.confirm("Discard changes?")) return;
     setEditorDirty(false);
+    acknowledgedContactDuplicatePersonIdsRef.current = [];
     setEditor(null);
+    setContactDuplicateMatches([]);
+    setContactDuplicateCandidateState(null);
     setFieldError("");
+    onEditorFinished();
     returnFocusToEditorOpener();
   }
 
   function changeEditor(patch: Partial<ContactMethodDraft>) {
     if (!editor) return;
     setEditor({ ...editor, draft: { ...editor.draft, ...patch } });
+    acknowledgedContactDuplicatePersonIdsRef.current = [];
+    setContactDuplicateMatches([]);
+    setContactDuplicateCandidateState(null);
     setEditorDirty(true);
     setFieldError("");
   }
@@ -810,6 +1061,8 @@ export function ContactMethodsScreen({
     setEditorDirty(false);
     editorOpenerRef.current = opener;
     editorOpenerIdRef.current = opener.id;
+    onEditorFinished();
+    acknowledgedContactDuplicatePersonIdsRef.current = [];
     setEditor({ mode: "add", draft: createContactMethodDraft(personId, kind) });
   }
 
@@ -818,6 +1071,8 @@ export function ContactMethodsScreen({
     setEditorDirty(false);
     editorOpenerRef.current = opener;
     editorOpenerIdRef.current = opener.id;
+    onEditorFinished();
+    acknowledgedContactDuplicatePersonIdsRef.current = [];
     setEditor({
       mode: "edit",
       expectedRevision: contact.revision,
@@ -833,15 +1088,21 @@ export function ContactMethodsScreen({
     });
   }
 
-  async function saveContact(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function persistContact(acknowledgedDuplicatePersonIds: readonly string[] = []) {
     if (!editor || !beginMutation()) return;
+    const cumulativeAcknowledgedPersonIds = mergePersonIds(
+      acknowledgedContactDuplicatePersonIdsRef.current,
+      acknowledgedDuplicatePersonIds
+    );
     setFieldError("");
     setPageError("");
     try {
       const db = await getDatabase();
       if (editor.mode === "add") {
-        await addContactMethod(db, editor.draft, phoneRegion);
+        await addContactMethod(db, editor.draft, phoneRegion, {
+          enforceDuplicateReview: true,
+          acknowledgedDuplicatePersonIds: cumulativeAcknowledgedPersonIds
+        });
       } else {
         await editContactMethod(db, {
           id: editor.draft.id,
@@ -850,14 +1111,25 @@ export function ContactMethodsScreen({
           value: editor.draft.value,
           label: editor.draft.label,
           region: editor.draft.region
-        }, phoneRegion);
+        }, phoneRegion, new Date().toISOString(), {
+          enforceDuplicateReview: true,
+          acknowledgedDuplicatePersonIds: cumulativeAcknowledgedPersonIds
+        });
       }
       await load();
       setEditorDirty(false);
+      acknowledgedContactDuplicatePersonIdsRef.current = [];
       setEditor(null);
+      setContactDuplicateMatches([]);
+      setContactDuplicateCandidateState(null);
+      onEditorFinished();
       returnFocusToEditorOpener();
     } catch (error) {
-      if (error instanceof ContactValueValidationError) {
+      if (error instanceof DuplicateReviewRequiredError && person) {
+        acknowledgedContactDuplicatePersonIdsRef.current = cumulativeAcknowledgedPersonIds;
+        setContactDuplicateCandidateState(contactDuplicateCandidate(person, editor, phoneRegion, contacts));
+        setContactDuplicateMatches(error.matches);
+      } else if (error instanceof ContactValueValidationError) {
         setFieldError(error.message);
         requestAnimationFrame(() => editorValueRef.current?.focus());
       }
@@ -865,6 +1137,25 @@ export function ContactMethodsScreen({
     } finally {
       endMutation();
     }
+  }
+
+  function saveContact(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    acknowledgedContactDuplicatePersonIdsRef.current = [];
+    void persistContact();
+  }
+
+  function returnToContactEditor() {
+    acknowledgedContactDuplicatePersonIdsRef.current = [];
+    setContactDuplicateMatches([]);
+    setContactDuplicateCandidateState(null);
+    requestAnimationFrame(() => editorValueRef.current?.focus());
+  }
+
+  function openExistingContactDuplicate(match: DuplicateMatch) {
+    if (!editor) return;
+    setEditorDirty(false);
+    onOpenDuplicatePerson(match.person.id, editor);
   }
 
   async function makePreferred(contact: ContactMethod) {
@@ -1019,7 +1310,7 @@ export function ContactMethodsScreen({
               </ul>
             </details>
           )}
-          {editor && (
+          {editor && contactDuplicateMatches.length === 0 && (
             <div
               className="sheet-backdrop"
               onMouseDown={(event) => { if (event.target === event.currentTarget) closeEditor(); }}
@@ -1091,6 +1382,22 @@ export function ContactMethodsScreen({
                 </form>
               </section>
             </div>
+          )}
+          {editor && contactDuplicateCandidateState && contactDuplicateMatches.length > 0 && (
+            <DuplicateWarningSheet
+              candidate={contactDuplicateCandidateState}
+              matches={contactDuplicateMatches}
+              busy={saving}
+              showAddDetails={false}
+              createSeparateLabel={`Keep contact detail on ${person.person.displayName}`}
+              eyebrow="Review contact detail"
+              heading="Contact detail already used"
+              description={<>This contact detail is already stored for another person. Nothing has been changed.</>}
+              onOpenExisting={openExistingContactDuplicate}
+              onAddDetails={() => undefined}
+              onCreateSeparate={() => void persistContact(contactDuplicateMatches.map((match) => match.person.id))}
+              onReturnToEdit={returnToContactEditor}
+            />
           )}
         </>
       )}

@@ -7,17 +7,32 @@ import {
   ContactMethodsScreen,
   PeopleScreen,
   PersonProfileScreen,
-  TodayScreen
+  TodayScreen,
+  type ContactEditorResumeState,
+  type ManualCaptureResumeState
 } from "./peopleScreens";
 import { ExportBackupScreen, RestoreBackupScreen } from "./dataScreens";
 import { getDatabase } from "./data/client";
+import { ImportContactsScreen, ImportResultsScreen } from "./importScreens";
+import type { ContactImportSession } from "./application/contactImport";
+
+type ModalBackHandler = {
+  id: string;
+  dismiss: () => void;
+  historyState: unknown;
+};
 
 export default function App() {
   const [route, setRoute] = useState(() => routeFromPath(window.location.pathname));
   const [storageError, setStorageError] = useState(false);
+  const [importSession, setImportSession] = useState<ContactImportSession | null>(null);
+  const [importedPeopleFilter, setImportedPeopleFilter] = useState<string[] | null>(null);
+  const [suspendedCapture, setSuspendedCapture] = useState<ManualCaptureResumeState | null>(null);
+  const [suspendedContactEditor, setSuspendedContactEditor] = useState<ContactEditorResumeState | null>(null);
   const routeRef = useRef(route);
   const unsavedChangesRef = useRef(false);
   const navigationLockedRef = useRef(false);
+  const modalBackHandlerRef = useRef<ModalBackHandler | null>(null);
   const captureOriginRef = useRef<string | undefined>(
     typeof window.history.state?.fromPath === "string" ? window.history.state.fromPath : undefined
   );
@@ -35,7 +50,33 @@ export default function App() {
   }, [route]);
 
   useEffect(() => {
+    const registerModal = (event: Event) => {
+      const detail = (event as CustomEvent<{ id: string; dismiss: () => void }>).detail;
+      modalBackHandlerRef.current = {
+        ...detail,
+        historyState: window.history.state
+      };
+    };
+    const unregisterModal = (event: Event) => {
+      const detail = (event as CustomEvent<{ id: string }>).detail;
+      if (modalBackHandlerRef.current?.id === detail.id) modalBackHandlerRef.current = null;
+    };
+    window.addEventListener("peopleos:modal-open", registerModal);
+    window.addEventListener("peopleos:modal-close", unregisterModal);
+    return () => {
+      window.removeEventListener("peopleos:modal-open", registerModal);
+      window.removeEventListener("peopleos:modal-close", unregisterModal);
+    };
+  }, []);
+
+  useEffect(() => {
     const onPopState = () => {
+      const modal = modalBackHandlerRef.current;
+      if (modal) {
+        window.history.pushState(modal.historyState, "", routeRef.current.path);
+        modal.dismiss();
+        return;
+      }
       if (navigationLockedRef.current) {
         window.history.pushState(
           captureOriginRef.current ? { fromPath: captureOriginRef.current } : {},
@@ -83,6 +124,17 @@ export default function App() {
     let defaultState: Record<string, unknown> = {};
     if (next.id === "add-person") {
       defaultState = { fromPath: captureOriginRef.current };
+    } else if (next.id === "import-contacts") {
+      const existingOrigin = window.history.state?.fromPath;
+      const fromPath = route.id === "import-results" && typeof existingOrigin === "string"
+        ? existingOrigin
+        : ["today", "people", "settings"].includes(route.id)
+          ? route.path
+          : "/people";
+      defaultState = { fromPath };
+    } else if (next.id === "import-results") {
+      const existingOrigin = window.history.state?.fromPath;
+      defaultState = { fromPath: typeof existingOrigin === "string" ? existingOrigin : "/people" };
     } else if (next.id === "person-profile") {
       const existingOrigin = window.history.state?.fromPath;
       const fromPath = route.id === "add-person"
@@ -110,6 +162,7 @@ export default function App() {
     if (navigationLockedRef.current) return;
     if (unsavedChangesRef.current && !window.confirm("Discard changes?")) return;
     setUnsavedCapture(false);
+    setSuspendedCapture(null);
     const fromPath = captureOriginRef.current ?? window.history.state?.fromPath;
     if (typeof fromPath === "string") {
       window.history.back();
@@ -118,11 +171,51 @@ export default function App() {
     navigate(routeFromPath("/people"), { replace: true });
   }
 
+  function openExistingFromCapture(personId: string, capture: ManualCaptureResumeState) {
+    setSuspendedCapture(capture);
+    setUnsavedCapture(false);
+    setNavigationLocked(false);
+    window.history.replaceState(
+      { ...(window.history.state ?? {}), resumeCapture: true },
+      "",
+      route.path
+    );
+    const next = routeFromPath(`/people/${encodeURIComponent(personId)}`);
+    window.history.pushState({ fromPath: "/people/new", resumeCapture: true }, "", next.path);
+    setRoute(next);
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }
+
+  function openExistingFromContactEditor(personId: string, editor: ContactEditorResumeState) {
+    setSuspendedContactEditor(editor);
+    setUnsavedCapture(false);
+    setNavigationLocked(false);
+    window.history.replaceState(
+      { ...(window.history.state ?? {}), resumeContactEditor: true },
+      "",
+      route.path
+    );
+    const next = routeFromPath(`/people/${encodeURIComponent(personId)}`);
+    window.history.pushState(
+      { fromPath: route.path, resumeContactEditor: true },
+      "",
+      next.path
+    );
+    setRoute(next);
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }
+
   function renderScreen() {
     switch (route.id) {
       case "today": return <TodayScreen navigate={navigatePath} />;
       case "reach-out": return <ReachOutScreen />;
-      case "people": return <PeopleScreen navigate={navigatePath} />;
+      case "people": return (
+        <PeopleScreen
+          navigate={navigatePath}
+          importedPersonIds={importedPeopleFilter}
+          onClearImportedFilter={() => setImportedPeopleFilter(null)}
+        />
+      );
       case "upcoming": return <UpcomingScreen />;
       case "settings": return <SettingsScreen navigate={navigatePath} />;
       case "add-person": return (
@@ -131,6 +224,9 @@ export default function App() {
           dismiss={dismissCapture}
           onDirtyChange={setUnsavedCapture}
           onSavingChange={setNavigationLocked}
+          initialCapture={window.history.state?.resumeCapture ? suspendedCapture : null}
+          onOpenDuplicatePerson={openExistingFromCapture}
+          onCaptureFinished={() => setSuspendedCapture(null)}
         />
       );
       case "person-profile": return (
@@ -146,6 +242,29 @@ export default function App() {
           navigate={navigatePath}
           onDirtyChange={setUnsavedCapture}
           onSavingChange={setNavigationLocked}
+          initialEditor={window.history.state?.resumeContactEditor ? suspendedContactEditor : null}
+          onOpenDuplicatePerson={openExistingFromContactEditor}
+          onEditorFinished={() => setSuspendedContactEditor(null)}
+        />
+      );
+      case "import-contacts": return (
+        <ImportContactsScreen
+          session={importSession}
+          setSession={setImportSession}
+          navigate={navigatePath}
+          onBusyChange={setNavigationLocked}
+          originPath={typeof window.history.state?.fromPath === "string" ? window.history.state.fromPath : "/people"}
+        />
+      );
+      case "import-results": return (
+        <ImportResultsScreen
+          session={importSession}
+          setSession={setImportSession}
+          navigate={navigatePath}
+          onViewPeople={(personIds) => {
+            setImportedPeopleFilter(personIds);
+            navigatePath("/people");
+          }}
         />
       );
       case "export-backup": return <ExportBackupScreen navigate={navigatePath} />;
@@ -183,7 +302,11 @@ export default function App() {
             href={item.path}
             className={item.id === route.primaryId ? "active" : undefined}
             aria-current={item.id === route.primaryId ? "page" : undefined}
-            onClick={(event) => { event.preventDefault(); navigate(item); }}
+            onClick={(event) => {
+              event.preventDefault();
+              if (item.id === "people") setImportedPeopleFilter(null);
+              navigate(item);
+            }}
           >
             <Icon name={item.primaryId} />
             <span>{item.label}</span>
