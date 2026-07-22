@@ -33,6 +33,52 @@ describe("V1 data validation", () => {
     expect(isLocalDate("2026-08-01T00:00:00.000Z")).toBe(false);
   });
 
+  it("rejects non-canonical Facts and inconsistent affiliation dates", () => {
+    const untrimmedFact = completeData();
+    untrimmedFact.memoryFacts[0] = { ...untrimmedFact.memoryFacts[0], value: "  NHS AI pilots  " };
+    expect(() => validatePeopleOsData(untrimmedFact)).toThrow(/memoryFacts\[0\] is invalid/);
+
+    const longFact = completeData();
+    longFact.memoryFacts[0] = { ...longFact.memoryFacts[0], value: "x".repeat(241) };
+    expect(() => validatePeopleOsData(longFact)).toThrow(/memoryFacts\[0\] is invalid/);
+
+    const reversedDates = completeData();
+    reversedDates.affiliations[0] = {
+      ...reversedDates.affiliations[0],
+      isCurrent: false,
+      startedOn: "2026-08-02",
+      endedOn: "2026-08-01"
+    };
+    expect(() => validatePeopleOsData(reversedDates)).toThrow(/affiliations\[0\] is invalid/);
+
+    const endedCurrent = completeData();
+    endedCurrent.affiliations[0] = { ...endedCurrent.affiliations[0], endedOn: "2026-08-01" };
+    expect(() => validatePeopleOsData(endedCurrent)).toThrow(/affiliations\[0\] is invalid/);
+  });
+
+  it("rejects incompatible Memory Fact links before restore", () => {
+    const wrongKind = completeData();
+    wrongKind.memoryFacts[0] = { ...wrongKind.memoryFacts[0], relatedPersonId: wrongKind.people[0].id };
+    expect(() => validatePeopleOsData(wrongKind)).toThrow(/memoryFacts\[0\] is invalid/);
+
+    const wrongOwnerSource = completeData();
+    wrongOwnerSource.people.push({
+      ...wrongOwnerSource.people[0],
+      id: "person-aaron",
+      displayName: "Aaron Patel"
+    });
+    wrongOwnerSource.interactions.push({
+      ...wrongOwnerSource.interactions[0],
+      id: "interaction-aaron",
+      personId: "person-aaron"
+    });
+    wrongOwnerSource.memoryFacts[0] = {
+      ...wrongOwnerSource.memoryFacts[0],
+      sourceInteractionId: "interaction-aaron"
+    };
+    expect(() => validatePeopleOsData(wrongOwnerSource)).toThrow(/sourceInteractionId references a missing or incompatible record/);
+  });
+
   it("rejects duplicate current Reach Out entries for one Person", () => {
     const data = completeData();
     data.reachOutEntries.push({ ...data.reachOutEntries[0], id: "reach-out-sarah-2", currentFollowUpId: undefined });

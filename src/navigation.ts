@@ -3,6 +3,8 @@ export type RouteId = PrimaryRouteId
   | "add-person"
   | "person-profile"
   | "contact-methods"
+  | "memory-facts"
+  | "affiliations"
   | "timeline"
   | "import-contacts"
   | "import-results"
@@ -46,6 +48,18 @@ export function routeFromPath(pathname: string): Route {
     return { id: "contact-methods", path: pathname, label: "Contact details", primaryId: "people", personId };
   }
 
+  const memoryFacts = pathname.match(/^\/people\/([^/]+)\/facts\/?$/);
+  if (memoryFacts) {
+    const personId = decodePathPart(memoryFacts[1]);
+    return { id: "memory-facts", path: pathname, label: "Memory facts", primaryId: "people", personId };
+  }
+
+  const affiliations = pathname.match(/^\/people\/([^/]+)\/affiliations\/?$/);
+  if (affiliations) {
+    const personId = decodePathPart(affiliations[1]);
+    return { id: "affiliations", path: pathname, label: "Affiliations", primaryId: "people", personId };
+  }
+
   const timeline = pathname.match(/^\/people\/([^/]+)\/timeline\/?$/);
   if (timeline) {
     const personId = decodePathPart(timeline[1]);
@@ -75,6 +89,14 @@ export function personProfilePath(personId: string): string {
 
 export function contactMethodsPath(personId: string): string {
   return `${personProfilePath(personId)}/contact-methods`;
+}
+
+export function memoryFactsPath(personId: string): string {
+  return `${personProfilePath(personId)}/facts`;
+}
+
+export function affiliationsPath(personId: string): string {
+  return `${personProfilePath(personId)}/affiliations`;
 }
 
 export function timelinePath(personId: string): string {

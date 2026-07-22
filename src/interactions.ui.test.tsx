@@ -70,6 +70,7 @@ async function renderProfile(personId = "person-sarah") {
   render(<App />);
   await screen.findByRole("heading", { name: "Sarah Jones" });
   await waitFor(() => expect(screen.queryByText("Loading recent history…")).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByText("Loading memory…")).not.toBeInTheDocument());
 }
 
 function profileActions(): HTMLElement {
@@ -91,6 +92,15 @@ async function openProfileInteraction(user: ReturnType<typeof userEvent.setup>) 
     opener,
     dialog
   };
+}
+
+async function openProfileNote(user: ReturnType<typeof userEvent.setup>) {
+  const opener = within(profileActions()).getByRole("button", { name: "Add memory" });
+  await user.click(opener);
+  const choices = await screen.findByLabelText("Choose memory type");
+  await user.click(within(choices).getByRole("button", { name: "Note" }));
+  const dialog = await screen.findByRole("dialog", { name: "Add note" });
+  return { opener, dialog };
 }
 
 async function chooseNewEvent(
@@ -167,8 +177,7 @@ describe("V1-05 interactions and timeline UI", () => {
     expect(lastContactRow).not.toHaveTextContent("No meaningful contact recorded");
     const contactBeforeNote = lastContactRow?.textContent;
 
-    await user.click(within(profileActions()).getByRole("button", { name: "Add note" }));
-    const noteDialog = await screen.findByRole("dialog", { name: "Add note" });
+    const { dialog: noteDialog } = await openProfileNote(user);
     const note = within(noteDialog).getByLabelText("Note");
     await waitFor(() => expect(note).toHaveFocus());
     expect(note).toHaveAttribute("aria-required", "true");
@@ -504,9 +513,7 @@ describe("V1-05 interactions and timeline UI", () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
     await renderProfile();
-    const opener = within(profileActions()).getByRole("button", { name: "Add note" });
-    await user.click(opener);
-    const dialog = await screen.findByRole("dialog", { name: "Add note" });
+    const { opener, dialog } = await openProfileNote(user);
     const note = within(dialog).getByLabelText("Note");
     await waitFor(() => expect(note).toHaveFocus());
     const occurred = within(dialog).getByLabelText(/^Date and time/);

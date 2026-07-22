@@ -6,6 +6,9 @@ import type {
   Person
 } from "../domain/schema";
 import type { PeopleOsDatabase } from "../data/database";
+import { selectDisplayAffiliation } from "./affiliations";
+
+export { selectDisplayAffiliation } from "./affiliations";
 
 export type PersonSummary = {
   person: Person;
@@ -26,19 +29,6 @@ function descending(left: string, right: string): number {
 
 function ascending(left: string, right: string): number {
   return left === right ? 0 : left < right ? -1 : 1;
-}
-
-export function selectDisplayAffiliation(
-  affiliations: OrganisationAffiliation[]
-): OrganisationAffiliation | undefined {
-  return affiliations
-    .filter((record) => record.isCurrent && !record.archivedAt)
-    .sort((left, right) => {
-      const started = descending(left.startedOn ?? "", right.startedOn ?? "");
-      if (started) return started;
-      const created = descending(left.createdAt, right.createdAt);
-      return created || ascending(left.id, right.id);
-    })[0];
 }
 
 function sortActiveContacts(records: ContactMethod[]): ContactMethod[] {

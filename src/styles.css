@@ -744,6 +744,22 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   gap: 10px;
 }
 
+.memory-choice-panel {
+  width: min(100%, 620px);
+  margin: -4px auto 14px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface-soft);
+}
+.memory-choice-panel strong { display: block; }
+.memory-choice-panel p { margin: 5px 0 0; color: var(--muted); font-size: 0.84rem; line-height: 1.45; }
+.memory-choice-panel .button-row { flex: 0 0 auto; }
+
 .profile-card {
   margin-bottom: 14px;
   padding: 20px;
@@ -771,6 +787,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .profile-details dd { margin: 0; overflow-wrap: anywhere; }
 .muted-copy, .scope-note { color: var(--muted); line-height: 1.5; }
 .scope-note { font-size: 0.84rem; }
+
+.memory-cue {
+  margin-top: 16px;
+  padding: 15px;
+  display: grid;
+  gap: 5px;
+  border-radius: 14px;
+  background: var(--forest-light);
+}
+.memory-cue > span { color: var(--forest); font-size: 0.74rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.memory-cue > strong { overflow-wrap: anywhere; }
+.memory-cue > p { margin: 0; color: var(--muted); font-size: 0.82rem; line-height: 1.45; }
 
 .contact-heading-actions { flex-wrap: wrap; }
 .sheet-backdrop {
@@ -1141,7 +1169,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .sheet-actions { margin-top: auto; }
   .page-actions { justify-content: flex-start; }
   .interaction-event-row,
-  .timeline-item-heading { align-items: stretch; flex-direction: column; }
+  .timeline-item-heading,
+  .memory-choice-panel { align-items: stretch; flex-direction: column; }
   .import-contact-summary div { grid-template-columns: minmax(0, 1fr); gap: 3px; }
   .duplicate-comparison { grid-template-columns: minmax(0, 1fr); }
   .result-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }

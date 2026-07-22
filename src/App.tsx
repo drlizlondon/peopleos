@@ -17,6 +17,8 @@ import { ImportContactsScreen, ImportResultsScreen } from "./importScreens";
 import TimelineScreen from "./TimelineScreen";
 import GlobalAddSheet from "./GlobalAddSheet";
 import InteractionEditorSheet from "./InteractionEditorSheet";
+import MemoryFactsScreen from "./MemoryFactsScreen";
+import AffiliationsScreen from "./AffiliationsScreen";
 import type { PersonPickerOption } from "./application/interactionQueries";
 import type { ContactImportSession } from "./application/contactImport";
 
@@ -161,6 +163,13 @@ export default function App() {
           ? window.history.state.fromPath
           : "/people"
       };
+    } else if (next.id === "memory-facts" || next.id === "affiliations") {
+      defaultState = {
+        fromProfile: route.id === "person-profile",
+        fromPath: typeof window.history.state?.fromPath === "string"
+          ? window.history.state.fromPath
+          : "/people"
+      };
     }
     const state = options.state ?? defaultState;
     if (options.replace) window.history.replaceState(state, "", next.path);
@@ -264,6 +273,38 @@ export default function App() {
       );
       case "timeline": return (
         <TimelineScreen
+          personId={route.personId ?? ""}
+          navigate={navigatePath}
+          onBack={() => {
+            if (window.history.state?.fromProfile === true) {
+              window.history.back();
+              return;
+            }
+            navigate(routeFromPath(personProfilePath(route.personId ?? "")), {
+              replace: true,
+              state: { fromPath: "/people" }
+            });
+          }}
+        />
+      );
+      case "memory-facts": return (
+        <MemoryFactsScreen
+          personId={route.personId ?? ""}
+          navigate={navigatePath}
+          onBack={() => {
+            if (window.history.state?.fromProfile === true) {
+              window.history.back();
+              return;
+            }
+            navigate(routeFromPath(personProfilePath(route.personId ?? "")), {
+              replace: true,
+              state: { fromPath: "/people" }
+            });
+          }}
+        />
+      );
+      case "affiliations": return (
+        <AffiliationsScreen
           personId={route.personId ?? ""}
           navigate={navigatePath}
           onBack={() => {

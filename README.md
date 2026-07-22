@@ -21,7 +21,7 @@ PeopleOS is not a CRM, sales pipeline, lead-management tool, or a new version of
 
 ## Current status
 
-**V1-01 through V1-05 are complete: the independent shell, local data and backup foundation, manual person capture, duplicate-aware vCard import, and interactions with an automatic timeline. V1-06 and later packages remain unimplemented.**
+**V1-01 through V1-06 are complete: the independent shell, local data and backup foundation, manual person capture, duplicate-aware vCard import, interactions with an automatic timeline, and structured memory facts with affiliation history. V1-07 and later packages remain unimplemented.**
 
 The inherited Real Friends codebase was reviewed from `/Users/lizzie/Documents/real-friends`. PeopleOS now has an independent React/Vite PWA shell with five primary destinations and no shared runtime, storage, or product logic. Further implementation must proceed only through the packages in [VERSION1_SCOPE.md](./VERSION1_SCOPE.md), subject to the required corrections in [IMPLEMENTATION_READINESS_REVIEW.md](./IMPLEMENTATION_READINESS_REVIEW.md).
 
@@ -55,7 +55,9 @@ The V1-03 slice adds `/people/new`, `/people/:personId`, and `/people/:personId/
 
 V1-04 adds explained duplicate review to Person creation, contact-method changes, and local contact import. `/people/import` accepts user-selected UTF-8 vCard 3.0/4.0 files up to 5 MiB and 5,000 cards, previews every row without writing, detects stored and same-file matches deterministically, and commits one reviewed Person row per transaction. Import sessions remain transient and no contact-book permission, provider link, interaction, follow-up, or merge is created.
 
-V1-05 adds explicit manual Interaction and Note capture, exact Event selection or atomic Event creation, derived last meaningful contact, and a deterministic Timeline at `/people/:personId/timeline`. Person creation is projected rather than stored as an Interaction; notes do not count as contact; linked follow-up and Reach Out lifecycle items are read-only projections. Memory facts, follow-up workflows, Reach Out actions, relationship intelligence, Today recommendations, and communication actions remain assigned to later packages.
+V1-05 adds explicit manual Interaction and Note capture, exact Event selection or atomic Event creation, derived last meaningful contact, and a deterministic Timeline at `/people/:personId/timeline`. Person creation is projected rather than stored as an Interaction; notes do not count as contact; linked follow-up and Reach Out lifecycle items are read-only projections.
+
+V1-06 adds structured Memory Facts and complete lightweight affiliation history without introducing a separate Organisation subsystem. Facts can be created, edited, archived, restored, searched through deterministic projections, and explicitly linked to an Interaction; exact duplicates warn without merging. Notes remain unchanged narrative Interactions and can only be promoted through a blank, user-completed Fact editor. `/people/:personId/facts` and `/people/:personId/affiliations` provide the complete secondary views, while the Person profile shows one deterministic Fact cue, up to three other prominent Facts, and one derived current affiliation. Follow-up workflows, Reach Out actions, full relationship intelligence, Today recommendations, and communication actions remain assigned to later packages.
 
 Development commands:
 

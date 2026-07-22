@@ -7,6 +7,7 @@ import {
 import EmptyState from "./EmptyState";
 import { Icon } from "./icons";
 import InteractionEditorSheet from "./InteractionEditorSheet";
+import FactEditorSheet from "./FactEditorSheet";
 import TimelineList from "./TimelineList";
 import {
   createManualContactMethodDraft,
@@ -40,9 +41,16 @@ import {
   type PersonHistory,
   type TimelineDisplayItem
 } from "./application/interactionQueries";
+import {
+  listPersonMemoryFacts,
+  memoryFactKindLabel,
+  memoryFactValueLabel,
+  selectCompactProfileFacts,
+  selectMemoryCueFactCandidates
+} from "./application/memoryFacts";
 import { getDatabase } from "./data/client";
 import { StaleRevisionError } from "./data/repositories";
-import type { ContactMethod, InteractionKind } from "./domain/schema";
+import type { ContactMethod, Interaction, InteractionKind, MemoryFact } from "./domain/schema";
 import type { DuplicateMatch } from "./domain/duplicates";
 import { ValidationError } from "./domain/validation";
 import {
@@ -51,7 +59,14 @@ import {
   getPhoneRegionOptions,
   normalizeContactValue
 } from "./integrations/contactValues";
-import { contactMethodsPath, personProfilePath, routeFromPath, timelinePath } from "./navigation";
+import {
+  affiliationsPath,
+  contactMethodsPath,
+  memoryFactsPath,
+  personProfilePath,
+  routeFromPath,
+  timelinePath
+} from "./navigation";
 import DuplicateWarningSheet, { type DuplicateLinkSelection } from "./DuplicateWarningSheet";
 import { DuplicateReviewRequiredError } from "./application/duplicateReview";
 
@@ -780,9 +795,15 @@ export function PersonProfileScreen({
   const { summary, phoneRegion, error } = usePerson(personId, refreshVersion);
   const [history, setHistory] = useState<PersonHistory | null | undefined>(undefined);
   const [historyError, setHistoryError] = useState("");
+  const [memoryFacts, setMemoryFacts] = useState<MemoryFact[] | undefined>(undefined);
+  const [memoryError, setMemoryError] = useState("");
   const [editor, setEditor] = useState<{ interaction?: TimelineDisplayItem["interaction"]; initialKind?: InteractionKind } | null>(null);
+  const [factEditor, setFactEditor] = useState<{ sourceInteractionId?: string } | null>(null);
+  const [memoryChoiceOpen, setMemoryChoiceOpen] = useState(false);
+  const [promotionNoteId, setPromotionNoteId] = useState<string | null>(null);
   const editorOpenerRef = useRef<HTMLElement | null>(null);
   const profileHeadingRef = useRef<HTMLHeadingElement>(null);
+  const memoryChoiceFirstRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -793,6 +814,20 @@ export function PersonProfileScreen({
     }).catch(() => { if (active) setHistoryError("PeopleOS could not load recent history."); });
     return () => { active = false; };
   }, [personId, refreshVersion]);
+
+  useEffect(() => {
+    let active = true;
+    setMemoryFacts(undefined);
+    setMemoryError("");
+    getDatabase().then((db) => listPersonMemoryFacts(db, personId)).then((result) => {
+      if (active) setMemoryFacts(result.active);
+    }).catch(() => { if (active) setMemoryError("PeopleOS could not load memory facts."); });
+    return () => { active = false; };
+  }, [personId, refreshVersion]);
+
+  useEffect(() => {
+    if (memoryChoiceOpen) requestAnimationFrame(() => memoryChoiceFirstRef.current?.focus());
+  }, [memoryChoiceOpen]);
 
   function openInteraction(opener: HTMLElement, initialKind?: InteractionKind, interaction?: TimelineDisplayItem["interaction"]) {
     editorOpenerRef.current = opener;
@@ -807,8 +842,46 @@ export function PersonProfileScreen({
     });
   }
 
-  function finishInteraction() {
+  function finishInteraction(saved: Interaction) {
     setEditor(null);
+    if (saved.kind === "note_added") setPromotionNoteId(saved.id);
+    setRefreshVersion((current) => current + 1);
+    requestAnimationFrame(() => profileHeadingRef.current?.focus());
+  }
+
+  function finishInteractionDelete() {
+    setEditor(null);
+    setPromotionNoteId(null);
+    setRefreshVersion((current) => current + 1);
+    requestAnimationFrame(() => profileHeadingRef.current?.focus());
+  }
+
+  function openMemoryChoice(opener: HTMLElement) {
+    editorOpenerRef.current = opener;
+    setMemoryChoiceOpen(true);
+  }
+
+  function chooseMemoryFact() {
+    setMemoryChoiceOpen(false);
+    setFactEditor({});
+  }
+
+  function chooseNote() {
+    setMemoryChoiceOpen(false);
+    setEditor({ initialKind: "note_added" });
+  }
+
+  function closeFactEditor() {
+    setFactEditor(null);
+    requestAnimationFrame(() => {
+      if (editorOpenerRef.current?.isConnected) editorOpenerRef.current.focus();
+      else profileHeadingRef.current?.focus();
+    });
+  }
+
+  function finishFact() {
+    setFactEditor(null);
+    setPromotionNoteId(null);
     setRefreshVersion((current) => current + 1);
     requestAnimationFrame(() => profileHeadingRef.current?.focus());
   }
@@ -825,6 +898,13 @@ export function PersonProfileScreen({
   const backRoute = ["today", "reach-out", "people", "upcoming"].includes(requestedBackRoute.id)
     ? requestedBackRoute
     : routeFromPath("/people");
+  const memoryCue = selectMemoryCueFactCandidates(memoryFacts ?? [])[0];
+  const compactFacts = selectCompactProfileFacts(memoryFacts ?? [], {
+    excludeFactId: memoryCue?.id
+  });
+  const communicationPreference = (memoryFacts ?? [])
+    .filter((fact) => fact.kind === "communication_preference")
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id))[0];
   return (
     <main className="screen person-profile-screen" id="main-content" tabIndex={-1}>
       <button
@@ -863,8 +943,41 @@ export function PersonProfileScreen({
               <button className="primary-action" type="button" onClick={(event) => openInteraction(event.currentTarget)}>
                 Log interaction
               </button>
-              <button className="secondary-action" type="button" onClick={(event) => openInteraction(event.currentTarget, "note_added")}>
-                Add note
+              <button
+                className="secondary-action"
+                type="button"
+                aria-expanded={memoryChoiceOpen}
+                aria-controls="profile-memory-choice"
+                onClick={(event) => openMemoryChoice(event.currentTarget)}
+              >
+                Add memory
+              </button>
+            </div>
+          )}
+          {memoryChoiceOpen && (
+            <section className="memory-choice-panel" id="profile-memory-choice" aria-label="Choose memory type">
+              <div>
+                <strong>What would you like to add?</strong>
+                <p>A fact stays easy to find. A note keeps dated narrative in the timeline.</p>
+              </div>
+              <div className="button-row compact-buttons">
+                <button ref={memoryChoiceFirstRef} className="primary-action" type="button" onClick={chooseMemoryFact}>Memory fact</button>
+                <button type="button" onClick={chooseNote}>Note</button>
+                <button type="button" onClick={() => { setMemoryChoiceOpen(false); requestAnimationFrame(() => editorOpenerRef.current?.focus()); }}>Cancel</button>
+              </div>
+            </section>
+          )}
+          {promotionNoteId && !factEditor && (
+            <div className="undo-message" role="status">
+              <span>Note saved.</span>
+              <button
+                type="button"
+                onClick={(event) => {
+                  editorOpenerRef.current = event.currentTarget;
+                  setFactEditor({ sourceInteractionId: promotionNoteId });
+                }}
+              >
+                Promote part to memory fact
               </button>
             </div>
           )}
@@ -876,9 +989,10 @@ export function PersonProfileScreen({
               </div>
               <button className="secondary-action" type="button" onClick={() => navigate(contactMethodsPath(summary.person.id))}>Manage</button>
             </div>
-            {summary.activeContactMethods.length === 0 ? (
+            {summary.activeContactMethods.length === 0 && (
               <p className="muted-copy">Add a phone number or email when you have one.</p>
-            ) : (
+            )}
+            {(summary.activeContactMethods.length > 0 || communicationPreference) && (
               <dl className="profile-details">
                 {summary.activeContactMethods.map((contact) => (
                   <div key={contact.id}>
@@ -886,19 +1000,84 @@ export function PersonProfileScreen({
                     <dd>{displayContact(contact, phoneRegion)}</dd>
                   </div>
                 ))}
+                {communicationPreference && (
+                  <div>
+                    <dt>Communication preference</dt>
+                    <dd>{memoryFactValueLabel(communicationPreference)}</dd>
+                  </div>
+                )}
               </dl>
             )}
           </section>
           <section className="profile-card" aria-labelledby="profile-context-heading">
             <h3 id="profile-context-heading">Context</h3>
             <dl className="profile-details">
-              {summary.currentAffiliation && <div><dt>Organisation</dt><dd>{summary.currentAffiliation.organisationName}</dd></div>}
-              {summary.currentAffiliation?.role && <div><dt>Role</dt><dd>{summary.currentAffiliation.role}</dd></div>}
               {summary.latestMetInteraction?.summary && <div><dt>Where you met</dt><dd>{summary.latestMetInteraction.summary}</dd></div>}
               <div><dt>Importance</dt><dd>{summary.person.importance === "high" ? "High" : "Normal"}</dd></div>
               {summary.person.tags.length > 0 && <div><dt>Tags</dt><dd>{summary.person.tags.join(", ")}</dd></div>}
               {summary.person.contactCadenceDays && <div><dt>Contact cadence</dt><dd>Every {summary.person.contactCadenceDays} days</dd></div>}
             </dl>
+          </section>
+          <section className="profile-card" aria-labelledby="profile-memory-heading">
+            <div className="card-heading-with-action">
+              <div>
+                <h3 id="profile-memory-heading">Memory</h3>
+                <p>Structured details you chose to keep easy to find.</p>
+              </div>
+              <button className="secondary-action" type="button" onClick={() => navigate(memoryFactsPath(summary.person.id))}>See all</button>
+            </div>
+            {memoryFacts === undefined && !memoryError && <p role="status">Loading memory…</p>}
+            {memoryError && (
+              <div className="section-error">
+                <p role="alert">{memoryError}</p>
+                <button type="button" onClick={() => setRefreshVersion((current) => current + 1)}>Retry</button>
+              </div>
+            )}
+            {memoryFacts && memoryFacts.length === 0 && (
+              <div className="timeline-empty">
+                <p>Add one thing you want to remember.</p>
+                {!summary.person.archivedAt && summary.person.identityStatus !== "merged" && (
+                  <button className="text-action" type="button" onClick={(event) => openMemoryChoice(event.currentTarget)}>Add memory</button>
+                )}
+              </div>
+            )}
+            {memoryCue && (
+              <div className="memory-cue" aria-label="Memory cue">
+                <span>Memory cue</span>
+                <strong>{memoryFactValueLabel(memoryCue)}</strong>
+                <p>From a memory fact you added on {new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(memoryCue.createdAt))}.</p>
+              </div>
+            )}
+            {compactFacts.length > 0 && (
+              <dl className="profile-details profile-memory-facts">
+                {compactFacts.map((fact) => (
+                  <div key={fact.id}>
+                    <dt>{memoryFactKindLabel(fact.kind)}</dt>
+                    <dd>{memoryFactValueLabel(fact)}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+            {memoryFacts && memoryFacts.length > 0 && !memoryCue && compactFacts.length === 0 && (
+              <p className="muted-copy">Saved in Memory facts. None are currently set to surface on the profile.</p>
+            )}
+          </section>
+          <section className="profile-card" aria-labelledby="profile-affiliation-heading">
+            <div className="card-heading-with-action">
+              <div>
+                <h3 id="profile-affiliation-heading">Affiliation</h3>
+                <p>Current organisation and role context.</p>
+              </div>
+              <button className="secondary-action" type="button" onClick={() => navigate(affiliationsPath(summary.person.id))}>See history</button>
+            </div>
+            {summary.currentAffiliation ? (
+              <dl className="profile-details">
+                <div><dt>Organisation</dt><dd>{summary.currentAffiliation.organisationName}</dd></div>
+                {summary.currentAffiliation.role && <div><dt>Role</dt><dd>{summary.currentAffiliation.role}</dd></div>}
+              </dl>
+            ) : (
+              <p className="muted-copy">Add an organisation when it helps you remember their context.</p>
+            )}
           </section>
           <section className="profile-card" aria-labelledby="relationship-summary-heading">
             <h3 id="relationship-summary-heading">Relationship summary</h3>
@@ -956,7 +1135,7 @@ export function PersonProfileScreen({
               />
             ) : null}
           </section>
-          <p className="scope-note">Memory facts, follow-ups, Reach Out and relationship insights are added in later implementation packages.</p>
+          <p className="scope-note">Follow-ups, Reach Out and relationship insights are added in later implementation packages.</p>
           {editor && (
             <InteractionEditorSheet
               personId={summary.person.id}
@@ -965,7 +1144,16 @@ export function PersonProfileScreen({
               initialKind={editor.initialKind}
               onClose={closeInteraction}
               onSaved={finishInteraction}
-              onDeleted={finishInteraction}
+              onDeleted={finishInteractionDelete}
+            />
+          )}
+          {factEditor && (
+            <FactEditorSheet
+              personId={summary.person.id}
+              personName={summary.person.displayName}
+              sourceInteractionId={factEditor.sourceInteractionId}
+              onClose={closeFactEditor}
+              onSaved={finishFact}
             />
           )}
         </>

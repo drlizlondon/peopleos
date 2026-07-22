@@ -100,7 +100,9 @@ function validateContact(value: unknown): value is ContactMethod {
 function validateAffiliation(value: unknown): value is OrganisationAffiliation {
   return object(value) && mutable(value) && nonEmpty(value.personId) && nonEmpty(value.organisationName)
     && optionalString(value.role) && optionalDate(value.startedOn) && optionalDate(value.endedOn)
-    && typeof value.isCurrent === "boolean" && optionalInstant(value.archivedAt);
+    && typeof value.isCurrent === "boolean" && optionalInstant(value.archivedAt)
+    && (!value.startedOn || !value.endedOn || String(value.startedOn) <= String(value.endedOn))
+    && (!value.isCurrent || value.endedOn === undefined);
 }
 
 function validateInteraction(value: unknown): value is Interaction {
@@ -115,8 +117,10 @@ function validateEvent(value: unknown): value is RelationshipEvent {
 
 function validateFact(value: unknown): value is MemoryFact {
   return object(value) && mutable(value) && nonEmpty(value.personId) && factKinds.has(String(value.kind))
-    && nonEmpty(value.value) && typeof value.showAsMemoryCue === "boolean"
+    && nonEmpty(value.value) && String(value.value) === String(value.value).trim() && String(value.value).length <= 240
+    && typeof value.showAsMemoryCue === "boolean"
     && optionalString(value.relatedPersonId) && optionalString(value.sourceInteractionId) && optionalInstant(value.archivedAt)
+    && (value.relatedPersonId === undefined || (value.kind === "introduced_by" && value.relatedPersonId !== value.personId))
     && (value.kind !== "communication_preference" || ["whatsapp", "email", "phone"].includes(String(value.value)));
 }
 
@@ -228,7 +232,10 @@ export function validatePeopleOsData(value: unknown): PeopleOsData {
   });
   data.memoryFacts.forEach((record) => {
     if (record.relatedPersonId) requireReference(issues, personIds.has(record.relatedPersonId), `memoryFacts.${record.id}.relatedPersonId`);
-    if (record.sourceInteractionId) requireReference(issues, interactionIds.has(record.sourceInteractionId), `memoryFacts.${record.id}.sourceInteractionId`);
+    if (record.sourceInteractionId) {
+      const interaction = data.interactions.find((candidate) => candidate.id === record.sourceInteractionId);
+      requireReference(issues, Boolean(interaction && interaction.personId === record.personId), `memoryFacts.${record.id}.sourceInteractionId`);
+    }
   });
   data.followUps.forEach((record) => {
     if (record.reachOutEntryId) {

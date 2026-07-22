@@ -157,6 +157,7 @@ export default function InteractionEditorSheet({
 
   useEffect(() => {
     requestAnimationFrame(() => {
+      if (sheetRef.current?.contains(document.activeElement)) return;
       if (draft.kind === "note_added") summaryRef.current?.focus();
       else firstFieldRef.current?.focus();
     });
