@@ -26,7 +26,7 @@ export class ValidationError extends Error {
 }
 
 const interactionKinds = new Set([
-  "met", "whatsapp_message", "email", "phone_call", "coffee", "meeting",
+  "met", "contacted", "whatsapp_message", "email", "phone_call", "coffee", "meeting",
   "conference", "introduction_received", "introduction_made", "note_added",
   "follow_up_completed"
 ]);

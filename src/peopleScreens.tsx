@@ -6,6 +6,8 @@ import {
 } from "react";
 import EmptyState from "./EmptyState";
 import { Icon } from "./icons";
+import InteractionEditorSheet from "./InteractionEditorSheet";
+import TimelineList from "./TimelineList";
 import {
   createManualContactMethodDraft,
   createManualPersonCaptureDraft,
@@ -33,9 +35,14 @@ import {
   listPeopleSummaries,
   type PersonSummary
 } from "./application/peopleQueries";
+import {
+  getPersonHistory,
+  type PersonHistory,
+  type TimelineDisplayItem
+} from "./application/interactionQueries";
 import { getDatabase } from "./data/client";
 import { StaleRevisionError } from "./data/repositories";
-import type { ContactMethod } from "./domain/schema";
+import type { ContactMethod, InteractionKind } from "./domain/schema";
 import type { DuplicateMatch } from "./domain/duplicates";
 import { ValidationError } from "./domain/validation";
 import {
@@ -44,7 +51,7 @@ import {
   getPhoneRegionOptions,
   normalizeContactValue
 } from "./integrations/contactValues";
-import { contactMethodsPath, personProfilePath, routeFromPath } from "./navigation";
+import { contactMethodsPath, personProfilePath, routeFromPath, timelinePath } from "./navigation";
 import DuplicateWarningSheet, { type DuplicateLinkSelection } from "./DuplicateWarningSheet";
 import { DuplicateReviewRequiredError } from "./application/duplicateReview";
 
@@ -740,7 +747,7 @@ function displayContact(contact: ContactMethod, phoneRegion: string): string {
   }
 }
 
-function usePerson(personId: string) {
+function usePerson(personId: string, refreshVersion = 0) {
   const [summary, setSummary] = useState<PersonSummary | null | undefined>(undefined);
   const [phoneRegion, setPhoneRegion] = useState("GB");
   const [error, setError] = useState("");
@@ -755,7 +762,7 @@ function usePerson(personId: string) {
       })
       .catch(() => { if (active) setError("PeopleOS could not load this person."); });
     return () => { active = false; };
-  }, [personId]);
+  }, [personId, refreshVersion]);
 
   return { summary, phoneRegion, error };
 }
@@ -769,7 +776,47 @@ export function PersonProfileScreen({
   navigate: Navigate;
   backPath: string;
 }) {
-  const { summary, phoneRegion, error } = usePerson(personId);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const { summary, phoneRegion, error } = usePerson(personId, refreshVersion);
+  const [history, setHistory] = useState<PersonHistory | null | undefined>(undefined);
+  const [historyError, setHistoryError] = useState("");
+  const [editor, setEditor] = useState<{ interaction?: TimelineDisplayItem["interaction"]; initialKind?: InteractionKind } | null>(null);
+  const editorOpenerRef = useRef<HTMLElement | null>(null);
+  const profileHeadingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    setHistory(undefined);
+    setHistoryError("");
+    getDatabase().then((db) => getPersonHistory(db, personId)).then((result) => {
+      if (active) setHistory(result ?? null);
+    }).catch(() => { if (active) setHistoryError("PeopleOS could not load recent history."); });
+    return () => { active = false; };
+  }, [personId, refreshVersion]);
+
+  function openInteraction(opener: HTMLElement, initialKind?: InteractionKind, interaction?: TimelineDisplayItem["interaction"]) {
+    editorOpenerRef.current = opener;
+    setEditor({ initialKind, interaction });
+  }
+
+  function closeInteraction() {
+    setEditor(null);
+    requestAnimationFrame(() => {
+      if (editorOpenerRef.current?.isConnected) editorOpenerRef.current.focus();
+      else profileHeadingRef.current?.focus();
+    });
+  }
+
+  function finishInteraction() {
+    setEditor(null);
+    setRefreshVersion((current) => current + 1);
+    requestAnimationFrame(() => profileHeadingRef.current?.focus());
+  }
+
+  function openTimelineInteraction(item: TimelineDisplayItem, opener: HTMLElement) {
+    if (item.interaction && item.editable) openInteraction(opener, undefined, item.interaction);
+  }
+
   const requestedBackRoute = routeFromPath(backPath);
   const resumesCapture = backPath === "/people/new";
   const resumesImport = backPath === "/people/import";
@@ -807,10 +854,20 @@ export function PersonProfileScreen({
         <>
           <header className="profile-heading">
             <p className="eyebrow">Person</p>
-            <h2>{summary.person.displayName}</h2>
+            <h2 ref={profileHeadingRef} tabIndex={-1}>{summary.person.displayName}</h2>
             {summary.person.identityStatus === "provisional" && <p className="identity-note"><span className="status-chip">Identity incomplete</span> Add their confirmed name whenever you learn it.</p>}
             {affiliationLine(summary) && <p className="profile-affiliation">{affiliationLine(summary)}</p>}
           </header>
+          {!summary.person.archivedAt && summary.person.identityStatus !== "merged" && (
+            <div className="profile-action-row" role="group" aria-label="Person actions">
+              <button className="primary-action" type="button" onClick={(event) => openInteraction(event.currentTarget)}>
+                Log interaction
+              </button>
+              <button className="secondary-action" type="button" onClick={(event) => openInteraction(event.currentTarget, "note_added")}>
+                Add note
+              </button>
+            </div>
+          )}
           <section className="profile-card" aria-labelledby="profile-contact-heading">
             <div className="card-heading-with-action">
               <div>
@@ -843,7 +900,74 @@ export function PersonProfileScreen({
               {summary.person.contactCadenceDays && <div><dt>Contact cadence</dt><dd>Every {summary.person.contactCadenceDays} days</dd></div>}
             </dl>
           </section>
-          <p className="scope-note">Interactions, follow-ups, Reach Out and relationship insights are added in later implementation packages.</p>
+          <section className="profile-card" aria-labelledby="relationship-summary-heading">
+            <h3 id="relationship-summary-heading">Relationship summary</h3>
+            <dl className="profile-details">
+              <div>
+                <dt>Last meaningful contact</dt>
+                <dd>{historyError
+                  ? "Unavailable"
+                  : history === undefined
+                    ? "Loading…"
+                  : history === null
+                    ? "Unavailable"
+                    : history.lastContact
+                      ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(history.lastContact.occurredAt))
+                      : "No meaningful contact recorded"}</dd>
+              </div>
+              <div>
+                <dt>Added to PeopleOS</dt>
+                <dd>{new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(summary.person.createdAt))}</dd>
+              </div>
+            </dl>
+          </section>
+          <section className="profile-card" aria-labelledby="recent-timeline-heading">
+            <div className="card-heading-with-action">
+              <div>
+                <h3 id="recent-timeline-heading">Recent timeline</h3>
+                <p>The five newest moments in this relationship.</p>
+              </div>
+              <button className="secondary-action" type="button" onClick={() => navigate(timelinePath(summary.person.id))}>
+                See full timeline
+              </button>
+            </div>
+            {history === undefined && !historyError && <p role="status">Loading recent history…</p>}
+            {historyError && (
+              <div className="section-error">
+                <p role="alert">{historyError}</p>
+                <button type="button" onClick={() => setRefreshVersion((current) => current + 1)}>Retry</button>
+              </div>
+            )}
+            {history && history.timeline.every((item) => item.source === "person_created") ? (
+              <div className="timeline-empty">
+                <p>No interactions recorded yet.</p>
+                {!summary.person.archivedAt && summary.person.identityStatus !== "merged" && (
+                  <button className="text-action" type="button" onClick={(event) => openInteraction(event.currentTarget)}>
+                    Log interaction
+                  </button>
+                )}
+              </div>
+            ) : history ? (
+              <TimelineList
+                items={history.timeline.slice(0, 5)}
+                onOpenInteraction={!summary.person.archivedAt && summary.person.identityStatus !== "merged"
+                  ? openTimelineInteraction
+                  : undefined}
+              />
+            ) : null}
+          </section>
+          <p className="scope-note">Memory facts, follow-ups, Reach Out and relationship insights are added in later implementation packages.</p>
+          {editor && (
+            <InteractionEditorSheet
+              personId={summary.person.id}
+              personName={summary.person.displayName}
+              interaction={editor.interaction}
+              initialKind={editor.initialKind}
+              onClose={closeInteraction}
+              onSaved={finishInteraction}
+              onDeleted={finishInteraction}
+            />
+          )}
         </>
       )}
     </main>

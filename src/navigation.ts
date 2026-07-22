@@ -3,6 +3,7 @@ export type RouteId = PrimaryRouteId
   | "add-person"
   | "person-profile"
   | "contact-methods"
+  | "timeline"
   | "import-contacts"
   | "import-results"
   | "export-backup"
@@ -45,6 +46,12 @@ export function routeFromPath(pathname: string): Route {
     return { id: "contact-methods", path: pathname, label: "Contact details", primaryId: "people", personId };
   }
 
+  const timeline = pathname.match(/^\/people\/([^/]+)\/timeline\/?$/);
+  if (timeline) {
+    const personId = decodePathPart(timeline[1]);
+    return { id: "timeline", path: pathname, label: "Timeline", primaryId: "people", personId };
+  }
+
   const profile = pathname.match(/^\/people\/([^/]+)\/?$/);
   if (profile) {
     const personId = decodePathPart(profile[1]);
@@ -68,4 +75,8 @@ export function personProfilePath(personId: string): string {
 
 export function contactMethodsPath(personId: string): string {
   return `${personProfilePath(personId)}/contact-methods`;
+}
+
+export function timelinePath(personId: string): string {
+  return `${personProfilePath(personId)}/timeline`;
 }

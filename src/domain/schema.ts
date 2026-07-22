@@ -58,6 +58,7 @@ export type OrganisationAffiliation = MutableRecord & {
 
 export type InteractionKind =
   | "met"
+  | "contacted"
   | "whatsapp_message"
   | "email"
   | "phone_call"

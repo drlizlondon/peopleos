@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "./icons";
-import { routeFromPath, routes, type Route } from "./navigation";
+import { personProfilePath, routeFromPath, routes, type Route } from "./navigation";
 import { ReachOutScreen, SettingsScreen, UpcomingScreen } from "./screens";
 import {
   AddPersonScreen,
@@ -14,6 +14,10 @@ import {
 import { ExportBackupScreen, RestoreBackupScreen } from "./dataScreens";
 import { getDatabase } from "./data/client";
 import { ImportContactsScreen, ImportResultsScreen } from "./importScreens";
+import TimelineScreen from "./TimelineScreen";
+import GlobalAddSheet from "./GlobalAddSheet";
+import InteractionEditorSheet from "./InteractionEditorSheet";
+import type { PersonPickerOption } from "./application/interactionQueries";
 import type { ContactImportSession } from "./application/contactImport";
 
 type ModalBackHandler = {
@@ -29,10 +33,13 @@ export default function App() {
   const [importedPeopleFilter, setImportedPeopleFilter] = useState<string[] | null>(null);
   const [suspendedCapture, setSuspendedCapture] = useState<ManualCaptureResumeState | null>(null);
   const [suspendedContactEditor, setSuspendedContactEditor] = useState<ContactEditorResumeState | null>(null);
+  const [globalAddOpen, setGlobalAddOpen] = useState(false);
+  const [globalInteractionPerson, setGlobalInteractionPerson] = useState<PersonPickerOption | null>(null);
   const routeRef = useRef(route);
   const unsavedChangesRef = useRef(false);
   const navigationLockedRef = useRef(false);
   const modalBackHandlerRef = useRef<ModalBackHandler | null>(null);
+  const globalAddButtonRef = useRef<HTMLButtonElement>(null);
   const captureOriginRef = useRef<string | undefined>(
     typeof window.history.state?.fromPath === "string" ? window.history.state.fromPath : undefined
   );
@@ -116,6 +123,7 @@ export default function App() {
   function navigate(next: Route, options: { replace?: boolean; state?: Record<string, unknown> } = {}) {
     if (navigationLockedRef.current) return;
     if (next.path === route.path) return;
+    setGlobalAddOpen(false);
     if (unsavedChangesRef.current) {
       if (!window.confirm("Discard changes?")) return;
       setUnsavedCapture(false);
@@ -146,6 +154,13 @@ export default function App() {
     } else if (next.id === "contact-methods") {
       const existingOrigin = window.history.state?.fromPath;
       defaultState = { fromPath: typeof existingOrigin === "string" ? existingOrigin : "/people" };
+    } else if (next.id === "timeline") {
+      defaultState = {
+        fromProfile: route.id === "person-profile",
+        fromPath: typeof window.history.state?.fromPath === "string"
+          ? window.history.state.fromPath
+          : "/people"
+      };
     }
     const state = options.state ?? defaultState;
     if (options.replace) window.history.replaceState(state, "", next.path);
@@ -247,6 +262,22 @@ export default function App() {
           onEditorFinished={() => setSuspendedContactEditor(null)}
         />
       );
+      case "timeline": return (
+        <TimelineScreen
+          personId={route.personId ?? ""}
+          navigate={navigatePath}
+          onBack={() => {
+            if (window.history.state?.fromProfile === true) {
+              window.history.back();
+              return;
+            }
+            navigate(routeFromPath(personProfilePath(route.personId ?? "")), {
+              replace: true,
+              state: { fromPath: "/people" }
+            });
+          }}
+        />
+      );
       case "import-contacts": return (
         <ImportContactsScreen
           session={importSession}
@@ -274,6 +305,16 @@ export default function App() {
 
   const showGlobalAdd = ["today", "reach-out", "people", "upcoming"].includes(route.id);
 
+  function closeGlobalAdd() {
+    setGlobalAddOpen(false);
+    requestAnimationFrame(() => globalAddButtonRef.current?.focus());
+  }
+
+  function closeGlobalInteraction() {
+    setGlobalInteractionPerson(null);
+    requestAnimationFrame(() => globalAddButtonRef.current?.focus());
+  }
+
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">Skip to content</a>
@@ -285,9 +326,9 @@ export default function App() {
         <div className="header-actions">
           <p>Remember people.</p>
           {showGlobalAdd && (
-            <a className="header-add-person" href="/people/new" onClick={(event) => { event.preventDefault(); navigatePath("/people/new"); }}>
-              <Icon name="plus" /> Add person
-            </a>
+            <button ref={globalAddButtonRef} className="header-add-person" type="button" onClick={() => setGlobalAddOpen(true)}>
+              <Icon name="plus" /> Add
+            </button>
           )}
         </div>
       </header>
@@ -313,6 +354,26 @@ export default function App() {
           </a>
         ))}
       </nav>
+
+      {globalAddOpen && (
+        <GlobalAddSheet
+          onClose={closeGlobalAdd}
+          onNavigate={(path) => { setGlobalAddOpen(false); navigatePath(path); }}
+          onLogInteraction={(person) => {
+            setGlobalAddOpen(false);
+            setGlobalInteractionPerson(person);
+          }}
+        />
+      )}
+      {globalInteractionPerson && (
+        <InteractionEditorSheet
+          personId={globalInteractionPerson.person.id}
+          personName={globalInteractionPerson.person.displayName}
+          onClose={closeGlobalInteraction}
+          onSaved={closeGlobalInteraction}
+          onDeleted={closeGlobalInteraction}
+        />
+      )}
     </div>
   );
 }

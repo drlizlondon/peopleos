@@ -934,7 +934,7 @@ Log interaction.
 
 ### Information hierarchy
 
-Newest first, grouped by month/year. Items show kind, date, concise summary, Event/related Person, and whether it counted as contact when useful. Reach Out lifecycle items show intention added, completed, reactivated, moved to Dormant, or removed without masquerading as contact. Person Created is the oldest item.
+Newest first, grouped by month/year. Items show kind, date, concise summary, Event/related Person, and whether it counted as contact when useful. Reach Out lifecycle items show intention added, completed, reactivated, moved to Dormant, or removed without masquerading as contact. Person Created is included automatically at the Person's recorded creation time.
 
 ### Navigation
 
@@ -1003,7 +1003,7 @@ Sheet from Profile/Today/Add or full screen when editing a long summary.
 
 ### Validation
 
-Kind/date required. Future dates are allowed only up to current day for interactions; future plans belong in FollowUp. Summary maximum 5,000 characters. Introduction kind asks for related Person or summary context but does not require another saved Person.
+Kind/date required. An Interaction date/time cannot be later than the current time; future plans belong in FollowUp. Summary maximum 5,000 characters. Introduction kind asks for related Person or summary context but does not require another saved Person.
 
 ### Error handling
 

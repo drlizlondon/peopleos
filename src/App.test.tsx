@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import App from "./App";
 
 describe("PeopleOS shell", () => {
-  it("renders all five primary destinations in the accepted order", () => {
+  it("renders all five primary destinations in the accepted order", async () => {
+    const user = userEvent.setup();
     render(<App />);
     const links = screen.getByRole("navigation", { name: "Primary navigation" }).querySelectorAll("a");
     expect(Array.from(links, (link) => link.textContent)).toEqual([
@@ -15,7 +16,9 @@ describe("PeopleOS shell", () => {
       "Settings"
     ]);
     expect(screen.getByRole("link", { name: "Today" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Add person" })).toHaveAttribute("href", "/people/new");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    expect(screen.getByRole("button", { name: "Add person" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Log interaction" })).toBeInTheDocument();
   });
 
   it("navigates to Reach Out and preserves its canonical empty-state wording", async () => {

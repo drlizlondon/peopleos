@@ -195,7 +195,7 @@ describe("V1-03 manual person capture", () => {
 
     expect(await screen.findByRole("heading", { name: "Sarah Ahmed" })).toBeInTheDocument();
     expect(screen.getByText("Clinical fellow · NHS England")).toBeInTheDocument();
-    expect(screen.getByText("HealthTech Fellowship")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Context" })).getByText("HealthTech Fellowship")).toBeInTheDocument();
     const data = await readAllData(await getDatabase());
     expect(data.people).toHaveLength(1);
     expect(data.people[0]).toMatchObject({ tags: ["fellowship", "clinician"], contactCadenceDays: 90 });

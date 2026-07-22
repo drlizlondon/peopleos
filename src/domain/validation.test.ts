@@ -8,6 +8,12 @@ describe("V1 data validation", () => {
     expect(validatePeopleOsData(data)).toBe(data);
   });
 
+  it("accepts the channel-neutral Contacted interaction kind", () => {
+    const data = completeData();
+    data.interactions[0] = { ...data.interactions[0], kind: "contacted" };
+    expect(validatePeopleOsData(data)).toBe(data);
+  });
+
   it("rejects child records without their permanent Person", () => {
     const data = completeData();
     data.people = [];

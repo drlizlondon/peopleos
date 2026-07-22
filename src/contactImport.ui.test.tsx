@@ -150,9 +150,12 @@ describe("V1-04 duplicate review and vCard import UI", () => {
     });
 
     await user.click(within(dialog).getByRole("button", { name: "Create separate person" }));
-    const concurrentDialog = await screen.findByRole("dialog", { name: "Possible duplicate" });
-    expect(within(concurrentDialog).getByRole("heading", { level: 4, name: "Concurrent Sarah" })).toBeInTheDocument();
+    const concurrentHeading = await screen.findByRole("heading", { level: 4, name: "Concurrent Sarah" });
+    const concurrentDialog = concurrentHeading.closest<HTMLElement>("[role='dialog']");
+    expect(concurrentDialog).not.toBeNull();
+    if (!concurrentDialog) throw new Error("Concurrent duplicate dialog was not rendered.");
     await user.click(within(concurrentDialog).getByRole("button", { name: "Create separate person" }));
+    await waitFor(() => expect(window.location.pathname).toMatch(/^\/people\/person-/));
     expect(await screen.findByRole("heading", { name: "Different Sarah" })).toBeInTheDocument();
     expect((await readAllData(await getDatabase())).people).toHaveLength(3);
   });
@@ -214,6 +217,7 @@ describe("V1-04 duplicate review and vCard import UI", () => {
     expect(emailChoice).toBeChecked();
     await user.click(within(dialog).getByRole("button", { name: "Add selected details to Sarah Jones" }));
 
+    await waitFor(() => expect(window.location.pathname).toBe("/people/person-existing"));
     expect(await screen.findByRole("heading", { name: "Sarah Jones" })).toBeInTheDocument();
     const data = await readAllData(await getDatabase());
     expect(data.people).toHaveLength(1);
