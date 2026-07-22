@@ -8,7 +8,7 @@ It must reliably answer:
 
 > Who should I contact today, and why?
 
-Version 1 is successful when the user can capture a person quickly, preserve useful context, make an explicit follow-up plan, receive an explainable recommendation, contact the person through a user-controlled handoff, and record what happened.
+Version 1 is successful when the user can capture a person quickly, preserve useful context, make an explicit follow-up plan, receive an explainable recommendation, contact the person through a user-controlled handoff, and keep the next reminder accurate with minimal administration. On supported platforms, one privacy-preserving summary notification may direct the user to Today; it never becomes another reminder source.
 
 ## Product test
 
@@ -48,20 +48,22 @@ If a feature does none of these, it is outside V1.
 
 ### Contact and interaction history
 
-- Interaction kinds: Met, WhatsApp message, Email, Phone call, Coffee, Meeting, Conference, Introduction received, Introduction made, Note added, Follow-up completed
-- Quick interaction logging from Today and a person profile
+- Interaction kinds: Met, Contacted, WhatsApp message, Email, Phone call, Coffee, Meeting, Conference, Introduction received, Introduction made, Note added, Follow-up completed
+- Manual interaction logging from a person profile, plus channel-neutral Already contacted from Today
+- Direct phone-dialler and email-client handoff from Today using a target resolved from an active ContactMethod
 - WhatsApp draft handoff using a selected canonical phone number
-- Email handoff using a selected email address and editable subject/body
+- Direct Today email handoff plus Profile-origin email composition with editable subject/body
 - vCard generation for adding a person to phone contacts
 - No automatic sending and no automatic contact-book writing
 
 ### Follow-ups and cadence
 
 - One-off follow-ups with a date and reason
-- Reschedule, snooze, complete, skip once, and cancel behavior
+- Reschedule, snooze, complete, and cancel behavior, with TodaySkip retained as the day-suppression primitive used by the standard Today actions
 - Optional recurring cadence per person
 - Upcoming follow-ups list
 - Overdue follow-ups shown factually without escalation or guilt language
+- One-tap Today deferral to tomorrow without losing or silently completing other reminder history
 
 ### Reach Out
 
@@ -84,6 +86,17 @@ If a feature does none of these, it is outside V1.
 - Derived memory cue with source
 - Factual last-contact and relationship-started information
 
+### Today actions and notification delivery
+
+- Exactly three standard actions on every Today card: Contact now, Not today, and Already contacted
+- Contact now opens the only resolved phone/email target, presents a labelled chooser when several targets are available, or opens a focused Add phone number flow when no usable target exists
+- Any Today card without an active phone also shows Add phone number; it opens the same focused unsaved phone row and returns to the same recalculated Today position after save
+- Opening an external application never records contact or changes the card
+- Not today moves the primary explicit FollowUp to tomorrow, or creates one explicit tomorrow FollowUp for a New/cadence recommendation, records current-day TodaySkip suppression, and leaves any other due FollowUps unchanged
+- Already contacted records one generic contact Interaction without an interaction form, completes the primary due FollowUp when present, and creates one explicitly selected next FollowUp
+- One optional daily Today summary notification at 09:00 local time on supported platforms, containing no Person names
+- Notification Open, Not today, and two-hour Snooze actions change navigation or delivery coordination only; they never mutate a Person, FollowUp, ReachOutEntry, or Interaction
+
 ### Privacy and continuity
 
 - Local-first storage
@@ -95,9 +108,10 @@ If a feature does none of these, it is outside V1.
 ### Global Settings
 
 - Nine-section Settings architecture: General, Modes, Today, Reach Out, Interactions, Notifications, Privacy & Security, Data, About
-- Editable Default phone region, Capture mode, and Default Reach Out reminder only
+- Editable Default phone region, Capture mode, Default Reach Out reminder, Default Already contacted interval, and Today summary notifications only
 - Fixed Today and Interaction policy shown transparently without engine controls
-- Notifications shown as Off and unavailable; no permission or delivery capability
+- Default Already contacted interval: 14 days, with 2, 7, 14, 30, and validated Custom choices
+- Today summary notifications default Off and require an explicit user action and platform permission; unsupported platforms state that delivery is unavailable
 - Person-level preferences remain on the Person or related domain record
 
 ## Explicit Version 1 decisions
@@ -123,7 +137,7 @@ Evaluation is top-down from Long-term to New so boundary overlap is impossible. 
 
 ### Contact-counting interactions
 
-These count as direct contact: Met, WhatsApp message, Email, Phone call, Coffee, Meeting, Conference, and Introduction received.
+These count as direct contact: Met, Contacted, WhatsApp message, Email, Phone call, Coffee, Meeting, Conference, and Introduction received. Contacted is the generic, explicitly confirmed event created by Already contacted; it asks for no channel or interaction form.
 
 These do not count as direct contact: Introduction made, Note added, and Follow-up completed. “Introduction received” means the user and this person were introduced to each other. “Introduction made” means the user connected this person with someone else.
 
@@ -148,6 +162,18 @@ Today shows up to five people at once. If more are eligible, a “Show more due 
 
 Reach Out never creates a second reminder system. A dated outreach plan is one normal FollowUp linked to ReachOutEntry. Waiting, Snoozed, and Overdue are derived from that FollowUp. Reach Out membership alone does not make someone appear in Today.
 
+### Standard Today action ownership
+
+The three Today actions are presentation-stable while the Relationship Engine's suggested intended action remains visible context. Contact now performs an external handoff only. Not today uses the existing FollowUp and TodaySkip authorities: it snoozes the primary explicit FollowUp to tomorrow, or creates one accepted tomorrow FollowUp when eligibility came from the New/cadence rule, then suppresses the Person for the current local day. Other due FollowUps remain untouched and return through normal evaluation.
+
+Already contacted is explicit evidence that contact happened, so it creates one generic Contacted Interaction without asking the user to log or classify it. After the user chooses the next interval, one atomic command completes the primary FollowUp when present, records Reach Out completion/relinking when applicable, creates exactly one next FollowUp, and refreshes Today, Upcoming, Reach Out, and Profile from the same records. The setting supplies only the preselected interval and never becomes a Person field or Relationship Engine rule.
+
+### Today summary notifications
+
+Notifications are an optional downstream delivery mechanism. On a supported, permission-granted platform, the scheduler evaluates the normal Today projection at 09:00 in the current device timezone. An empty queue produces no notification; one or more actionable People produce one summary with no names. Open deep-links to Today. Notification Not today suppresses only that day's notification and schedules the next evaluation for tomorrow. Notification Snooze schedules one re-evaluation two hours later only when that instant remains on the same local day; when it would cross midnight, there is no same-day re-notification and normal next-day evaluation remains. None of these actions modifies individual reminders or relationship state.
+
+Reliable delivery requires a supported notification adapter. V1-14 must stop rather than simulate scheduling when the target runtime cannot reliably deliver while PeopleOS is closed. Unsupported platforms keep effective delivery unavailable while preserving any restored On intent.
+
 ## Excluded from Version 1
 
 - Direct Google Contacts import, linking, creation, or sync
@@ -157,8 +183,8 @@ Reach Out never creates a second reminder system. A dated outreach plan is one n
 - AI-generated text, summaries, facts, priorities, or duplicate decisions
 - SMS, calling, or email delivery services inside PeopleOS
 - Accounts, cloud sync, multi-device use, or shared workspaces
-- Browser/server push notifications or any notification delivery
-- Background scheduled tasks
+- Per-Person notifications, one notification per Today card, or names in notification content
+- User-configurable notification time or snooze duration
 - Deals, pipelines, companies as managed accounts, tasks unrelated to a person, campaigns, or analytics dashboards
 - Birthdays as a special recommendation system
 - Automatic merging or general-purpose merge; V1 includes only explicit provisional-Person resolution
@@ -201,7 +227,7 @@ Rejected. Explainable rules should be consistent. Settings may explain Today pol
 
 ### A toggle in every Settings section
 
-Rejected. Today, Interactions, Notifications, Privacy & Security, and About contain fixed policy, capability status, actions, or information where no genuine V1 preference exists. Informational rows must not masquerade as disabled controls.
+Rejected. Notifications now contains one genuine global opt-in for the Today summary; this does not justify controls in every section. Today ordering, Interactions policy, Privacy & Security, and About remain fixed policy, capability status, actions, or information. Informational rows must not masquerade as disabled controls.
 
 ## Version 1 completion criteria
 
@@ -215,7 +241,8 @@ V1 is complete only when:
 - Every Today card has an explanation derived from visible facts.
 - Reach Out supports existing and provisional People, all required display states, completion history, and linked FollowUp behavior without duplicate Person or reminder records.
 - Export and restore preserve all V1 data.
-- Settings exposes exactly the three editable global preferences in `SETTINGS_SPEC.md`; none reads or mutates a Person.
+- Settings exposes exactly the five editable global preferences in `SETTINGS_SPEC.md`; none reads or mutates a Person.
+- On a supported notification platform, an empty Today queue produces no notification, a non-empty queue produces one anonymous 09:00 summary, and every notification action is proven unable to mutate Person, Reach Out, FollowUp, or Interaction data.
 - No excluded feature has been pulled forward.
 
 ## Complete implementation order
@@ -248,9 +275,9 @@ Deliver deterministic duplicate evidence, single-create warnings, user-selected 
 
 ### V1-05 — Interactions and timeline
 
-Deliver interaction logging, split introduction kinds, free-form notes, events, automatic timeline, interaction detail/edit/delete confirmation, and derived last contact.
+Deliver interaction logging, the generic Contacted kind used by Already contacted, split introduction kinds, free-form notes, events, automatic timeline, interaction detail/edit/delete confirmation, and derived last contact.
 
-**Independent acceptance:** every interaction kind has correct contact semantics; opening an external app records nothing; timeline order and last contact derive correctly.
+**Independent acceptance:** every interaction kind has correct contact semantics; a Contacted Interaction requires explicit Already contacted intent but no channel form; opening an external app records nothing; timeline order and last contact derive correctly.
 
 ### V1-06 — Memory facts and affiliations
 
@@ -260,33 +287,33 @@ Deliver fact creation/edit/archive, cue eligibility control, affiliation history
 
 ### V1-07 — Follow-ups and cadence
 
-Deliver one-off follow-ups, Upcoming, cadence, complete, skip once, snooze, reschedule, cancel, and follow-up history.
+Deliver one-off follow-ups, Upcoming, cadence, complete, snooze, reschedule, cancel, follow-up history, TodaySkip persistence, and the atomic primitives required by Today Not today. V1-10 composes the later Already contacted application transaction from these ordinary FollowUp capabilities.
 
-**Independent acceptance:** every state transition matches the follow-up specification; no follow-up date is duplicated on Person; cadence never creates persistent work without acceptance.
+**Independent acceptance:** every state transition matches the follow-up specification; the shared action type represents Research contact route without lossy mapping; Not today snoozes the primary explicit FollowUp to tomorrow or creates exactly one tomorrow FollowUp for New/cadence eligibility, records current-day TodaySkip suppression, leaves other due FollowUps untouched, and is idempotent; no follow-up date is duplicated on Person; cadence never creates persistent work without acceptance.
 
 ### V1-08 — Reach Out
 
-Deliver Reach Out navigation, quick capture, ReachOutEntry/ReachOutEvent/ReachOutContext behavior, existing-Person and provisional-Person flows, linked FollowUps, completion, Dormant/removal, Profile summary/detail, and provisional identity resolution.
+Deliver Reach Out navigation, quick capture, ReachOutEntry/ReachOutEvent/ReachOutContext behavior, existing-Person and provisional-Person flows, linked FollowUps, completion and replacement-FollowUp relinking for Already contacted, Dormant/removal, Profile summary/detail, and provisional identity resolution.
 
-**Independent acceptance:** an existing or provisional Person can enter Reach Out; only one current entry exists per Person; reminder dates create exactly one linked FollowUp; status derives correctly; completion history remains searchable; identity resolution preserves all selected history without automatic merge.
+**Independent acceptance:** an existing or provisional Person can enter Reach Out; only one current entry exists per Person; a reminder creates exactly one pending FollowUp with reciprocal current pointers and completion/cancellation/replacement clears or moves the pointer atomically; Already contacted retains one completion event and atomically relinks the same active intention to its one replacement FollowUp; status derives correctly; completion history remains searchable; identity resolution preserves all selected history without automatic merge.
 
 ### V1-09 — Relationship Engine core
 
-Deliver deterministic projections for Today eligibility/order, explanations, stage, suggested action, suggested reminder, relationship age, memory cue, and Reach Out display state.
+Deliver deterministic projections for Today eligibility/order, explanations, stage, suggested intended action, suggested reminder, relationship age, memory cue, and Reach Out display state. The suggested intended action remains context; it does not replace the three fixed Today controls.
 
-**Independent acceptance:** table-driven rules and all documented examples pass with injected time/timezone; no UI module contains relationship calculations; no opaque score exists.
+**Independent acceptance:** table-driven rules and all documented Relationship Engine output examples pass with injected time/timezone; `buildToday` returns stable Person IDs, eligibility/due state, relevant date, primary and additional due FollowUp IDs, explanation, and intended-action context in identical global order regardless of input-array order; downstream Today commands, contact-target resolution, and notification coordination remain in V1-07, V1-10, and V1-14 respectively; no UI module contains relationship calculations; no opaque score exists.
 
 ### V1-10 — Today experience
 
-Deliver live Today cards, explanation disclosure, WhatsApp/email handoffs, interaction confirmation, reschedule/skip/cancel/Dormant/remove actions, Reach Out-linked explanations, list refresh, pagination, and all Today states.
+Deliver live Today cards with exactly Contact now, Not today, and Already contacted; explanation disclosure; direct `tel:`/`mailto:` handoff and labelled contact-target chooser; the visible no-phone action, focused Add phone number entry, and return; the Already contacted interval sheet, additional-due-plan disclosure, and atomic transaction; the new versioned default-interval setting and forward migration; Reach Out-linked explanations; list refresh; pagination; and all Today states.
 
-**Independent acceptance:** completing or rescheduling immediately recalculates the list; external handoff alone records nothing; every card has a human-readable reason.
+**Independent acceptance:** every card has the three standard actions and a human-readable reason; one resolved phone/email target opens directly, several open the deterministically ordered labelled chooser, and none opens the focused unsaved phone row; Add phone number appears whenever no active phone exists and save/cancel returns correctly; an external handoff alone records nothing and leaves the card available; Not today has no confirmation, handles explicit/New/cadence reasons, preserves other FollowUps, and rolls back atomically on failure; opening then dismissing Already contacted writes nothing, while each preset/Custom valid date creates exactly one Contacted Interaction and one next FollowUp, completes only the primary plan, discloses and retains other due plans, and preserves Reach Out linkage/history; retries duplicate nothing; the default interval migrates and round-trips through backup/restore; all affected lists recalculate consistently; keyboard focus, accessible labels/errors, and 390px layout pass.
 
 ### V1-11 — Search and complete person profile
 
-Deliver global search, Reach Out scoped search/status/context filters, ranked results, complete profile sections including Reach Out, profile secondary views, archive/restore, and contextual event results.
+Deliver global search, Reach Out scoped search/status/context filters, ranked results, complete profile sections including Reach Out, profile secondary views, archive/restore, contextual event results, and preservation of the stable focused Contact Methods entry/return route introduced by V1-10.
 
-**Independent acceptance:** every required field type is searchable with deterministic ranking; profile hierarchy matches the screen spec; archived people are excluded unless requested.
+**Independent acceptance:** every required field type is searchable with deterministic ranking; profile hierarchy matches the screen spec; archived people are excluded unless requested; after the complete Profile lands, Today-origin Add phone still opens one focused unsaved row, cancel/Back writes nothing, save returns to the originating Today position, and the recalculated Contact now options appear without reload.
 
 ### V1-12 — Batch networking capture
 
@@ -296,8 +323,16 @@ Deliver event-first batch capture, rapid repeated person entry, shared context r
 
 ### V1-13 — Contact actions and product hardening
 
-Deliver editable WhatsApp/email templates, vCard export, complete Settings selection sheets and status rows, accessibility, error recovery, performance checks, complete empty states, and end-to-end flow verification.
+Deliver WhatsApp as an additional resolved Contact now target, the Profile-origin templated composition flow for WhatsApp/email, vCard export, remaining Settings selection sheets and status rows, accessibility, error recovery, performance checks, complete empty states, and end-to-end flow verification. Notification delivery is not part of this package.
 
-**Independent acceptance:** no action sends or writes contacts automatically; all critical flows work offline except external handoff; accessibility and 390px criteria pass.
+**Independent acceptance:** no action sends or writes contacts automatically; WhatsApp uses a canonical phone and remains a target rather than a duplicated ContactMethod or automatic contact record; one phone that supplies Call and WhatsApp opens the target chooser; Profile composition exposes the documented deterministic Networking/Coffee/Custom drafts, blank editable email subject, Copy fallback, and no domain mutation; Today email remains a direct handoff; returning from every handoff leaves Today unchanged; all critical flows work offline except external handoff; accessibility and 390px criteria pass.
 
-Implementation must not begin until this specification is explicitly accepted.
+### V1-14 — Today summary notifications
+
+Deliver the global Today-summary notification preference and permission flow, a narrow notification-scheduler port and supported adapter, delivery-only coordination state, one anonymous 09:00 local summary when Today is non-empty, fixed two-hour same-day Snooze, notification-only Not today, Open/deep-link routing, retries/idempotency, and platform capability tests.
+
+**Mandatory stop condition:** do not ship foreground timers or another unreliable imitation. If no approved adapter can reliably deliver while PeopleOS is closed on the target platform, stop the package and show Notifications as unavailable there. Do not add a backend, sync, native shell, or provider integration without a separate accepted architecture decision.
+
+**Independent acceptance:** intent defaults Off and permission is requested only after an explicit action; denied/restored-On states retain intent but schedule nothing and never prompt automatically; an empty queue sends nothing; a non-empty queue produces at most one name-free summary for the scheduled occurrence; Open always lands on Today; notification Not today and Snooze mutate only delivery coordination; retries and repeated actions are idempotent; timezone changes reschedule safely; unsupported platforms state Unavailable; Person, Reach Out, FollowUp, and Interaction records are byte-for-byte unchanged by every notification action.
+
+No later package begins against this amended scope until it is explicitly accepted. Completed package baselines remain intact unless the user explicitly reopens them.

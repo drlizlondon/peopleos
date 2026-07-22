@@ -6,11 +6,13 @@ Settings contains only preferences, status, and actions that apply to the applic
 
 The following always belong on a Person or their related records, never in Settings: importance, tags, cadence, preferred communication method, FollowUps, Reach Out status or reason, Memory Facts, contact details, affiliations, and event context.
 
-V1 has three editable global preferences:
+V1 has five editable global preferences:
 
 1. Default phone region
 2. Capture mode
-3. Default Reach Out reminder
+3. Default “Already contacted” interval
+4. Default Reach Out reminder
+5. Today summary notifications
 
 All other rows are fixed policy, capability status, navigation to an existing data action, or application information. Settings never changes Relationship Engine priority, relationship stage, memory-cue selection, search ranking, or duplicate evidence.
 
@@ -56,10 +58,10 @@ Control device-independent parsing behavior that must be consistent throughout t
 
 ### User flows affected
 
-- UF-02 Create first Person manually
-- UF-03 Add another Person manually
-- UF-06 Import a vCard
-- UF-08 Add or edit contact methods
+- UF-02 Create first person manually
+- UF-03 Manual capture under 20 seconds
+- UF-06 Import contacts from vCard
+- UF-08 View and edit person
 - UF-27 Export backup
 - UF-28 Restore backup
 
@@ -85,9 +87,10 @@ Choose which existing capture experience opens by default without changing relat
 
 ### User flows affected
 
-- UF-02 Create first Person manually
-- UF-03 Add another Person manually
-- UF-30 Batch networking capture
+- UF-02 Create first person manually
+- UF-03 Manual capture under 20 seconds
+- UF-04 Quick networking capture
+- UF-05 Batch event capture
 - UF-32 Quick-capture a provisional Reach Out Person
 
 ## 5. Today
@@ -102,21 +105,25 @@ Explain the fixed global Today policy and provide a direct route to the full exp
 |---|---|---|
 | Today ordering | Informational; open “How Today works” | Fixed deterministic policy |
 | Daily display | Informational | All eligible People, globally sorted and revealed in groups of five |
+| Default “Already contacted” interval | 2 days; 7 days; 14 days; 30 days; Custom | 14 days |
 
 ### Deterministic behaviour
 
 - Ordering remains: overdue explicit FollowUps, due-today explicit FollowUps, new-relationship FollowUps, then cadence due, with the documented tie-breakers.
 - Reach Out receives no separate score or boost. A due Reach Out-linked FollowUp participates as an ordinary explicit FollowUp.
 - The first five appear initially; “Show more due people” reveals the next five from the same globally sorted result. Paging never changes eligibility or ordering and never hides an eligible Person permanently.
+- The default “Already contacted” interval preselects the next-reminder choice after that explicit Today action. Presets add exactly 2, 7, 14, or 30 local calendar days. Custom accepts an integer from 1 to 3,650 and displays both the interval and resulting local date.
+- Changing the default affects only future “Already contacted” sheets. It never changes an existing Person, FollowUp, Reach Out entry, Interaction, or open sheet.
+- “Already contacted” is not adaptive. PeopleOS does not learn a Person-specific interval or remember repeated choices.
 - The user cannot configure weights, bands, stage boundaries, cue ranking, importance strength, or rule exclusions.
 
 ### User flows affected
 
-- UF-16 Review Today
-- UF-17 Understand why someone appears
-- UF-18 Complete a FollowUp from Today
-- UF-19 Snooze a FollowUp
-- UF-20 Skip for today
+- S01 Today
+- UF-12 Contact now from Today
+- UF-13 Add a missing phone number from Today
+- UF-14 Already contacted
+- UF-17 Not today
 - UF-33 Reach Out reminder appears in Today
 
 ## 6. Reach Out
@@ -156,50 +163,60 @@ Explain the fixed rules for recording relationship history and protect the disti
 
 | Row | Options | Default |
 |---|---|---|
-| Contact confirmation | Informational | Always required after an external handoff |
+| Contact recording | Informational | Only after an explicit PeopleOS action |
 | New Interaction date | Informational | Current local date/time, editable before save |
 
 ### Deterministic behaviour
 
 - PeopleOS never records an Interaction merely because WhatsApp or email was opened.
-- Returning from an external handoff always asks the user whether contact occurred.
+- Returning from a phone, email, or future WhatsApp handoff does not open a confirmation prompt and does not record contact. The Today card remains until the user explicitly chooses Not today, Already contacted, or another available Today action.
+- Choosing Already contacted is itself an explicit user action. It records one generic contact-counting `contacted` Interaction at the action time without asking the user to choose a channel or complete an Interaction form.
 - A manually logged Interaction starts with the current local date/time; the user may edit it before saving.
 - Interaction kinds that count as contact are fixed by the accepted deterministic policy.
 - V1 has no global default channel, interaction kind, auto-logging option, or per-Person communication preference here.
 
 ### User flows affected
 
-- UF-12 Log an Interaction
-- UF-13 Edit or delete an Interaction
-- UF-18 Complete a FollowUp from Today
-- UF-22 Message on WhatsApp
-- UF-23 Email a Person
+- UF-11 Log an interaction
+- UF-14 Already contacted
+- UF-16 Complete a follow-up
 - UF-34 Complete outreach and decide what happens next
 
 ## 8. Notifications
 
 ### Purpose
 
-State notification capability honestly without requesting permissions or implying that background reminders exist.
+Offer one privacy-preserving Today summary on a supported runtime without turning notifications into a second reminder system.
 
 ### Available options and defaults
 
 | Row | Options | Default |
 |---|---|---|
-| Notifications | Informational only | Off; unavailable in Version 1 |
+| Today summary notifications | Off; On, with separate effective status when permission/capability blocks delivery | Off |
+| Delivery time | Informational | 09:00 in the current device timezone |
+| Snooze duration | Informational | Two hours, later the same local day |
+| Permission and runtime capability | Informational status | Not requested until the user turns Today summary notifications on |
 
 ### Deterministic behaviour
 
-- V1 sends no browser, push, email, SMS, or background notifications.
-- The section does not request operating-system permission and contains no disabled toggle that suggests the feature is available.
-- Due items appear when PeopleOS is opened and Today is evaluated.
-- Adding notifications later requires a separate product, permission, delivery, timezone, retry, and privacy decision.
+- `todaySummaryNotificationsEnabled` records desired global behavior; effective delivery additionally requires the approved adapter and granted operating-system permission.
+- On a supported runtime, explicitly choosing On persists the intent and requests permission in that same user-initiated flow. Denial leaves the preference On but shows “Permission denied,” schedules nothing, and never re-prompts automatically. Turning Off persists `false`, cancels pending delivery, and clears TodayNotificationState without attempting to change the operating-system permission.
+- An unsupported runtime does not offer a working On action. If a restored backup contains On, show “On preference — unavailable on this device” and schedule nothing. Restored On with requestable permission shows “Permission required”; only an explicit Enable on this device action may request it.
+- The scheduler evaluates the authoritative Today query at delivery time. An empty Today result produces no notification; one or more actionable People produce exactly one summary notification.
+- The title is “PeopleOS”. The body is “You have people to reach out to today. Open PeopleOS to see who's on your list.” It contains no Person names or count.
+- Delivery is fixed at 09:00 local time. Device-timezone changes cause the next schedule to be reconciled against the new local time; V1 has no notification-time preference.
+- Notification **Open** opens the current Today route. Notification **Not today** dismisses only that day's summary and schedules a fresh Today evaluation for 09:00 tomorrow. Notification **Snooze** schedules a fresh evaluation two hours later on the same local day; if two hours would cross midnight, no same-day re-notification is scheduled.
+- Enabling notifications or first making Today non-empty after 09:00 does not produce a late catch-up. The next ordinary evaluation is 09:00 the following local day.
+- Every re-evaluation applies the empty-Today rule again. A scheduled evaluation never guarantees that a notification will be shown.
+- Notification actions mutate only device-local notification-delivery state. They never create a TodaySkip, Interaction, FollowUp, FollowUpEvent, ReachOutEvent, or Reach Out transition.
+- The current browser-only PWA must not claim reliable closed-app notification delivery. The On control is available only after an approved adapter proves permission, scheduling, replacement, action handling, cancellation, warm/cold deep links, timezone reconciliation, and retry behavior on the target runtime.
 
 ### User flows affected
 
-- UF-01 First launch
-- UF-16 Review Today
+- UF-38 Review or change global Settings
 - UF-33 Reach Out reminder appears in Today
+- UF-39 Daily Today summary notification
+- UF-40 Open Today from a notification deep link
 
 ## 9. Privacy & Security
 
@@ -212,7 +229,7 @@ Make the local-first trust boundary visible and explain protections and limitati
 | Row | Options | Default |
 |---|---|---|
 | Data location | Informational | Stored locally on this device/browser |
-| Network behavior | Informational | No account, sync, analytics, or background contact access |
+| Network behavior | Informational | No account, sync, analytics, background contact access, or server push |
 | Device protection | Informational | Relies on device/browser access controls |
 | Privacy explanation | Open privacy detail | Available |
 
@@ -220,17 +237,18 @@ Make the local-first trust boundary visible and explain protections and limitati
 
 - PeopleOS makes no claim that local IndexedDB is encrypted by the application.
 - Data leaves PeopleOS only through an explicit user action such as backup export, vCard export, or external message handoff.
+- Today summary notification content contains no names, counts, relationship details, or copied Today queue. Notification permission and delivery state remain device-local.
 - V1 has no app PIN, biometric lock, hidden mode, analytics consent, cloud encryption, account, or session setting.
 - External app and file-system security are owned by the device/platform and described accurately.
 
 ### User flows affected
 
 - UF-01 First launch
-- UF-22 Message on WhatsApp
-- UF-23 Email a Person
-- UF-24 Add to phone contacts
+- UF-12 Contact now from Today
+- UF-29 Add to phone contacts
 - UF-27 Export backup
 - UF-28 Restore backup
+- UF-39 Daily Today summary notification
 
 ## 10. Data
 
@@ -258,7 +276,7 @@ Provide explicit user-controlled import, portability, backup, and restoration ac
 ### User flows affected
 
 - UF-06 Import a vCard
-- UF-07 Review a possible duplicate
+- UF-07 Duplicate warning during manual entry
 - UF-27 Export backup
 - UF-28 Restore backup
 
@@ -297,29 +315,37 @@ type AppSettings = {
   id: "app";
   defaultPhoneRegion: string;
   captureMode: "standard" | "networking";
+  alreadyContactedDefaultReminderDays: number;
   reachOutDefaultReminderDays?: 1 | 7 | 14 | 30;
+  todaySummaryNotificationsEnabled: boolean;
   revision: number;
   createdAt: string;
   updatedAt: string;
 };
 ```
 
-Absence of `reachOutDefaultReminderDays` means No reminder. Device timezone, device locale, notification availability, application version, and schema version are runtime facts and must not be duplicated into this record. `lastBackupGeneratedAt` remains backup metadata as defined by the readiness correction, not a user preference.
+`alreadyContactedDefaultReminderDays` defaults to 14. Absence of `reachOutDefaultReminderDays` means No reminder. `todaySummaryNotificationsEnabled` defaults to `false`; `true` records user intent, not proof of permission or runtime capability. Device timezone, device locale, notification permission/capability, application version, and schema version are runtime facts and must not be duplicated into this record. `lastBackupGeneratedAt` remains backup metadata as defined by the readiness correction, not a user preference.
 
-The record is included in backup/restore. If it is missing after first launch or migration, the application creates it with deterministic defaults. Unknown future fields are handled by schema migration rather than silently interpreted.
+The record is included in backup/restore. Restore never requests notification permission; restored On intent remains ineffective until the runtime already has permission or the user explicitly chooses Enable on this device in Settings. Device-local `TodayNotificationState` is not part of AppSettings and is excluded from backup/restore. If AppSettings is missing after first launch, the application creates the defaults known to the current package.
+
+Migration is deliberately staged. V1-10 adds the Already-contacted default of 14 and does not add notification storage. V1-14 later adds notification intent defaulting Off and migrates V1-10-era backups the same way. Both preserve existing fields; unknown future fields are handled by schema migration rather than silently interpreted.
 
 ## 13. Validation and acceptance
 
 - Region must be an ISO region supported by the bundled phone-number library.
 - Capture mode must be one of the two defined values.
+- The Already contacted default must be an integer from 1 to 3,650; presets are 2, 7, 14, and 30.
 - Reach Out reminder days must be absent, 1, 7, 14, or 30.
+- Today summary notification intent must be boolean. Effective delivery additionally requires granted permission and a supported reliable adapter; blocked/unavailable projections follow the Notifications section exactly.
 - A stale revision cannot overwrite a newer preference value.
 - Repeating the same save with the same revision/command identity produces one resulting update.
 - Backup/restore round-trips every editable preference.
+- Backup/restore excludes device-local notification scheduling and delivery state and never triggers a permission prompt.
 - Settings remains usable offline.
 - Every informational row is announced as text, not as a disabled control.
 - No Settings row reads or modifies a specific Person.
 - No setting changes deterministic Relationship Engine rules.
+- Notification actions leave all Person, Interaction, FollowUp, TodaySkip, Reach Out, and Relationship Engine inputs unchanged.
 
 ## 14. Explicit exclusions
 
@@ -328,6 +354,7 @@ The record is included in backup/restore. If it is missing after first launch or
 - AI, inferred defaults, recommendations based on usage, or “remember my last choice” behavior
 - Theme and cosmetic customization
 - Accounts, sync, provider integrations, analytics, or marketing preferences
-- Notification permissions or delivery
+- Notification time, per-Person notification settings, names/counts in notification content, and configurable snooze duration
+- Browser/server push, notification analytics, or a backend solely for notification delivery
 - App PIN, biometric lock, or application-managed encryption
 - Automatic backup, restore merge, or destructive clear-all action

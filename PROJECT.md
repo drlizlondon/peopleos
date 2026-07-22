@@ -59,7 +59,7 @@ Name is the only universally required person field. Ask for useful context at th
 
 ### User-controlled actions
 
-PeopleOS may prepare a WhatsApp draft or vCard. The user always reviews and confirms the external action.
+PeopleOS may open a dialler or email client, prepare a WhatsApp draft, or generate a vCard. Opening another application never proves that contact occurred. On Today, the user explicitly chooses Already contacted; PeopleOS records that low-friction fact without requiring an interaction form.
 
 ### Private and portable
 
@@ -70,12 +70,13 @@ Start local-first. Preserve JSON export/import and design all stored data so it 
 1. **People** — maintain one permanent person record while names, contact methods, organisations, and external accounts change around it.
 2. **Interactions** — record meaningful relationship events as the source of timeline and relationship-derived state.
 3. **Follow-ups** — support explicit dates and recurring cadence.
-4. **Today** — select and rank people using objective, inspectable rules.
+4. **Today** — select and rank people using objective, inspectable rules, then offer the same three actions: Contact now, Not today, and Already contacted.
 5. **Context** — derive relationship stage, event grouping, memory cues, and a timeline.
-6. **Contact actions** — open a user-editable WhatsApp draft and generate a vCard.
+6. **Contact actions** — resolve phone/email targets, add WhatsApp as another target from canonical phone through the later contact-action package, provide Profile-origin editable composition, and generate a vCard.
 7. **Data quality** — canonicalise phone numbers and warn about likely duplicates.
 8. **Memory** — combine searchable structured facts with free-form, dated notes.
 9. **Reach Out** — maintain a deliberate action queue for existing or provisionally identified people, with dates delegated to FollowUp.
+10. **Summary notifications** — on supported platforms, deliver one anonymous prompt to open the existing Today queue without copying or changing relationship state.
 
 ## Success measures
 
@@ -83,11 +84,12 @@ Early product validation should focus on behavior, not vanity metrics:
 
 - A new contact can be captured quickly with enough context to recognise them later.
 - Every Today item has a correct and useful explanation.
-- A completed contact updates the person's history and future priority predictably.
+- Already contacted updates the person's history and one chosen next reminder without a channel-selection form; Contact now alone changes nothing.
 - Users can find a person from partial remembered context such as event, organisation, or introducer.
 - Duplicate warnings prevent accidental fragmentation without blocking legitimate entries.
 - Reach Out preserves why a person matters, surfaces linked plans in Today, and never creates a parallel reminder or Person record.
-- Settings exposes only global application behavior: phone parsing region, default capture mode, and a visible default for new Reach Out reminder drafts. Person-level relationship choices never appear there.
+- Settings exposes only global application behavior: phone parsing region, default capture mode, the visible default for new Reach Out reminder drafts, the default Already contacted interval, and the Today-summary notification opt-in. Person-level relationship choices never appear there.
+- A supported notification platform sends no notification when Today is empty and at most one name-free 09:00 local summary when it is not; notification actions never alter individual reminders.
 - Export and restore preserve all relationship history.
 
 ## Explicitly deferred

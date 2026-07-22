@@ -12,7 +12,7 @@ Every result must answer:
 
 The UI may shorten or format an explanation, but may not replace it with an unexplained label or score.
 
-Global AppSettings is not an engine input. Default phone region, Capture mode, and the Reach Out draft reminder default affect parsing or draft entry only. They cannot change eligibility, ordering, stage, explanations, cues, suggested actions, or suggested dates. The Today section in Settings explains the fixed policy but exposes no weights or switches.
+Global AppSettings is not an engine input. Default phone region, Capture mode, the Reach Out draft reminder default, the default Already contacted interval, and Today-summary notification enablement affect input, command defaults, or delivery only. They cannot change eligibility, ordering, stage, explanations, cues, intended-action context, or suggested dates. The Today section in Settings explains the fixed policy but exposes no weights or switches.
 
 ## Shared definitions
 
@@ -24,6 +24,7 @@ Global AppSettings is not an engine input. Default phone region, Capture mode, a
 
 Counts as direct contact:
 
+- Contacted (channel not specified)
 - Met
 - WhatsApp message
 - Email
@@ -56,6 +57,28 @@ A Person without an archive date. Archived people never appear on Today or Upcom
 
 A current ReachOutEntry is an explicit outreach intention for a Person. It does not independently make the Person eligible for Today. Only its linked FollowUp can do that.
 
+## Engine operations and Today contract
+
+The Relationship Engine exposes two pure operations rather than leaving global ordering to a screen:
+
+1. `assessRelationship(personBundle, clock)` derives one Person's relationship projections and potential Today assessment.
+2. `buildToday(assessments, todaySkips, clock)` applies current-day suppression and returns the complete, globally ordered Today result.
+
+Each ordered Today item contains:
+
+- stable `personId`
+- `eligibilityCode`: `explicit_follow_up`, `new_relationship`, or `cadence_due`
+- `dueState`: `overdue`, `due_today`, or `rule_due`
+- `relevantDate`, as a local `YYYY-MM-DD` used by ordering
+- optional `primaryFollowUpId`
+- `additionalDueFollowUpIds`, always present and empty when none exist
+- structured explanation
+- structured intended-action context
+
+For an explicit item, `relevantDate` is the primary FollowUp's effective date. The primary is the due FollowUp with the earliest effective date, then earliest `createdAt`, then stable FollowUp ID; every other due FollowUp is returned in `additionalDueFollowUpIds` using the same order. For New, `relevantDate` is seven local calendar days after the sole contact Interaction. For cadence, it is `contactCadenceDays` after last contact. New and cadence items have no FollowUp IDs.
+
+`buildToday` returns the complete ordered array and total count. The view may reveal slices of five without changing order; notification delivery evaluates the complete result before that visual slicing. Identical inputs, clock, timezone, and engine version must produce byte-for-byte equivalent item ordering regardless of input-array order.
+
 ## Output 1 — Today eligibility
 
 ### Inputs
@@ -79,7 +102,7 @@ A person is eligible when the first matching rule below applies:
 
 A person skipped for today is ineligible until the next local calendar day. A future pending FollowUp suppresses the New relationship and cadence rules until it becomes due. This prevents the engine recommending contact earlier than the user's explicit plan.
 
-If several FollowUps for one person are due, the person appears once using the earliest due FollowUp as the primary reason. Other due FollowUps are disclosed as “Also due” on the profile, not as extra Today cards.
+If several FollowUps for one person are due, the person appears once using the primary selection rule above. Other due FollowUps are disclosed as “Also due” on the profile and through `additionalDueFollowUpIds`, not as extra Today cards.
 
 ### Explanation
 
@@ -115,7 +138,7 @@ Order by:
 3. New relationship rule
 4. Cadence due
 
-Within explicit overdue FollowUps, older due date first. Within all other bands, high importance first, then relevant date oldest first, then display name alphabetically, then Person ID for stability.
+Within explicit overdue FollowUps, order by older due date, then high importance, then display name alphabetically, then Person ID. Within all other bands, order by high importance, then `relevantDate` oldest first, then display name alphabetically, then Person ID. These final keys make every result stable when dates match.
 
 Importance never moves a cadence item ahead of an explicit FollowUp and never creates eligibility.
 
@@ -145,37 +168,36 @@ Ordering is not normally narrated. If the user opens “Why this order?”, show
 - Overdue: “Planned for {date}.” The card may show “Overdue” as a small factual status, but never escalating language, red debt counts, or “You are X days late.”
 - Snoozed: “Snoozed until {date}; originally planned for {original date}.”
 
-## Output 4 — Suggested next action
+## Output 4 — Intended next-action context
 
 ### Inputs
 
 - Primary Today reason
 - FollowUp reason and action type, if explicitly selected
-- Preferred contact method
-- Available validated contact methods
+- Preferred contact method, when explicitly recorded
+- Available validated contact-method kinds
 - Communication preference Memory Fact eligible for cues
 
 ### Rules
 
-1. An explicit FollowUp action wins: Make introduction, Send update, Arrange meeting, Message, Call, Email, or Other.
-2. Otherwise use an explicit communication preference if a matching contact method exists.
-3. Otherwise prefer WhatsApp when a valid phone is present.
-4. Otherwise prefer Email when an email is present.
-5. Otherwise suggest “Add contact details.”
+1. An explicit FollowUp action supplies the context: Make introduction, Send update, Arrange meeting, Research contact route, Message, Call, Email, or Other.
+2. Otherwise use an explicit communication preference if a matching contact-method kind exists.
+3. Otherwise describe the first available contact-method kind using the deterministic application ordering.
+4. Otherwise return “Add contact details.”
 
-The engine never interprets arbitrary note text to guess an action.
+This output explains the intended action; it does not choose the Today card control. Every Today card has the fixed actions **Contact now**, **Not today**, and **Already contacted**. A separate deterministic application projection resolves Contact now to a direct handoff, method-choice sheet, or Contact Methods edit route. The engine never interprets arbitrary note text to guess an action.
 
 ### Explanation
 
-- “Suggested because this follow-up is to introduce them to Sarah.”
-- “Suggested because you recorded that they prefer email.”
-- “Suggested because WhatsApp is their preferred available contact method.”
+- “This follow-up is to introduce them to Sarah.”
+- “You recorded that they prefer email.”
+- “Their preferred contact method is available.”
 - “No contact method is available yet.”
 
 ### Examples
 
-- FollowUp action is Make introduction: primary action is “Make introduction,” even when WhatsApp exists.
-- Fact says Prefers email but no email is stored: fallback to WhatsApp and explain that the preferred method is unavailable only inside expanded details.
+- FollowUp action is Make introduction: the card still says Contact now, while the plan context says “Make introduction.”
+- Fact says Prefers email but no email is stored: Contact now resolves from the active valid methods; expanded details may state that the recorded preference is unavailable.
 
 ## Output 5 — Relationship stage
 
@@ -352,28 +374,54 @@ Evaluate in this order:
 
 ## Behavior after user actions
 
-### Contact recorded
+### Contact now
 
-After the user confirms an interaction:
+Contact now is an external handoff, not evidence of contact. Opening a dialler, email client, or later WhatsApp adapter creates no Interaction, changes no FollowUp or ReachOutEntry, and adds no TodaySkip. After returning to PeopleOS, the same engine inputs therefore produce the same card until the user explicitly chooses another action.
 
-- The interaction is added.
-- Any FollowUp explicitly selected as fulfilled is completed.
-- Last contact, stage, cadence eligibility, memory cue, and suggested reminder are recalculated.
-- The person normally leaves Today unless another due FollowUp remains.
-- If another due FollowUp remains, the same person can remain with the next reason after the completion confirmation closes.
-- When the completed FollowUp is linked to Reach Out, outreach completion follows UF-34: record the completion event and either mark the entry Completed or keep it active with the explicitly accepted next FollowUp.
+### Already contacted
+
+After the user selects a valid next reminder date from the Already contacted sheet, one idempotent application transaction:
+
+- adds one `contacted` Interaction at the action time without requiring an Interaction form;
+- completes only the primary explicit FollowUp, when one supplied the card reason;
+- leaves additional due FollowUps pending rather than treating unrelated promises as fulfilled;
+- creates exactly one pending FollowUp for the selected future local date;
+- adds the current Person/date TodaySkip so another due reason does not immediately return the card that day; and
+- when the primary FollowUp belongs to Reach Out, appends the completion event, keeps the current ReachOutEntry active, and links its `currentFollowUpId` to the new FollowUp.
+
+The new FollowUp copies the primary plan's reason, action, and Reach Out link when present. For a New or cadence card, it uses the deterministic reason “Reconnect with {display name},” action `other`, and the Already-contacted source code. Last contact, stage, cadence eligibility, memory cue, Today, Upcoming, Profile, and Reach Out are then recalculated. Dismissing the sheet before choosing a date writes nothing and restores the card.
+
+When `additionalDueFollowUpIds` is non-empty, the sheet states that the remaining plan count may bring the Person back sooner than the newly selected date. This disclosure is derived directly from the Today item and does not ask the engine to combine or complete those plans.
 
 ### Follow-up rescheduled or snoozed
 
 The current effective date changes through the documented FollowUp transition. Today recalculates immediately and removes the person unless another rule remains eligible. A future explicit FollowUp suppresses cadence and New relationship recommendations.
 
-### Skip once
+### Not today
 
-The person disappears from Today for the remainder of the local day. No interaction or FollowUp state changes. They may return tomorrow if still eligible.
+Not today means the user still intends to contact the Person, but tomorrow. One idempotent application transaction:
+
+- moves the primary explicit FollowUp to tomorrow using the existing snooze transition, retaining its original date and lifecycle history; or
+- when eligibility came from the New or cadence rule, creates exactly one pending FollowUp for tomorrow with the deterministic reason “Reconnect with {display name}” and action `other`; and
+- adds the current Person/date TodaySkip so additional independent due reasons cannot keep the card visible today.
+
+Other FollowUps, Interactions, and Reach Out records remain unchanged except that a Reach Out entry continues to derive its state from its linked primary FollowUp. “Tomorrow” is the next calendar date in the evaluation timezone. The engine re-evaluates the Person on that date. If the atomic write fails, the card remains and no partial state is accepted.
 
 ### Follow-up cancelled
 
 The FollowUp no longer creates eligibility. The engine then evaluates New relationship or cadence rules; cancellation does not automatically silence those independent reasons.
+
+## Today notification consumption boundary
+
+The notification coordinator consumes the complete `buildToday` result before visual pagination. It does not reproduce eligibility, ordering, or explanation rules.
+
+- Zero actionable people means no summary notification and cancellation of any pending summary for that local date.
+- One or more actionable people permits one privacy-safe summary notification; the payload contains no Person names, reasons, or count.
+- Open navigates to Today and changes no domain record.
+- Notification Not today and Snooze change only device-local notification-delivery state. They never create a TodaySkip, Interaction, FollowUp event, or Reach Out event.
+- A re-show re-evaluates `buildToday`; it does not reuse a stored queue snapshot.
+
+Notification availability and permission therefore cannot alter a relationship assessment. Delivery failure leaves every relationship and reminder output unchanged.
 
 ## Prohibited behavior
 
@@ -383,14 +431,15 @@ The FollowUp no longer creates eligibility. The engine then evaluates New relati
 - No stage edited by the user
 - No “days late” debt counter
 - No contact assumed from opening WhatsApp or email
+- No contact assumed from opening the dialler
 - No recommendation for archived people
 - No Today eligibility merely because a Person is in Reach Out
 - No automatic persistence of suggested reminders
 - No random ordering
 
-## Required acceptance examples
+## Required Relationship Engine acceptance examples
 
-Before V1 completion, behavior tests must cover:
+V1-09 behavior tests must cover these engine inputs and outputs:
 
 - Today, overdue, future, snoozed, skipped, cancelled, and completed FollowUps
 - Multiple due FollowUps for one Person
@@ -406,3 +455,12 @@ Before V1 completion, behavior tests must cover:
 - Reach Out display-state boundaries and filters
 - Reach Out FollowUp using the normal explicit-FollowUp band without duplicate cards or priority boost
 - Completed outreach with and without a next FollowUp
+
+## Downstream acceptance owned outside the engine
+
+These use engine output but are not V1-09 responsibilities:
+
+- V1-07 and V1-10: Not today from explicit-FollowUp, New, and cadence cards, including retry and local-midnight boundaries
+- V1-10: Already contacted with and without a primary FollowUp, with multiple due FollowUps, and with a linked Reach Out entry
+- V1-10: Contact now with zero, one, and several resolved phone/email targets, proving no relationship-domain mutation
+- V1-14: summary-notification policy with empty/non-empty Today results and delivery-only Open, Not today, and Snooze actions

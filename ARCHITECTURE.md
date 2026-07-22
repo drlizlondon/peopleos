@@ -41,6 +41,7 @@ PeopleOS should retain this boring, understandable technical baseline while repl
 5. **External providers are adapters.** Google, WhatsApp, LinkedIn, vCard, or a future native shell do not leak provider models into the domain.
 6. **Every recommendation carries evidence.** There is no unexplained aggregate score.
 7. **Reach Out is intention, not identity or reminders.** ReachOutEntry references the permanent Person and links to the existing FollowUp engine for dates and Today eligibility.
+8. **Notifications are delivery only.** They consume the authoritative Today query and never copy eligibility, Person lists, reminder dates, or relationship rules into a scheduler.
 
 ## Target architecture
 
@@ -52,6 +53,7 @@ Application services ───────► Relationship Engine
   person lifecycle              pure deterministic rules
   interaction recording         structured explanations
   follow-up commands             versioned policy
+  Today action commands
   reach-out intention lifecycle
   import/link workflows
         │
@@ -62,7 +64,7 @@ Repository interfaces
 IndexedDB adapters
 
 Integration ports and adapters
-  Phone parser | WhatsApp | vCard | Google Contacts (future)
+  Phone parser | phone/email handoff | WhatsApp | vCard | notification delivery | Google Contacts (future)
 ```
 
 ### Module boundaries
@@ -105,12 +107,40 @@ Reach Out does not add an eligibility algorithm. A due Reach Out reminder is a n
 ### Output
 
 ```ts
+type TodayEligibilityCode =
+  | "explicit_follow_up"
+  | "new_relationship"
+  | "cadence_due";
+
+type TodayDueState = "overdue" | "due_today" | "rule_due";
+
+type SuggestedAction = {
+  code:
+    | "message"
+    | "email"
+    | "call"
+    | "arrange_meeting"
+    | "make_introduction"
+    | "send_update"
+    | "research_contact_route"
+    | "other"
+    | "add_contact_details";
+  explanation: Explanation;
+};
+
+type TodayAssessment = {
+  eligibilityCode: TodayEligibilityCode;
+  dueState: TodayDueState;
+  relevantDate: string; // YYYY-MM-DD used by deterministic ordering
+  primaryFollowUpId?: string;
+  additionalDueFollowUpIds: string[];
+  explanation: Explanation;
+  intendedActionContext: SuggestedAction;
+};
+
 type RelationshipAssessment = {
-  today?: {
-    priorityBand: "due_commitment" | "new_relationship" | "cadence_due";
-    reason: Explanation;
-    suggestedAction: SuggestedAction;
-  };
+  personId: string;
+  today?: TodayAssessment;
   relationshipStage: {
     value: "new" | "growing" | "established" | "long_term";
     explanation: Explanation;
@@ -122,6 +152,13 @@ type RelationshipAssessment = {
   relationshipStartedAt: string;
 };
 
+type TodayItem = TodayAssessment & { personId: string };
+
+type TodayResult = {
+  orderedItems: TodayItem[];
+  totalCount: number;
+};
+
 type Explanation = {
   code: string;
   facts: Array<{ label: string; value: string; sourceId?: string }>;
@@ -131,6 +168,8 @@ type Explanation = {
 
 The engine returns facts and a stable template key, not only finished prose. The presentation layer localises/formats the explanation but cannot change its meaning.
 
+The pure engine exposes two operations. `assessRelationship(personBundle, clock)` produces the per-Person projections above. `buildToday(assessments, todaySkips, clock)` filters and globally sorts the complete Today result. The UI may reveal `orderedItems` in groups of five, but it never reorders or recalculates them. Notification delivery consumes `totalCount` or the complete result before visual pagination. For an explicit FollowUp, `primaryFollowUpId` is the earliest effective due FollowUp after the documented stable tie-break; the remaining due FollowUps appear in the same stable order in `additionalDueFollowUpIds`. New and cadence results have no FollowUp IDs.
+
 ### Today eligibility and order
 
 Avoid a weighted score. Use auditable eligibility rules and ordered bands:
@@ -139,7 +178,7 @@ Avoid a weighted score. Use auditable eligibility rules and ordered bands:
 2. Accepted new-relationship follow-up rule is due.
 3. Recurring cadence is due from the latest contact-counting Interaction.
 
-Within a band, order by earliest due date, then high importance, then stable Person ID. Importance never makes someone due by itself. Tags, organisation, facts, or event membership may select a relevant rule but never add unexplained points.
+Within the overdue-explicit band, order by oldest effective due date, high importance, display name, then stable Person ID. Within every other band, order by high importance, then relevant date oldest first, then display name, then stable Person ID. Importance never makes someone due by itself. Tags, organisation, facts, or event membership may select a relevant rule but never add unexplained points.
 
 Examples of structured explanations:
 
@@ -150,6 +189,18 @@ Examples of structured explanations:
 “Overdue” may be a structured output and factual profile detail. On Today, the user-facing explanation should say what was planned and when, without guilt-oriented escalation.
 
 For a linked Reach Out FollowUp, the explanation is still an explicit FollowUp explanation and may add “You added this person to Reach Out because {reason}.” Reach Out does not gain a separate priority band and cannot outrank an older explicit FollowUp merely because it belongs to Reach Out.
+
+### Today action commands
+
+Today renders three standard actions, but the UI does not implement their state transitions.
+
+- **Contact now** resolves executable targets from active contact methods. One phone/email target opens directly, several targets open a chooser, and no target navigates to that Person's Contact Methods editor with one empty phone row focused. Opening or returning from an external application writes nothing and leaves the Today card available.
+- **Not today** is one atomic application command. It snoozes the primary explicit FollowUp to tomorrow or creates one tomorrow FollowUp for a New/cadence assessment, appends the appropriate FollowUp history, and writes today's Person-scoped TodaySkip so another due reason cannot re-display the card. Other FollowUps are untouched.
+- **Already contacted** is one atomic application command after the user chooses a next date. It creates a generic contact-counting `contacted` Interaction, completes the primary FollowUp when present, creates exactly one next FollowUp, writes today's TodaySkip, and updates Reach Out completion/relink history when the primary FollowUp belongs to Reach Out. Other FollowUps are untouched.
+
+Both mutating commands receive the engine assessment and primary FollowUp identity as structured input, validate that the assessment is still current, use prepared stable IDs plus a command identity, increment the dataset revision once, and either commit or roll back every affected record. The Already-contacted sheet itself writes nothing until a date is selected. Its AppSettings default changes only the preselection, not relationship rules.
+
+The sheet also reads `additionalDueFollowUpIds` from the same Today item. When non-empty it discloses their count and that they may return the Person sooner; it never mutates or silently combines them.
 
 ## Reach Out architecture
 
@@ -162,6 +213,8 @@ Reach Out is a curated queue of explicit relationship intentions. Its boundary i
 - `ReachOutEvent` preserves outreach-specific history such as added, completed, dormant, reactivated, or removed.
 
 Waiting, Snoozed, and Overdue are projections from an active ReachOutEntry and its linked FollowUp. They must not be stored as competing status fields.
+
+The current-plan link is reciprocal and unique. When `ReachOutEntry.currentFollowUpId` is present, it identifies the sole pending FollowUp whose `reachOutEntryId` names that entry and whose `personId` matches. Create, replace, complete, cancel, and restore validation update both sides atomically. A terminal historical FollowUp may retain its Reach Out link, but cannot remain the entry's current pointer.
 
 ### Provisional people
 
@@ -195,6 +248,21 @@ Memory cues follow a stable priority: due commitment, explicit communication pre
 
 ContactMethod supports multiple mutable phones and emails. ExternalIdentity links provider records such as Google Contact or LinkedIn. WhatsApp is initially a capability of a canonical phone number, not a Person identity and not a duplicated contact record.
 
+The Contact now projection is deterministic application logic, not React logic and not a Relationship Engine rule. It first resolves active, valid ContactMethods into executable targets:
+
+```ts
+type ContactNowTarget = {
+  id: string; // stable `${channel}:${contactMethodId}`
+  channel: "phone_call" | "email" | "whatsapp";
+  contactMethodId: string;
+  label: string;
+  familiarValue: string;
+  canonicalValue: string;
+};
+```
+
+Direct launch versus the chooser is based on resolved target count, not ContactMethod row count. Before V1-13, each phone resolves to one Phone call target and each email to one Email target. V1-13 may add a WhatsApp target for a valid canonical phone without creating another ContactMethod; one phone can therefore yield both Call and WhatsApp and must open the chooser. Targets follow ContactMethod order—preferred first, then `createdAt`, then stable ContactMethod ID—and channel order within one method is Phone call then WhatsApp. Labels use the user's ContactMethod label with a kind-based fallback; when two targets share a method, the chooser prefixes the channel so “Call · Mobile” and “WhatsApp · Mobile” remain distinct. One target opens directly, several open the labelled chooser, and none opens the Contact Methods route. The separate Add phone number action uses the same route with a blank unsaved phone row already focused. Phone labels such as Mobile or Work mobile remain labels rather than new contact-method subtypes.
+
 ### V1-03 manual capture boundary
 
 The first implemented Person workflow uses three secondary routes: `/people/new`, `/people/:personId`, and `/people/:personId/contact-methods`. The profile at this stage is a recognition summary, not the later complete relationship profile. Screens issue application commands and queries; they do not write to IndexedDB directly.
@@ -203,12 +271,19 @@ The manual-capture command creates stable IDs when the draft begins, validates a
 
 Contact-method commands add, edit, choose a preferred method, archive, and restore an immediately archived method for the safe Undo action through the application layer with optimistic revision checks. The first active method of each kind becomes preferred. Choosing another preferred method clears the earlier preference in the same transaction; archiving does not silently select a replacement. These commands preserve one permanent `Person.id` and do not introduce phone- or email-based identity.
 
+The phone and email handoff adapters receive canonical active ContactMethods and return success/failure of opening only. They cannot create Interactions or complete FollowUps. Returning to PeopleOS does not trigger a confirmation sheet; an explicit **Already contacted** action is the only one-tap generic acknowledgement that contact occurred.
+
 All outbound actions use ports such as:
 
 ```ts
+interface ContactHandoff {
+  canHandle(target: ContactNowTarget): boolean;
+  open(target: ContactNowTarget): Promise<HandoffResult>;
+}
+
 interface MessagingHandoff {
-  canHandle(method: ContactMethod): boolean;
-  buildDraft(input: DraftInput): Promise<HandoffResult>;
+  canHandle(target: ContactNowTarget): boolean;
+  buildDraft(input: DraftInput & { target: ContactNowTarget }): Promise<HandoffResult>;
 }
 
 interface ContactProvider {
@@ -287,20 +362,74 @@ The web baseline generates a standards-compliant vCard after a user gesture. A f
 
 ## Global Settings architecture
 
-Settings is a thin application boundary, not part of the Relationship Engine and not a generic preference framework. One versioned `AppSettings` singleton stores only Default phone region, Capture mode, and the optional default Reach Out reminder interval.
+Settings is a thin application boundary, not part of the Relationship Engine and not a generic preference framework. One versioned `AppSettings` singleton stores Default phone region, Capture mode, the Default Already contacted interval, the optional default Reach Out reminder interval, and explicit Today summary notification intent.
 
 Application services read the relevant preference when beginning a draft or choosing a global capture route:
 
 - phone parsing reads Default phone region only for ambiguous new input
 - the global Add action reads Capture mode
+- the Already-contacted sheet reads its default interval only when it opens
 - Reach Out creation reads the reminder default to pre-fill a visible draft
+- the notification application service reads Today summary intent before consulting runtime permission/capability
 
-After a draft is created, its fields are ordinary explicit domain input. Later Settings changes never rewrite People, contact methods, ReachOutEntries, FollowUps, or Interactions. The Relationship Engine does not accept AppSettings and cannot vary its rules by preference.
+After a draft or sheet is created, its fields are ordinary explicit domain input. Later Settings changes never rewrite People, contact methods, ReachOutEntries, FollowUps, or Interactions. The Relationship Engine does not accept AppSettings and cannot vary its rules by preference. Notification intent gates delivery only; it does not change Today eligibility.
 
-Timezone, locale, notification availability, app version, and schema version come from dedicated runtime adapters or build/data metadata. Import, backup, and restore remain application services linked from Settings; they are not AppSettings fields. Avoid a plugin registry, remote configuration system, feature-flag service, adaptive preference layer, or per-setting store in V1.
+Timezone, locale, notification permission/capability, app version, and schema version come from dedicated runtime adapters or build/data metadata. Import, backup, and restore remain application services linked from Settings; they are not AppSettings fields. Avoid a plugin registry, remote configuration system, feature-flag service, adaptive preference layer, or per-setting store in V1.
 
 `SETTINGS_SPEC.md` is the authoritative behavior contract.
 
+## Today summary notification architecture
+
+```text
+Person / Interaction / FollowUp / Reach Out stores
+                      │
+                      ▼
+          Relationship Engine + buildToday
+                      │ authoritative query result
+                      ▼
+       pure Today notification delivery policy
+                      │ show / cancel / evaluate later
+                      ▼
+          notification application service
+             │                    │
+             ▼                    ▼
+  TodayNotificationState   NotificationDelivery port
+       device-local          platform adapter
+```
+
+`buildToday` remains the only eligibility and ordering source. The delivery policy receives the current Today result, local date/time, user intent, runtime permission/capability, and device-local delivery state. It returns a delivery instruction; it does not persist relationship data or call the Relationship Engine differently. Before every initial or snoozed delivery, the application service rebuilds Today. Zero actionable People means no notification. One or more means one summary notification with stable replacement tag `peopleos-today-summary`, fixed privacy-safe copy, no names, and no count.
+
+Provider-neutral ports keep delivery out of the domain:
+
+```ts
+interface NotificationScheduler {
+  capability(): Promise<NotificationCapability>;
+  requestPermission(): Promise<NotificationPermissionState>;
+  scheduleTodayEvaluation(input: { at: string; deliveryId: string }): Promise<void>;
+  cancelTodayEvaluation(): Promise<void>;
+}
+
+interface NotificationDelivery {
+  showTodaySummary(input: {
+    deliveryId: string;
+    title: "PeopleOS";
+    body: string;
+    deepLink: { destination: "today"; personId?: string };
+  }): Promise<void>;
+  closeTodaySummary(): Promise<void>;
+}
+```
+
+Notification **Open** targets the current Today route `/`. Notification **Not today** suppresses only delivery for the current local date and schedules tomorrow's 09:00 evaluation. Notification **Snooze** schedules an evaluation two hours later only when that instant remains on the same local day; otherwise normal next-day evaluation resumes without a same-day re-notification. These handlers may mutate only TodayNotificationState and the platform schedule; they never call Person, Interaction, FollowUp, TodaySkip, Reach Out, or Relationship Engine mutation commands. Notification action identifiers are namespaced separately from Today-card command identifiers so the two meanings of Not today cannot share a handler. A delivery ID makes repeated actions idempotent and stale actions harmless.
+
+TodayNotificationState is device-local coordination, excluded from backup/restore, and never contains a copied queue, eligibility result, Person/FollowUp/Reach Out IDs, names, counts, or explanations. AppSettings stores notification intent; OS permission is runtime state. Restore never requests permission. A failed/cancelled restore leaves delivery coordination unchanged; a successful restore invalidates every old delivery ID, clears device-local coordination, and cancels/rebuilds the platform occurrence after the domain transaction commits. A notification-adapter failure never rolls back restored relationship data: effective delivery becomes blocked with Retry, and an old callback is ignored as stale. Foregrounding, timezone changes, permission changes, adapter errors, and every successful domain command that can change Today similarly reconcile the next evaluation from authoritative state. If Today becomes empty, the service cancels any pending occurrence and closes an active summary where the adapter supports it. Enabling after 09:00 or making Today non-empty after 09:00 does not create a late catch-up; the next ordinary evaluation is 09:00 the next local day.
+
+### Reliable-adapter stop condition
+
+The current PWA cannot claim reliable cross-platform closed-app scheduling. The [Periodic Background Sync API is limited and experimental](https://developer.mozilla.org/en-US/docs/Web/API/Web_Periodic_Background_Synchronization_API), and the browser controls when it fires. Chrome ended work on [Notification Triggers](https://developer.chrome.com/docs/web-platform/notification-triggers/) because consistent, reliable cross-platform behavior was not established. Do not enable the notification setting on a runtime until one adapter proves permission, scheduled delivery while closed, replacement/cancellation, action handling, warm and cold deep links, timezone reconciliation, and retry behavior.
+
+The strongest V1 candidate is a native adapter using [Capacitor local notifications](https://capacitorjs.com/), behind the ports above. This does not approve a native build by itself. A backend push service is rejected for V1 because it would add subscriptions, network delivery, privacy, retry, and likely account/sync decisions that have not been accepted. Unsupported runtimes must report notifications as unavailable while preserving all Today behavior.
+
 ## Privacy and future sync
 
-Local-first remains the initial constraint. Before accounts or sync, separately decide encryption, authentication, conflict resolution, deletion, export portability, and migration ownership. No backend is required for the approved initial packages.
+Local-first remains the initial constraint. Before accounts or sync, separately decide encryption, authentication, conflict resolution, deletion, export portability, and migration ownership. No backend is required for the approved initial packages, including notification delivery.

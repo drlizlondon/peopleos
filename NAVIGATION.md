@@ -69,9 +69,10 @@ Search is always visible within Reach Out and is scoped to Reach Out entries, in
 ```text
 Today
   ├─ Person profile
-  ├─ Contact handoff sheet
-  ├─ Confirm interaction sheet
-  ├─ Reschedule / snooze sheet
+  ├─ Contact-target chooser
+  ├─ Phone / email / future WhatsApp handoff
+  ├─ Contact Methods editor, opened in add-phone mode
+  ├─ Already contacted reminder sheet
   └─ Why this person? sheet
 
 Reach Out
@@ -85,6 +86,7 @@ Reach Out
 People
   ├─ Search and scoped filters
   ├─ Person profile
+  │   ├─ Compose message → target chooser → editable handoff
   │   ├─ All memory facts
   │   ├─ Full timeline
   │   ├─ Follow-ups
@@ -107,11 +109,13 @@ Settings
   ├─ Modes
   │   └─ Capture mode
   ├─ Today
-  │   └─ How Today works
+  │   ├─ How Today works
+  │   └─ Default Already contacted interval
   ├─ Reach Out
   │   └─ Default reminder
   ├─ Interactions
   ├─ Notifications
+  │   └─ Today summary notifications
   ├─ Privacy & Security
   ├─ Data
   │   ├─ Import contacts
@@ -153,8 +157,8 @@ Use a modal sheet when the task:
 ### Sheets
 
 - Global Add menu
-- Contact method and template choice
-- Confirm contact outcome
+- Contact-target choice
+- Already contacted next-reminder choice
 - Add quick note
 - Add/edit a single Memory Fact
 - Add/reschedule/snooze/cancel FollowUp
@@ -187,6 +191,10 @@ Secondary screens are opened only when the section exceeds its compact limit or 
 
 - Browser/device Back returns to the previous meaningful screen, preserving search query, filters, and scroll position.
 - Back from a profile opened from Today returns to the same Today list position unless engine-changing data was saved; then it returns to the recalculated list.
+- Returning from a phone, email, or future WhatsApp handoff returns to the same Today position. The card remains because opening another app does not record contact.
+- Back from Profile-origin message composition preserves the editable draft until discard is confirmed; returning from its external handoff restores Profile and records nothing.
+- Back or dismissal from the Already contacted reminder sheet writes nothing and leaves the card unchanged. Selecting an interval commits the atomic action and returns to recalculated Today.
+- Back from the Contact Methods editor opened by Add phone number returns to Today after save or cancel. Save recalculates the card immediately; cancel preserves it unchanged.
 - Back from a profile opened from Search returns to the same results and query.
 - Back from a modal sheet dismisses it. If unsaved edits exist, ask “Discard changes?”
 - Back from the first step of Add person or capture dismisses the flow after discard confirmation if anything was entered.
@@ -197,7 +205,7 @@ Secondary screens are opened only when the section exceeds its compact limit or 
 
 V1 supports stable internal routes for:
 
-- Today
+- Today at `/`
 - Reach Out
 - People
 - Person profile by internal Person ID
@@ -205,6 +213,10 @@ V1 supports stable internal routes for:
 - Settings
 
 Edit sheets and unsaved capture state are not deep-linkable. Reloading a profile returns to the profile. Reloading a transient flow returns to the nearest safe parent and does not create partial data.
+
+Today summary notifications use a versioned payload equivalent to `{ destination: "today", personId?: string }`. The V1 summary omits `personId` and always opens `/`. A notification click first hydrates the local stores, activates Today, and then handles an optional Person only when the ID exists, is active, and is still represented in the current Today result. A valid optional Person opens their profile over Today so Back returns to Today. A missing, archived, merged, or no-longer-due Person falls back to Today without opening another Person or the previously active tab.
+
+Warm-start handling focuses the existing PeopleOS client before routing. Cold-start handling opens `/` and applies the payload only after hydration. Notification Open is a navigation action. Notification Not today and Snooze are delivery-state commands rather than routes and never navigate to or mutate an individual Person.
 
 ## Archived people navigation
 
@@ -219,6 +231,7 @@ History remains readable. New interactions and FollowUps cannot be added until r
 
 - Local features remain navigable offline.
 - An unavailable external handoff shows an inline error and stays on the current screen.
+- Unsupported, denied, revoked, or failed notification capability is reported in Settings and leaves Today fully usable. It never triggers a permission loop or a fallback server notification.
 - A storage failure does not navigate away or imply a save succeeded.
 - A missing/deleted Person route returns to People with “This person is no longer available.”
 - Invalid restored routes never show a blank screen.
@@ -236,5 +249,5 @@ History remains readable. New interactions and FollowUps cannot be added until r
 
 - A provider-link screen may later appear under Contact details; it does not create another primary tab.
 - Event detail may become a navigable secondary screen if event grouping proves useful.
-- Notification delivery may replace the informational Notifications status with approved controls only after a separate capability, permission, retry, timezone, and privacy decision.
-- Accounts/sync may add an Account destination without changing the four primary jobs; this requires a new product review.
+- Notification delivery remains capability-gated. The provider-neutral deep-link and delivery contracts do not authorise implementation until a reliable adapter passes the platform stop condition in `ARCHITECTURE.md`.
+- Accounts/sync may add an Account destination without changing the five primary jobs; this requires a new product review.

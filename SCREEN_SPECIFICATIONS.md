@@ -35,8 +35,8 @@
 | S18 | Follow-up Detail | What is the current plan? |
 | S19 | Upcoming | What have I planned for later? |
 | S20 | Affiliations | Where has this person worked? |
-| S21 | Contact Handoff | What should I send or do? |
-| S22 | Contact Confirmation | Did contact actually happen? |
+| S21 | Contact Handoff | Which external contact action should open? |
+| S22 | Next Reminder | When should PeopleOS remind me again? |
 | S23 | Event Selector | Which event provides the context? |
 | S24 | Settings | What essential app or data choice needs attention? |
 | S25 | Export Backup | How do I preserve my data? |
@@ -47,6 +47,7 @@
 | S30 | Reach Out Quick Capture | Who do I want to reach out to? |
 | S31 | Reach Out Detail | What is my plan for this person? |
 | S32 | Resolve Provisional Person | Is this provisional person someone already in PeopleOS? |
+| S33 | Contact Method Choice | How do I want to contact this person? |
 
 The Add menu, destructive confirmations, person picker, date picker, and short action menus are modal controls, not separate product screens.
 
@@ -58,16 +59,19 @@ Answer only “Who should I contact today?” with a calm, finite initial list a
 
 ### Primary action
 
-The first viable suggested action on the first card: Message on WhatsApp, Email, Make introduction, Call, Arrange meeting, Send update, or Add contact details.
+Every card has the same three standard actions, in this order:
+
+1. Contact now
+2. Not today
+3. Already contacted
+
+They remain visible regardless of the engine reason. A stored FollowUp action may be shown as context but never replaces this action row.
 
 ### Secondary actions
 
-- Mark contacted
-- Reschedule or Snooze the associated FollowUp
-- Skip for today
 - Open Person profile
 - Open Reach Out plan when the due FollowUp is linked to Reach Out
-- Move linked Reach Out plan to Dormant or remove it through overflow
+- Add phone number when no active valid phone exists
 - Expand Why this person?
 - Show next five due people when more than five are eligible
 - Add person through the global Add action
@@ -83,15 +87,16 @@ The first viable suggested action on the first card: Message on WhatsApp, Email,
    - Due state: Due today or Overdue; omitted for cadence/new relationship
    - Primary reason in full sentence
    - One memory cue when available
-   - Suggested primary action
-   - Compact secondary actions
+   - Three-action row: Contact now, Not today, Already contacted
+   - Add phone number when applicable
+   - Compact Profile, Reach Out, and explanation links
 5. “Show more due people” when applicable
 
 No total relationship counts, charts, streaks, or general activity feed.
 
 ### Navigation
 
-Default primary tab. Person name opens Profile. Explanation opens S28. Contact action opens S21. Reschedule/Snooze opens S17 in the relevant mode.
+Default primary tab. Person name opens Profile. Explanation opens S28. Contact now opens the sole executable target directly, S33 when several targets exist, or S12 with a focused blank phone draft when none exists. Add phone number always opens the same focused S12 draft. Already contacted opens S22. Back from S12 or a Person returns to the same Today position and refreshes the card after a successful contact-method save.
 
 ### Possible states
 
@@ -105,31 +110,43 @@ Default primary tab. Person name opens Profile. Explanation opens S28. Contact a
 - Card is cadence recommendation
 - Card has several due FollowUps; one primary plus “Also due” count
 - Card is linked to Reach Out and shows its reason/context without a separate priority score
-- Person lacks usable contact details
+- Exactly one active valid phone or email
+- Several active valid contact methods
+- One phone resolving to several targets after V1-13
+- No usable contact details
+- Email is usable but no active valid phone, so both Contact now and Add phone number are shown
+- Already contacted sheet open with the configured default preselected
+- Opened from a summary-notification deep link
+- Opened with a future optional Person target that is valid, missing, archived, or no longer eligible
 - Refreshing after an action
 - Local storage error
 
 ### Validation
 
-Every card must contain a Relationship Engine reason and valid active Person. External actions require a usable selected contact method.
+Every card must contain a Relationship Engine reason and valid active Person. Contact now resolves targets only from active, valid methods. A sole target may open directly; several targets always require an explicit S33 choice. Archived, invalid, or stale methods are never launched.
 
-A Reach Out card remains a normal explicit FollowUp card. Completing, snoozing, rescheduling, or skipping uses the existing commands; moving to Dormant or removing Reach Out changes the intention record and cancels any linked pending FollowUp in the same confirmed transaction.
+A Reach Out card remains a normal explicit FollowUp card. Not today and Already contacted use the same FollowUp, TodaySkip, Interaction, and Reach Out commands as every other card; they never create a second reminder or Person.
+
+Not today moves only the primary explicit FollowUp to tomorrow through snooze history, or creates one tomorrow FollowUp for a New/cadence card. It also writes the current-day TodaySkip. Other FollowUps remain unchanged. Already contacted writes nothing until S22 returns a valid date.
 
 ### Error handling
 
 - If engine evaluation fails for one person, omit that card and show a non-blocking “One relationship could not be evaluated” notice with Retry; never show an unexplained fallback card.
 - Save/action failure leaves the card and user input in place.
-- External handoff failure offers Copy and stays on Today.
+- External handoff failure stays on Today and offers Copy where content exists or Add contact details when the selected target is no longer usable.
+- Failure during Not today rolls back its snooze/new FollowUp, lifecycle event, and TodaySkip together.
+- Failure during Already contacted keeps S22 open with the selection intact and rolls back its Interaction, FollowUps, events, Reach Out linkage, and TodaySkip together.
+- Repeating either command with the same prepared IDs produces one transition only.
 
 ### Empty state
 
 - No people: “Start with one person you want to remember.” Primary: Add your first person. Secondary: Import vCard.
 - People but none due: “Nothing needs your attention today.” Primary: Find someone in People. Secondary: Add follow-up.
-- All eligible skipped: “You’ve cleared Today for now.” Action: Undo last skip when available.
+- All eligible deferred: “You’ve cleared Today for now.” No recovery action is required; the changed primary plan remains visible in Upcoming/Profile history.
 
 ### Future extension points
 
-Reliable notifications may deep-link here only after a future product decision. V1 has no notification delivery or placeholder badges; Settings reports the capability as unavailable.
+A future targeted notification may include an internal Person ID. Today hydrates and validates it against the current result before opening that Person's Profile over Today, so Back returns to Today. An invalid or ineligible target falls back to the Today heading with a quiet availability notice. Summary notifications contain no Person ID or names.
 
 ## S02 — Add Person
 
@@ -585,7 +602,7 @@ Upcoming filters:
 
 - Date window
 - Person
-- Action type
+- Action type: Message, Email, Call, Arrange meeting, Make introduction, Send update, Research contact route, or Other
 
 Only values that exist are offered. Search within long filter value lists is allowed.
 
@@ -768,7 +785,7 @@ Each item shows type, familiar formatted value, optional label, preferred status
 
 ### Navigation
 
-Secondary Profile screen. Add/edit uses a sheet.
+Secondary Profile screen. Add/edit uses a sheet. From Today, Add phone number or Contact now with no usable method opens this screen with a blank phone draft already present, the phone-number field focused, and a Today return target. No child record exists until Save.
 
 ### Possible states
 
@@ -778,6 +795,9 @@ Secondary Profile screen. Add/edit uses a sheet.
 - Invalid legacy/imported method needing attention
 - Duplicate warning
 - Archived method
+- Today-origin phone draft focused before any input
+- Today-origin draft cancelled with no write
+- Today-origin save complete and returning to a refreshed card
 
 ### Validation
 
@@ -786,6 +806,8 @@ Canonical phone/email rules. Only one preferred active method per kind. Archivin
 ### Error handling
 
 Failed edits retain values. A method used by an open handoff cannot disappear mid-flow; return with an availability error.
+
+A failed Today-origin phone save keeps the draft and focus in place. Cancel discards the draft; Back asks about discarding only after the user entered something. Either path returns to Today without creating a row.
 
 ### Empty state
 
@@ -1053,7 +1075,7 @@ Blank reason with action examples, but no generic prefilled promise.
 
 ### Future extension points
 
-Time-of-day reminders and notifications are excluded.
+Time-of-day Person FollowUps remain excluded. The fixed 09:00 daily Today summary is a delivery mechanism over the derived queue, not a FollowUp time or a second reminder system.
 
 ## S18 — Follow-up Detail
 
@@ -1219,98 +1241,116 @@ An Organisation entity is not implied by this screen.
 
 ### Purpose
 
-Prepare a deliberate message or action while keeping the user in control.
+Open the user's chosen external contact application while keeping PeopleOS state unchanged.
 
 ### Primary action
 
-Open WhatsApp or Open email app.
+Open phone dialler, email app, or—when its later package exists—WhatsApp.
 
 ### Secondary actions
 
-- Choose contact method
-- Choose Networking, Coffee, or Custom template
-- Edit message/subject
-- Copy message
+- Copy number/address or prepared content when the target application is unavailable
+- Choose and edit Networking, Coffee, or Custom message content when composing from Profile or another non-Today contact action
 - Cancel
 
 ### Information hierarchy
 
-- Person and selected method
-- Template choice
-- Fully editable draft
+- Person, explicitly resolved target, and its source ContactMethod
+- Familiar label/value
 - External-open action
-- Safety note: “PeopleOS will open the app; you choose whether to send.”
+- Safety note: “Opening another app does not mark this person as contacted.”
+- Editable subject/body or message content only when V1-13 provides that channel's composition flow
+
+V1-13 starting content is deterministic: Networking uses “Hi {first name}, it was lovely meeting you today at {event}. Great chatting with you.” and omits “at {event}” when no Event exists; Coffee uses “Lovely seeing you today. Let's catch up again soon.”; Custom is blank. Email subject starts blank. Every draft remains editable and PeopleOS never infers sender identity.
 
 ### Navigation
 
-Sheet from Today/Profile/FollowUp. External app return triggers S22.
+Reached from Today/Profile/FollowUp. A sole phone/email target from Today launches directly without an intermediate screen or template choice; several targets use S33 first. From Profile or another non-Today Compose action, V1-13 may open S21 first with Networking, Coffee, or Custom content so the user can edit an email subject/body or WhatsApp message before handoff. Returning from another app restores the unchanged origin. It never triggers S22 automatically.
 
 ### Possible states
 
-- One/multiple methods
-- No usable method
-- Template selected
-- Custom draft
+- Phone dialler handoff
+- Email-client handoff
+- Future WhatsApp handoff
 - External app unavailable
-- Draft copied
+- Value/content copied
+- Selected target became unavailable or its source method became archived/invalid before launch
 
 ### Validation
 
-Selected method must be active and valid. Draft may be empty only after explicit confirmation; PeopleOS does not require a canned message.
+The target's source method must still be active, valid, and owned by the displayed Person, and the selected channel adapter must still be available immediately before launch. Phone uses canonical E.164 in `tel:`; email uses the active canonical address in `mailto:`. Opening the URI is never a domain command.
 
 ### Error handling
 
-Keep draft and offer Copy. Never record an Interaction here.
+Stay at the origin and offer Copy or another available target. Never record an Interaction, complete or move a FollowUp, change Reach Out, or suppress Today here.
 
 ### Empty state
 
-No usable method: explain and offer Add contact details or Copy custom text.
+No usable target: route to S12 with a focused blank phone draft.
 
 ### Future extension points
 
-Other handoff channels may reuse this pattern after product approval.
+WhatsApp and other handoff channels may reuse this pattern after their package is approved. They must not reinstate automatic return confirmation.
 
-## S22 — Contact Confirmation
+## S22 — Next Reminder
 
 ### Purpose
 
-Record reality after an external handoff without assuming it.
+Complete the frictionless Already contacted acknowledgement by choosing when this Person should return.
 
 ### Primary action
 
-Yes, record contact.
+Choose 2 days, 7 days, 14 days, 30 days, or Pick a date. Choosing a value saves immediately.
 
 ### Secondary actions
 
-- No
-- Record another interaction
-- Adjust date/type before save
+- Dismiss without saving
+- Use the date picker
 
 ### Information hierarchy
 
-- “Did you contact {name}?”
-- Expected interaction type and current time
-- Due FollowUp fulfilled, when unambiguous
-- Actions
+- “When should I remind you again?”
+- Person name
+- 2 days
+- 7 days
+- 14 days
+- 30 days
+- Configured custom interval when it is not one of the fixed choices
+- Pick a date…
+- The AppSettings default visibly preselected; 14 days when unchanged
+- A quiet disclosure when other due plans will remain pending
+
+Preselection is visual only. Opening the sheet never commits the default; the user must tap an interval or confirm a picked date.
 
 ### Navigation
 
-Return sheet after external app. Save returns to recalculated origin.
+Modal sheet opened only by Already contacted on Today. Selecting an interval/date runs the compound command and returns to recalculated Today. Dismissal restores the unchanged card and focus to Already contacted.
+
+The card is visually withdrawn while this sheet is open, but no domain write occurs until a valid interval/date is selected. Dismissal therefore restores the original card rather than reversing a persisted change.
 
 ### Possible states
 
-- One matching FollowUp
-- Several due FollowUps requiring selection
-- No FollowUp
-- User says No
+- Primary explicit FollowUp
+- New-relationship or cadence card without a primary FollowUp
+- Reach Out-linked primary FollowUp
+- Other independent due FollowUps remain pending
+- Fixed default selected
+- Custom default selected
+- Date picker open
+- Additional due plans disclosed
+- Saving or save failed
 
 ### Validation
 
-At most the explicitly selected FollowUp is completed. Contact date cannot be in the future.
+Fixed intervals use local calendar-date addition from Today. Picked date must be after the current local date. Custom default is a whole 1–3650 days. At most the primary FollowUp is completed; other FollowUps are untouched. The command creates one channel-neutral Contacted Interaction at the current instant, one next FollowUp, and one current-day TodaySkip.
+
+When `additionalDueFollowUpIds` is non-empty, show: “{count} other plan(s) remain due and may bring {display name} back sooner.” This is factual disclosure only and adds no question or extra step.
+
+When a primary FollowUp exists, the next FollowUp retains its reason/action; when none exists it uses reason “Reconnect with {display name}” and action `other`. A Reach Out-linked primary keeps the same ReachOutEntry, appends completion history, and makes the new FollowUp its `currentFollowUpId`.
 
 ### Error handling
 
-Failure keeps confirmation open. Saying No records nothing.
+Failure keeps the sheet open with the chosen value and rolls back every child write. Retry reuses prepared IDs and cannot create duplicate Interactions, FollowUps, events, TodaySkips, or Reach Out history. Dismissal before a successful choice writes nothing.
 
 ### Empty state
 
@@ -1318,7 +1358,7 @@ Not applicable.
 
 ### Future extension points
 
-No delivery/read receipt integration planned.
+Specific channel capture remains available through the full Interaction editor; it is not inserted into this sheet. Adaptive per-Person interval learning is excluded.
 
 ## S23 — Event Selector
 
@@ -1385,6 +1425,8 @@ None. Settings is a grouped index; each editable row or data action has its own 
 - Change Default phone region
 - Change Capture mode
 - Change Default Reach Out reminder
+- Change Default “Already contacted” interval
+- Turn the daily Today summary on or off and review permission/capability status
 - Open How Today works
 - Import contacts
 - Export backup
@@ -1396,15 +1438,15 @@ None. Settings is a grouped index; each editable row or data action has its own 
 
 1. General: Default phone region; device timezone and locale status
 2. Modes: Capture mode
-3. Today: fixed ordering and pagination policy
+3. Today: fixed ordering/pagination policy; Default “Already contacted” interval
 4. Reach Out: default reminder for new entries
-5. Interactions: fixed confirmation and date behavior
-6. Notifications: unavailable in V1
+5. Interactions: explicit logging and channel-neutral Already contacted behavior
+6. Notifications: daily Today summary opt-in, permission, fixed 09:00 local delivery and two-hour Snooze policy
 7. Privacy & Security: local storage and network/security boundary
 8. Data: Import, Export, Restore, last successful backup
 9. About: app version, schema version, product explanation, licences
 
-Only Default phone region, Capture mode, and Default Reach Out reminder are editable V1 preferences. Today, Interactions, Notifications, Privacy & Security, and About rows accurately disclose fixed behavior; they are not disabled controls. Full contracts are in `SETTINGS_SPEC.md`.
+Default phone region, Capture mode, Default Reach Out reminder, Default “Already contacted” interval, and Daily Today summary are editable global V1 preferences. Notification permission/capability and the fixed delivery/Snooze times are runtime or policy information, not extra controls. Full contracts are in `SETTINGS_SPEC.md`.
 
 ### Navigation
 
@@ -1416,13 +1458,19 @@ Primary tab. Preference rows open focused selection sheets and return to the sam
 - One or more preferences changed
 - No backup generated yet
 - Last successful backup available
-- Notifications unavailable
+- Daily Today summary Off
+- Daily Today summary On with permission granted
+- Daily Today summary On — permission required after restore
+- Daily Today summary On — permission denied or revoked
+- Restored On preference — platform scheduler unavailable
 - Storage unavailable
 - Preference save in progress or failed
 
 ### Validation
 
-Default region must be supported. Capture mode is Standard or Networking. Reach Out reminder is No reminder, Tomorrow, or exactly 7, 14, or 30 calendar days. Changing phone region never rewrites canonical stored numbers. No editable row may read or write Person-specific state.
+Default region must be supported. Capture mode is Standard or Networking. Reach Out reminder is No reminder, Tomorrow, or exactly 7, 14, or 30 calendar days. Already contacted interval is 2, 7, 14, 30, or a custom whole 1–3650 days. Daily summary is Off or On and can become active only when platform capability and permission allow it. Changing phone region never rewrites canonical stored numbers. No editable row may read or write Person-specific state.
+
+Notification Snooze schedules exactly two hours later only when that instant remains on the same local date. If it would cross midnight, no same-day re-notification is scheduled; the ordinary 09:00 next-day evaluation remains authoritative.
 
 ### Error handling
 
@@ -1434,7 +1482,7 @@ Not applicable. The nine sections and their fixed status rows always exist, even
 
 ### Future extension points
 
-Account/sync, notification delivery, app lock, theme, or additional global preferences require a separate product decision. Person-level choices never move here.
+Notification delivery time and Snooze duration may become configurable later only after a product decision. Adaptive Person-specific reminder learning, account/sync, app lock, theme, and other preferences remain excluded. Person-level choices never move here.
 
 ## S25 — Export Backup
 
@@ -1662,7 +1710,6 @@ Add someone.
 - Contact now
 - Snooze or Reschedule the linked FollowUp
 - Complete outreach
-- Skip for today when due
 - Move to Dormant
 - Remove from Reach Out
 - Search and filter
@@ -1689,7 +1736,7 @@ Default order is Overdue oldest first, due today, Active without date newest-add
 
 ### Navigation
 
-Second primary tab after Today. Item opens S31. Person identity opens S10. Add opens S30. Due contact action may open S21. Filter is a modal sheet scoped to Reach Out.
+Second primary tab after Today. Item opens S31. Person identity opens S10. Add opens S30. A contact action resolves directly through S21 or S33. Filter is a modal sheet scoped to Reach Out.
 
 ### Possible states
 
@@ -1706,7 +1753,7 @@ Second primary tab after Today. Item opens S31. Person identity opens S10. Add o
 
 ### Validation
 
-Each visible entry references an existing non-merged Person. Display status must be derived from the durable intent state plus linked FollowUp. A linked FollowUp must reference the same Person and ReachOutEntry.
+Each visible entry references an existing non-merged Person. Display status must be derived from the durable intent state plus linked FollowUp. A current link must be reciprocal: the entry points to its sole pending FollowUp, and that FollowUp points to the same Person and ReachOutEntry.
 
 ### Error handling
 
@@ -1754,7 +1801,7 @@ Add to Reach Out.
 2. Existing-Person matches with role/organisation/cue
 3. When no match is chosen: “Use ‘{label}’ as a temporary description”
 4. Optional Why I want to reach out
-5. Optional intended next action
+5. Optional intended next action using the shared FollowUp choices, including Research contact route
 6. Optional reminder shortcuts: Today, Tomorrow, Next week, In one month, Pick date; initially pre-filled from the global Reach Out default and always visible/editable
 7. Optional context: recent contexts first, or create project/organisation/Event/fellowship/other label
 8. Optional notes
@@ -1807,7 +1854,6 @@ Contact now when an actionable contact method exists; otherwise Edit plan.
 - Edit reason, action, notes, and context
 - Add, Snooze, or Reschedule reminder through FollowUp
 - Mark outreach complete
-- Skip for today when due
 - Move to Dormant or Reactivate
 - Remove from Reach Out
 - Open Person profile
@@ -1828,7 +1874,7 @@ Contact now when an actionable contact method exists; otherwise Edit plan.
 
 ### Navigation
 
-From S29, Person Profile, Today, or FollowUp detail. FollowUp actions use S17/S18. Contact uses S21/S22. Resolve identity opens S32. Back preserves Reach Out query/filter/scroll.
+From S29, Person Profile, Today, or FollowUp detail. FollowUp actions use S17/S18. Contact uses S21 directly or S33 when several executable targets exist. S22 opens only from Already contacted on Today. Resolve identity opens S32. Back preserves Reach Out query/filter/scroll.
 
 ### Possible states
 
@@ -1913,6 +1959,63 @@ If no existing Person matches, show “No existing person found” and keep Comp
 
 This narrow provisional-resolution flow does not become a general duplicate merge tool without a separate product decision.
 
+## S33 — Contact Method Choice
+
+### Purpose
+
+Let the user choose how to contact a Person when Contact now resolves more than one executable target.
+
+### Primary action
+
+Choose one contact target. Selection immediately proceeds to S21 or the external application for that target.
+
+### Secondary actions
+
+- Cancel
+- Add phone number when no active valid phone exists
+- Manage contact methods
+
+### Information hierarchy
+
+1. “Contact {name}” heading
+2. Targets resolved only from active valid methods
+3. Each target's channel and user-entered label, such as Mobile, Work mobile, Personal email, or NHS email; when one phone supplies Call and WhatsApp, show distinct labels such as “Call · Mobile” and “WhatsApp · Mobile”
+4. Familiar formatted phone number or email address
+5. Preferred marker where stored
+
+Preferred active methods appear first, then remaining methods by `createdAt`, then stable ContactMethod ID. Targets sharing one method use the fixed channel order in `ARCHITECTURE.md`. The sheet never hides alternatives or silently chooses between channels.
+
+### Navigation
+
+Modal sheet from Contact now on Today, Profile, Reach Out, or FollowUp detail. Choosing a phone/email opens the platform target and restores the unchanged origin on return. Add phone number opens S12 with a focused blank phone draft and retains the original return target. Dismissal restores focus to Contact now.
+
+### Possible states
+
+- Several phones
+- Several emails
+- Mixed phone and email methods
+- One phone resolving to both Call and WhatsApp after V1-13
+- Preferred method present
+- No phone but one or more emails
+- A method becomes invalid or archived while the sheet is open
+- External application unavailable
+
+### Validation
+
+Immediately before launch, the selected target's source method must be active, valid, and owned by the Person, and its channel adapter must still be available. Do not display archived or invalid methods as choices. Stored labels are preserved; an absent label falls back to Phone or Email without inventing Mobile, Work, or Personal context.
+
+### Error handling
+
+If the selected method is no longer usable, keep the sheet open, remove or mark that stale row unavailable after refresh, and allow another choice. An external launch failure changes no domain state and offers Copy when useful.
+
+### Empty state
+
+If all methods disappear while open, show “No contact details available.” Primary action: Add phone number. Secondary: Manage contact methods.
+
+### Future extension points
+
+WhatsApp may appear as another target derived from a valid phone when its package is implemented; target count, not ContactMethod count, controls direct launch versus this chooser. It must not create a duplicate ContactMethod or alter the handoff-only contract.
+
 ## Cross-screen transient states
 
 ### Loading
@@ -1921,7 +2024,7 @@ Use skeletons only where stored content is expected. Do not block the whole shel
 
 ### Save success
 
-Show a brief non-modal confirmation with Undo only when reversal is safe: Skip today, archive fact/contact method, or archive Person. Do not use Undo for restore or import.
+Show a brief non-modal confirmation with Undo only when reversal is safe, such as archiving a fact/contact method or Person. Do not offer a partial Undo for compound Not today or Already contacted commands, restore, or import.
 
 ### Offline
 
@@ -1934,3 +2037,5 @@ Confirm archive Person, delete Interaction, cancel FollowUp, replace data, and d
 ### Permission
 
 V1 requests no contacts permission. File and external-app choosers are user-initiated platform actions.
+
+Daily Today notifications request notification permission only after the user explicitly turns the summary On or chooses Enable on this device for a restored On preference. Denial leaves desired intent On but effective delivery blocked, with an accurate route to platform help and no automatic re-prompt; it never changes Today data. Unsupported platforms show the restored preference separately from an unavailable delivery status rather than presenting a misleading working control.

@@ -4,7 +4,9 @@
 
 Reach Out is now an accepted first-class V1 feature. Its authoritative implementation package is V1-08 in `VERSION1_SCOPE.md`; linked reminders remain part of the existing FollowUp and Today packages.
 
-The Settings refinement does not create another package. V1-01 owns the nine-section shell and fixed status copy, V1-02 owns the AppSettings singleton and backup/restore contract, V1-08 consumes the Reach Out reminder default, V1-12 consumes Capture mode routing for global Add, and V1-13 completes selection sheets and end-to-end Settings acceptance. `SETTINGS_SPEC.md` is authoritative for option behavior.
+The Settings refinement does not create a generic settings package. V1-01 owns the nine-section shell and fixed status copy, V1-02 owns the initial AppSettings singleton and backup/restore contract, V1-08 consumes the Reach Out reminder default, V1-10 adds and migrates the Default Already contacted interval because Today depends on it, V1-12 consumes Capture mode routing for global Add, V1-13 completes the remaining selection sheets, and V1-14 owns the Today-summary notification preference and capability state. `SETTINGS_SPEC.md` is authoritative for option behavior.
+
+The accepted Today amendment supersedes the historical POS-4 action labels below. V1-05 owns the generic Contacted Interaction; V1-07 owns Not today transition primitives; V1-08 owns Reach Out completion/relinking; V1-09 keeps the suggested intended action as explanatory context; V1-10 owns the three standard Today actions and direct phone/email handoff; V1-11 preserves the focused Contact Methods route; V1-13 adds WhatsApp/templates and hardening; and V1-14 owns summary-notification delivery. No completed package is reopened.
 
 ## Execution rules
 
@@ -72,7 +74,7 @@ The Settings refinement does not create another package. V1-01 owns the nine-sec
 
 **Precondition:** POS-D024 resolves introduction semantics. POS-D015 establishes FollowUp as the source of truth.
 
-**Scope:** Add Interaction, FollowUp, Event, and MemoryFact; record the agreed interaction kinds; make free-form notes dated interactions; support optional explicit promotion to controlled facts; render an automatic chronological timeline.
+**Scope:** Add Interaction, FollowUp, Event, and MemoryFact; record the agreed interaction kinds including generic Contacted from the explicit Already contacted action; make free-form notes dated interactions; support optional explicit promotion to controlled facts; render an automatic chronological timeline.
 
 **Acceptance criteria:**
 
@@ -89,19 +91,22 @@ The Settings refinement does not create another package. V1-01 owns the nine-sec
 
 **Goal:** Make Home answer “Who should I contact today?”
 
-**Scope:** Implement the pure versioned Relationship Engine contract, ordered Today eligibility bands, structured explanations, suggested next actions/dates, due/future separation, reschedule, mark contacted, and profile navigation. Retire Real Friends rotation semantics. UI performs formatting only.
+**Scope:** Implement the pure versioned Relationship Engine contract, ordered Today eligibility bands, structured explanations, suggested intended actions/dates, and due/future separation. Deliver three stable Today controls through the application layer: Contact now, Not today, and Already contacted. Not today uses FollowUp/TodaySkip primitives; Already contacted records generic contact and one chosen next FollowUp. Retire Real Friends rotation semantics. UI performs formatting only.
 
 **Acceptance criteria:**
 
 - Every displayed person has at least one visible reason backed by stored facts.
+- `buildToday` owns the complete stable ordering and returns eligibility/due state, relevant date, primary and additional due FollowUp IDs, explanation, and intended-action context for each Person.
 - No React component calculates priority, elapsed cadence, stage, or cue selection.
 - Explicit due follow-up outranks new-relationship follow-up, which outranks cadence due.
 - Importance only breaks ties and never makes a person due alone.
 - Future follow-ups do not appear as due.
-- Rescheduling removes the old due item and records the new plan.
-- Mark contacted records a meaningful interaction and recalculates priority.
+- Not today moves the primary explicit FollowUp to tomorrow or creates one tomorrow FollowUp for New/cadence eligibility, records the current-day TodaySkip, preserves other due FollowUps, and requires no confirmation.
+- Already contacted records one generic Contacted Interaction without an interaction form, completes the primary FollowUp when present, creates one next FollowUp from the selected interval, and recalculates priority.
+- When other due FollowUps remain, the next-reminder sheet discloses that they may return the Person sooner without adding another step.
 - Boundary dates and time zones are covered by tests using an injected clock.
-- The primary action is Message on WhatsApp; secondary actions are Mark contacted, Reschedule, and Open profile.
+- Every card presents Contact now, Not today, and Already contacted in that order; suggested intended action remains visible context rather than changing these controls.
+- Opening a dialler, email client, or later WhatsApp handoff never records contact or removes the card.
 - Identical inputs, time, timezone, and policy version produce identical structured outputs.
 - No opaque aggregate score is stored or displayed.
 
@@ -111,7 +116,7 @@ The Settings refinement does not create another package. V1-01 owns the nine-sec
 
 **Precondition:** POS-D023 defines relationship-stage thresholds and POS-D025 defines sensitive cue behavior.
 
-**Scope:** Add derived relationship stage, memory cue selection, and explicit/inferred event grouping.
+**Scope:** Add derived relationship stage, memory cue selection, and grouping from explicit shared Event links.
 
 **Acceptance criteria:**
 
@@ -120,20 +125,22 @@ The Settings refinement does not create another package. V1-01 owns the nine-sec
 - A memory cue identifies its source fact and updates when that fact changes.
 - Structured facts such as communication preference, location, interests, and introductions are searchable without AI.
 - People sharing an explicit event appear in an automatic event group.
-- Inferred groups show matching evidence and are correctable.
-- No grouping is created from a fuzzy name match alone.
+- People sharing an explicit Event link group automatically without a manually maintained collection.
+- No grouping is inferred from names, notes, organisations, or fuzzy similarity.
 
 ## POS-6 — WhatsApp templates and contact export
 
 **Goal:** Make contact actions useful while keeping the user in control.
 
-**Scope:** Add Networking, Coffee, and Custom templates; preview/edit before handoff; generate vCard; define an integration interface for future Capacitor investigation.
+**Scope:** Extend the V1-10 Contact now target resolver and chooser with WhatsApp, add the Profile-origin Networking, Coffee, and Custom composition flow for WhatsApp/email, preview/edit before handoff, generate vCard, and define an integration interface for future Capacitor investigation.
 
 **Acceptance criteria:**
 
 - WhatsApp URL uses digits from a validated canonical international number.
+- One phone that resolves to Call and WhatsApp produces two distinct chooser targets without duplicating ContactMethod.
 - Networking and Coffee templates interpolate only known facts and remain editable.
-- Custom text persists only when the user chooses to save it.
+- A sole Today email target remains a direct `mailto:` handoff; Profile Compose provides the reachable editable email-template flow.
+- Custom starts blank and remains only in the current draft; V1 adds no saved-template library.
 - PeopleOS never sends a message automatically.
 - A vCard opens/imports with correct name, phone, organisation, role, and note where present.
 - Contact creation always begins with an explicit user action and confirmation outside or inside the app.
@@ -153,6 +160,22 @@ The Settings refinement does not create another package. V1-01 owns the nine-sec
 - Home remains focused on today's people rather than dashboard metrics.
 - Storage/import/external-action errors are visible and recoverable.
 - The installed PWA works offline for all local features.
+
+## POS-8 — Today summary notifications
+
+**Goal:** Deliver one private prompt to open Today without copying reminder logic into notification infrastructure.
+
+**Scope:** After V1-13, add an Off-by-default global preference and explicit permission flow, a notification-scheduler port, delivery-only coordination state, one anonymous 09:00 local summary when the normal Today projection is non-empty, Open/Not today/two-hour Snooze notification actions, deep links, and retry/platform tests.
+
+**Acceptance criteria:**
+
+- Today remains the only source of notification eligibility; no notification queue or per-Person notification reminder is stored.
+- Empty Today sends nothing; non-empty Today sends at most one summary per scheduled occurrence and includes no names.
+- Notification Not today and Snooze change only delivery coordination and never Person, Reach Out, FollowUp, or Interaction data.
+- Open always routes through Today and validates any optional Person target before opening its Profile over Today.
+- Notification intent defaults Off; operating-system permission remains not requested until a direct user action.
+- Unsupported platforms state Unavailable.
+- If no approved adapter can reliably deliver while PeopleOS is closed, implementation stops; foreground timers, speculative backends, and unapproved native shells are not acceptable substitutes.
 
 ## Later planning, not approved implementation
 

@@ -1,6 +1,6 @@
 # PeopleOS Version 1 Product Specification
 
-Status: execution-ready product specification; implementation not started.
+Status: execution-ready product specification; implementation is complete through V1-03 and later packages remain governed by this document.
 
 ## 1. Product definition
 
@@ -124,7 +124,7 @@ After save, the Profile offers relevant next steps without requiring them: Plan 
 
 ### Daily use
 
-The app opens to Today. Up to five eligible people appear in deterministic order. Every card shows the reason and a best next action. The user contacts, records an interaction, reschedules/snoozes a FollowUp, skips the person for today, or opens the Profile.
+The app opens to Today. Up to five eligible people appear in deterministic order. Every card shows its reason and the same three actions: Contact now, Not today, and Already contacted. Contact now opens an available contact method but never assumes communication occurred. Not today defers the displayed plan to tomorrow. Already contacted records the user's explicit confirmation without asking them to complete an interaction form, then asks when to remind them again.
 
 The Reach Out tab provides the deliberate queue itself. Dated Reach Out plans appear in Today through the same FollowUp rules as every other explicit plan.
 
@@ -177,9 +177,11 @@ The minimum quick-capture requirement is Person or descriptive label. Missing re
 
 Active, Completed, and Dormant are durable intention states. Waiting, Snoozed, and Overdue are derived from the linked FollowUp so PeopleOS has only one reminder system.
 
+An active Reach Out reminder is represented by one reciprocal current-plan link: the ReachOutEntry points to its sole pending FollowUp and that FollowUp points back to the same entry and Person. Completion, cancellation, or replacement clears or moves the current pointer atomically; historical FollowUps remain history rather than competing current reminders.
+
 ### Completion
 
-Completing outreach records the completion date and offers an optional Interaction. It then asks whether another FollowUp is required. If accepted, the same Reach Out entry remains in the active queue with the new linked FollowUp and retains completion history. Otherwise it becomes Completed and leaves the active default list.
+Completing outreach records the completion date and offers an optional Interaction. It then asks whether another FollowUp is required. If accepted, the same Reach Out entry remains in the active queue with the new reciprocal current FollowUp and retains completion history. Otherwise it clears the current pointer, becomes Completed, and leaves the active default list.
 
 ### Removal
 
@@ -256,8 +258,27 @@ Importance only breaks ties within a group. There is no score.
 - Factual due label when relevant
 - Full-sentence reason
 - One safe memory cue when available
-- Suggested primary action
-- Mark contacted, Reschedule/Snooze, Skip for today, Open Profile
+- Contact now
+- Not today
+- Already contacted
+- Add phone number whenever no active valid phone is stored, including when email is available
+- Person name or context link to open Profile without competing with the three standard actions
+
+The three actions are identical on every Today card. A FollowUp's intended action remains useful explanatory context, but it never replaces these controls.
+
+### Contact now behavior
+
+Contact now resolves executable targets only from active, valid contact methods:
+
+- With one target, phone opens the device dialler through `tel:` and email opens the default email client through `mailto:`. WhatsApp may use the same handoff boundary when its later package is implemented.
+- With several targets, an accessible choice sheet lists the channel, stored method label, and familiar formatted value. No target is silently chosen.
+- With no usable target, open that Person's Contact Methods screen with a blank phone draft already open and the number field focused.
+
+Before V1-13, one phone or email ContactMethod produces one target. V1-13 may derive both Call and WhatsApp targets from one canonical phone without duplicating the ContactMethod; target count therefore determines direct launch versus the chooser.
+
+Opening another application causes no Interaction, FollowUp, Reach Out, TodaySkip, or other domain write. PeopleOS does not show a return-confirmation prompt. When the user returns, the card remains until they explicitly choose Not today, Already contacted, or another domain action elsewhere.
+
+Add phone number opens the same focused phone draft even when Contact now can use email. Cancelling writes nothing. After a successful save, returning to Today refreshes the card immediately and includes the new phone in Contact now.
 
 ### Initial list size
 
@@ -265,12 +286,28 @@ Five people. When more are eligible, Show more due people reveals the next five 
 
 ### After action
 
-- Confirmed contact records an Interaction, optionally completes a FollowUp, recalculates, and normally removes the card.
+- Contact now changes nothing in PeopleOS, whether or not another app opens.
+- Not today atomically moves the primary explicit FollowUp to tomorrow using the existing snooze lifecycle and stores today's Person-scoped TodaySkip. For a New or cadence card with no primary FollowUp, it creates one pending FollowUp for tomorrow with reason “Reconnect with {display name}” and action `other`, then stores the TodaySkip. Other FollowUps are not changed.
+- Already contacted opens the next-reminder sheet. Choosing a date atomically records one generic contact Interaction, completes the primary FollowUp when present, creates one next FollowUp, stores today's TodaySkip, maintains any linked Reach Out plan/history, and recalculates. Dismissing the sheet restores the card and writes nothing. When other due FollowUps will remain, the sheet discloses that they may bring the Person back sooner without adding another question.
 - FollowUp completed without contact removes that FollowUp but does not change last contact.
 - Reschedule or Snooze changes the effective plan and recalculates.
-- Skip hides the Person for the current local day only.
+- The TodaySkip used by Not today and Already contacted prevents additional independent due reasons from keeping the Person visible on the current local day. It does not complete or alter those other FollowUps.
 - Cancel removes that FollowUp, then independent New/cadence eligibility is evaluated.
 - External-app opening alone changes nothing.
+
+All compound Today actions are idempotent. A retry uses the same prepared Interaction, FollowUp, lifecycle-event, Reach Out event, and TodaySkip identifiers; failure leaves the previous domain state authoritative and keeps or restores the card.
+
+### Daily summary notification
+
+Daily Today notifications are opt-in and Off by default. On a supported platform with permission granted, PeopleOS evaluates the authoritative Today queue at 09:00 in the device's local timezone:
+
+- If Today is empty, it sends nothing.
+- If one or more actionable People appear, it sends one privacy-safe summary notification, never one notification per Person.
+- Title: `PeopleOS`. Default body: “You have people to reach out to today. Open PeopleOS to see who's on your list.” Names are omitted.
+
+Notification actions are Open, Not today, and Snooze. Open deep-links to Today. Notification Not today dismisses only that summary and schedules the next evaluation for 09:00 tomorrow. Snooze schedules one re-evaluation two hours later on the same local day. If two hours would cross local midnight, no same-day re-notification is scheduled and the normal 09:00 next-day evaluation resumes. Each re-evaluation sends nothing when Today has become empty. V1 sends no late catch-up when the setting is enabled or Today first becomes non-empty after 09:00. These actions never change a Person, Interaction, FollowUp, Reach Out entry, TodaySkip, or Today eligibility.
+
+The summary deep link targets Today and contains no Person identifier. The route contract may accept a future optional internal `personId`; after Today is hydrated and the Person is validated against the current result, it opens that Person's Profile over Today so Back returns to Today. A missing, archived, or ineligible Person falls back safely to Today rather than opening the wrong record.
 
 ### Overdue behavior
 
@@ -331,14 +368,16 @@ All are required except Person when already in profile context. The user may acc
 | Overdue | Active FollowUp | Eligible before other bands | None |
 | Complete with contact | Completed FollowUp + contact Interaction | Removed unless another reason remains | Updates last contact |
 | Complete without contact | Completed FollowUp + Follow-up completed Interaction | Removed unless another reason remains | Does not update last contact |
-| Skip for today | Day-scoped suppression | Hidden until next local day | None |
+| Not today, explicit FollowUp | Same FollowUp snoozed to tomorrow + lifecycle event + day-scoped TodaySkip | Hidden until next local day | None |
+| Not today, New/cadence | New pending FollowUp for tomorrow + day-scoped TodaySkip | Hidden until next local day | None |
+| Already contacted | Generic Contacted Interaction + completed primary FollowUp when present + one next FollowUp + day-scoped TodaySkip | Hidden today; returns on selected date unless another reason becomes eligible later | Updates last contact |
 | Snooze | Same plan with later effective date and original date preserved | Hidden until snooze date unless another reason remains | None |
 | Reschedule | Original superseded; replacement pending | Based on replacement date | None |
 | Cancel | Cancelled FollowUp | This reason removed; evaluate other rules | None |
 
-### Skip versus Snooze versus Reschedule
+### Not today versus Snooze versus Reschedule
 
-- **Skip for today:** “I do not want to act on this card today.” No plan changes.
+- **Not today:** “I still intend to contact this person, just not today.” The primary plan is moved or created for tomorrow, lifecycle history is preserved, and the Person is suppressed for the rest of the current local day.
 - **Snooze:** “Temporarily defer this same plan.” Original date remains visible.
 - **Reschedule:** “The plan itself has changed.” Replacement date/reason/action become authoritative.
 
@@ -416,7 +455,9 @@ Filters are scoped tools, not persistent saved views. People filters include Tag
 
 ### Types that count as contact
 
-Met, WhatsApp message, Email, Phone call, Coffee, Meeting, Conference, Introduction received.
+Met, WhatsApp message, Email, Phone call, Coffee, Meeting, Conference, Introduction received, Contacted.
+
+Contacted is the channel-neutral contact fact created only when the user explicitly chooses Already contacted. It prevents a compulsory logging form while keeping last contact, cadence, stage, and timeline truthful. It never results from opening another app.
 
 ### Types that do not count as contact
 
@@ -436,21 +477,36 @@ Automatically includes Person creation, Interactions, and FollowUp lifecycle eve
 
 ## 14. Contact actions
 
+### Contact now
+
+- Resolves targets only from active, valid ContactMethods.
+- A sole phone-call target opens `tel:` using its canonical international number.
+- A sole email target opens `mailto:` using its active canonical address.
+- Multiple targets open an accessible choice sheet showing channels, labels, and familiar values.
+- No usable target opens Contact Methods with a blank phone row ready and focused.
+- External handoff never records contact and never triggers a return-confirmation prompt.
+- The Today card remains available after handoff until the user chooses an explicit Today action.
+
 ### WhatsApp
 
 - Uses selected validated canonical phone.
 - Templates: Networking, Coffee, Custom.
+- Networking starts “Hi {first name}, it was lovely meeting you today at {event}. Great chatting with you.” When no Event exists, omit “at {event}.”
+- Coffee starts “Lovely seeing you today. Let's catch up again soon.”
+- Custom starts blank. PeopleOS does not infer sender identity or content.
 - Draft is always editable.
 - User opens WhatsApp and presses Send there.
-- Return confirmation asks whether contact happened.
+- Returning to PeopleOS records nothing; Already contacted is the explicit acknowledgement path.
 - Failure offers Copy.
 
 ### Email
 
 - Uses selected active email.
-- Subject/body editable.
+- From Profile or another non-Today Compose action, Networking, Coffee, and Custom provide editable subject/body before handoff.
+- Email uses the same starting body as WhatsApp; subject starts blank and remains editable.
+- Today Contact now launches a sole email target directly without inserting template composition.
 - User sends in their email app.
-- Return confirmation follows the same rule.
+- Returning to PeopleOS records nothing and leaves the Today card available.
 
 ### Phone contacts
 
@@ -461,7 +517,7 @@ Automatically includes Person creation, Interactions, and FollowUp lifecycle eve
 
 ### Phone call
 
-V1 may suggest Call as an action, but does not require a direct `tel:` handoff. The user can log Phone call. A direct call handoff may be added inside V1 only if it preserves the same confirmation flow and does not expand scope.
+Contact now opens a sole active valid phone through `tel:` or offers it in the method chooser. Opening the dialler is never treated as evidence of a call. The user may later log Phone call in detail or choose Already contacted for the frictionless channel-neutral record.
 
 ## 15. Contact import
 
@@ -511,13 +567,17 @@ Canonical empty states are specified per screen in `SCREEN_SPECIFICATIONS.md`.
 
 Settings contains nine sections: General, Modes, Today, Reach Out, Interactions, Notifications, Privacy & Security, Data, and About.
 
-Only three V1 preferences are editable globally:
+Five V1 preferences are editable globally:
 
 - Default phone region, using the device region when supported and otherwise `GB`
 - Capture mode, default Standard with optional Networking
 - Default reminder for new Reach Out entries, default No reminder with Tomorrow/7/14/30-day alternatives
+- Default “Already contacted” interval, with 2/7/14/30 days and Custom, default 14 days
+- Daily Today summary notifications, opt-in and Off by default
 
-Today ordering, Interaction contact confirmation, notification availability, local-first privacy behavior, versions, and schema information are fixed policies or runtime facts. They are shown transparently but are not styled as configurable controls. Per-Person importance, tags, cadence, communication preference, Reach Out plans, FollowUps, and relationship data never appear in Settings.
+The custom Already contacted interval is a whole number of days from 1 through 3650. It preselects a visible choice only; it never creates or changes a FollowUp until the user confirms Already contacted. The fixed notification delivery time is 09:00 local and Snooze is two hours in V1; neither adds another setting. Notification permission and platform availability remain runtime facts.
+
+Today ordering, local-first privacy behavior, versions, and schema information are fixed policies or runtime facts. They are shown transparently but are not styled as configurable controls. Per-Person importance, tags, cadence, communication preference, Reach Out plans, FollowUps, and relationship data never appear in Settings.
 
 The complete option, default, persistence, validation, and flow contract is authoritative in `SETTINGS_SPEC.md`. No setting may alter Relationship Engine ordering, stage, memory cues, search ranking, or duplicate evidence.
 
@@ -551,7 +611,8 @@ Do not show an unexplained or stale result. Hide the affected output, show Retry
 - Backup contains sensitive relationship data and is labelled accordingly.
 - Memory Facts are editable/archivable; sensitive kinds default out of cues.
 - No analytics dashboard or behavior-driven priority.
-- No interaction captured from another app without explicit confirmation.
+- No interaction inferred from opening or returning from another app.
+- Daily notification copy contains no Person names by default, and notification actions never mutate relationship records.
 
 ## 21. Product consistency review
 
@@ -569,6 +630,7 @@ Do not show an unexplained or stale result. Hide the affected output, show Retry
 - Backup/restore
 - Duplicate warning
 - Reach Out intentional action queue
+- One opt-in privacy-safe Today summary notification
 
 ### Narrowed
 
@@ -578,6 +640,7 @@ Do not show an unexplained or stale result. Hide the affected output, show Retry
 - Stage is a small derived summary, not a health metric.
 - Importance is a tie-breaker and edit preference, not a visible score.
 - Templates are three simple choices, not a template-management system.
+- Templates never add an intermediate step to the direct Today Contact now phone/email handoff.
 - Profile shows summaries; full entity lists are secondary.
 - Reach Out contexts are lightweight grouping labels, not projects, company accounts, or fellowship-management features.
 
@@ -587,7 +650,6 @@ Do not show an unexplained or stale result. Hide the affected output, show Retry
 - Custom relationship rules or Person-level settings
 - Direct Google/LinkedIn integrations
 - Native contact permissions
-- Notification delivery (Settings reports that notifications are unavailable in V1)
 - Bulk messaging/editing
 - Relationship health scores
 - Automatic event/fact inference
@@ -616,4 +678,4 @@ When wording conflicts:
 6. `SETTINGS_SPEC.md` decides global Settings behavior.
 7. This document supplies the product rationale and overall contract.
 
-No implementation begins until the specification is explicitly accepted.
+No later package begins against an unaccepted specification change. Completed package baselines remain intact unless the user explicitly reopens them.

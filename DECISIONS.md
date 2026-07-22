@@ -58,6 +58,8 @@ PeopleOS accepts natural phone input, parses it with a libphonenumber implementa
 
 WhatsApp links may prefill editable text, but PeopleOS never sends. Contact export may produce a vCard or later invoke a native confirmation flow, but PeopleOS never silently writes contacts. Opening an external app is not evidence that contact occurred.
 
+This does not require a confirmation prompt when the user returns from a phone, email, or future WhatsApp handoff. The Today card stays available and no record changes until the user explicitly chooses a PeopleOS action. **Already contacted** is that explicit acknowledgement when the user wants a one-tap generic record without logging channel detail.
+
 ## POS-D009 — Duplicate handling warns; it does not overwrite
 
 - **Status:** Accepted
@@ -198,6 +200,8 @@ Reach Out is a primary navigation destination and a first-class domain concept f
 
 Every ReachOutEntry references a permanent `Person.id`. Reminder dates are represented only by linked FollowUps and appear in Today through the existing explicit-FollowUp rules. Actual contact remains an Interaction. Reach Out never creates parallel Person, reminder, or interaction systems.
 
+A current Reach Out reminder uses reciprocal pointers: `ReachOutEntry.currentFollowUpId` names its sole pending FollowUp, and that FollowUp names the same ReachOutEntry and Person. Completion/cancellation without replacement clears the current pointer; replacement moves it atomically. Historical links remain history.
+
 ## POS-D029 — Incomplete identities are provisional People
 
 - **Status:** Accepted
@@ -221,7 +225,7 @@ V1 supports reusable ReachOutContext labels for project, organisation, Event, fe
 
 ## POS-D032 — V1 Settings has only three editable global preferences
 
-- **Status:** Accepted
+- **Status:** Superseded by POS-D036
 - **Date:** 2026-07-22
 
 Settings stores Default phone region, Capture mode, and Default Reach Out reminder. Today policy, Interaction confirmation, notification availability, privacy posture, and version information are fixed behavior or runtime facts displayed for transparency. Person cadence, importance, tags, communication preference, Reach Out plans, and FollowUps stay with the Person/domain record they describe.
@@ -230,7 +234,7 @@ This is the smallest set that removes repeated global friction without making be
 
 ## POS-D033 — Notifications is an informational V1 section, not a delivery feature
 
-- **Status:** Accepted
+- **Status:** Superseded by POS-D038 and POS-D039
 - **Date:** 2026-07-22
 
 Settings states that notifications are Off and unavailable in Version 1. It does not show a disabled toggle or request platform permission. Due work appears when the user opens PeopleOS and Today evaluates. Notification delivery remains excluded until capability, permissions, scheduling, timezone, retry, and privacy receive a separate product decision.
@@ -252,3 +256,49 @@ The strongest alternative was composing the generic single-record repository act
 V1-03 uses `libphonenumber-js/min` at the integration boundary. It stores trimmed user input as `rawValue`, the validated E.164 number as `canonicalValue`, and the parsed region when known; display formatting remains derived. The global default phone region assists ambiguous local input, and a phone row can explicitly override that parsing region without requiring the user to know a calling code. Neither choice becomes Person identity or silently rewrites existing contact methods.
 
 The larger metadata bundles and hand-written national-prefix rules were considered unnecessary for V1. Duplicate-warning UI, phone-based merging, and communication launch actions remain outside V1-03.
+
+## POS-D036 — Settings adds only the global defaults required by the refined Today loop
+
+- **Status:** Accepted
+- **Date:** 2026-07-22
+
+AppSettings adds `alreadyContactedDefaultReminderDays`, default 14 and validated as an integer from 1 to 3,650, plus `todaySummaryNotificationsEnabled`, default Off. The Today sheet presents 2, 7, 14, and 30-day presets and a custom interval. Notification delivery remains subject to runtime capability and permission. Permission is requested only after the user explicitly enables the setting on a supported runtime.
+
+These settings change only future Today decision defaults or delivery. They never change Relationship Engine rules or rewrite Person, Interaction, FollowUp, TodaySkip, or Reach Out data. Notification delivery time remains fixed at 09:00 local and same-day Snooze remains fixed at two hours, so neither becomes another preference.
+
+The strongest alternative was to retain three settings and infer or hard-code notification consent. That would either leave the requested default unavailable or request a privacy-sensitive permission without an explicit user choice. This decision would be wrong if notification opt-in were owned by an approved system-level onboarding flow, which V1 does not have.
+
+## POS-D037 — Today actions use explicit atomic relationship commands
+
+- **Status:** Accepted
+- **Date:** 2026-07-22
+
+Every Today card exposes Contact now, Not today, and Already contacted. Contact now is a provider handoff only and writes nothing. Not today snoozes the primary explicit FollowUp to tomorrow or creates one tomorrow FollowUp for a New/cadence reason, then writes today's Person-scoped TodaySkip so another reason cannot immediately re-display the card. Other FollowUps remain unchanged.
+
+Already contacted records one generic contact-counting `contacted` Interaction, completes the primary FollowUp when present, creates exactly one next FollowUp for the selected date, writes today's TodaySkip, and completes/relinks the same ReachOutEntry when the primary plan belongs to Reach Out. All records and history commit atomically with stable IDs and an idempotent command identity. Dismissing the interval sheet writes nothing.
+
+`buildToday` supplies the stable Person ID, eligibility and due state, relevant ordering date, primary and additional due FollowUp IDs, explanation, and intended-action context. The commands never rediscover “primary” in UI code. If additional plans remain due, the interval sheet discloses that they may bring the Person back sooner.
+
+Contact now resolves executable targets rather than counting ContactMethod rows. V1-10 resolves phone-call and email targets; V1-13 may derive both Call and WhatsApp from one phone without creating another ContactMethod. The target count determines direct launch versus the labelled chooser.
+
+The strongest alternative was to treat Not today as the existing TodaySkip alone and Already contacted as a plain reschedule. Skip alone would not establish tomorrow as the next explicit plan, while rescheduling would leave a fulfilled plan looking unfinished and would not record real contact. This decision would be wrong if product intent were only temporary visual dismissal with no reminder/history change; the accepted wording instead requires accurate reminders and preserved history.
+
+## POS-D038 — Today summary notifications are downstream delivery, never reminder state
+
+- **Status:** Accepted
+- **Date:** 2026-07-22
+
+A pure delivery policy consumes the current authoritative `buildToday` result. It sends no notification when Today is empty and one privacy-safe summary when one or more actionable People exist. The summary contains no names or count. A device-local TodayNotificationState coordinates evaluation, suppression, Snooze, and idempotent delivery actions without storing copied Today items or relationship identifiers; it is excluded from backup/restore.
+
+Notification Open deep-links to Today. Notification Not today dismisses only that day's summary and schedules tomorrow's evaluation. Notification Snooze schedules one evaluation two hours later only when that instant remains on the same local day; otherwise no same-day re-notification is created and the ordinary next-day evaluation remains. V1 sends no late catch-up when notification intent is enabled or Today first becomes non-empty after 09:00. These actions may mutate only notification-delivery state and must never create or change a Person, Interaction, FollowUp, FollowUpEvent, TodaySkip, ReachOutEntry, ReachOutEvent, or Relationship Engine input.
+
+The strongest alternative was to persist a notification queue beside Today. That would duplicate eligibility and become a competing reminder system as relationship data changed. This decision would be wrong only if a future remote delivery service could not evaluate or receive a fresh authoritative Today projection; such a service requires a new privacy/sync architecture decision.
+
+## POS-D039 — Reliable notification delivery has a platform stop condition
+
+- **Status:** Accepted
+- **Date:** 2026-07-22
+
+PeopleOS must not advertise Today summary delivery on a runtime until an adapter proves permission, scheduled closed-app delivery, replacement and cancellation, notification actions, warm and cold deep links, timezone reconciliation, retries, and idempotency. The browser PWA remains unavailable where it cannot meet this contract. The [Periodic Background Sync API is limited and experimental](https://developer.mozilla.org/en-US/docs/Web/API/Web_Periodic_Background_Synchronization_API), and Chrome ended [Notification Triggers](https://developer.chrome.com/docs/web-platform/notification-triggers/) after consistent cross-platform reliability could not be established.
+
+The strongest V1 candidate is a provider-neutral adapter backed by [Capacitor local notifications](https://capacitorjs.com/). That candidate is not approval to add a native build before its package. Backend push is rejected for V1 because it introduces subscription, delivery, privacy, retry, and likely account/sync decisions solely to wake the app. This decision would be wrong if a portable, reliable, testable browser scheduling capability becomes available before implementation; the adapter boundary permits that substitution without changing Today or reminder rules.

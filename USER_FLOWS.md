@@ -7,6 +7,7 @@
 - Duplicate warnings interrupt creation before persistence but never prevent deliberate creation.
 - When a flow recalculates relationship state, the updated result appears immediately after save.
 - Cancel and Back preserve previously committed records and discard only the current unsaved change.
+- Every Today card uses exactly Contact now, Not today, and Already contacted as its standard actions.
 
 ## UF-01 — First launch
 
@@ -151,50 +152,58 @@ The app never converts note prose into facts without this confirmation.
 7. Profile and Relationship Engine outputs recalculate.
 8. If eligible, the app offers a suggested follow-up date with its reason. User may Accept, Change date, or Not now.
 
-## UF-12 — Contact from Today using WhatsApp
+## UF-12 — Contact now from Today
 
-1. Tap Message on WhatsApp.
-2. If multiple valid phones exist, choose one; preferred phone is preselected.
-3. Choose Networking, Coffee, or Custom template.
-4. Review and edit message.
-5. Tap Open WhatsApp.
-6. WhatsApp opens with canonical number and draft; user sends or does not send.
-7. On return, PeopleOS asks: “Did you contact Sarah?”
-8. Actions:
-   - Yes, record contact
-   - No
-   - Record another interaction
-9. Yes creates a WhatsApp interaction at the confirmed date/time and asks which due FollowUp was fulfilled when more than one exists.
-10. Today recalculates.
+1. On any Today card, tap Contact now.
+2. PeopleOS resolves executable targets from the Person's active valid ContactMethods.
+3. If exactly one target exists:
+   - Phone opens the device dialler with a canonical `tel:` target.
+   - Email opens the default email client with a `mailto:` target.
+   - WhatsApp opens only after its later package supplies the approved adapter.
+4. If several targets exist, an accessible choice sheet shows every channel, stored method label, and familiar value, with preferred methods ordered first. One phone may supply both Call and WhatsApp targets after V1-13; choose one to continue.
+5. If no target exists, open that Person's Contact Methods screen with a blank phone draft already open and the phone-number field focused.
+6. The external application opens. The user may or may not communicate.
+7. Returning to PeopleOS restores the unchanged Today card. There is no “Did you contact them?” prompt.
+8. The card remains until the user explicitly chooses Not today, Already contacted, or changes the underlying relationship plan elsewhere.
 
-If WhatsApp cannot open, PeopleOS keeps the draft and offers Copy message. It does not record contact.
+If the selected target becomes unavailable or the external app cannot open, PeopleOS remains on Today, records nothing, and offers another target, Copy where useful, or Add contact details.
 
-## UF-13 — Contact by email
+## UF-13 — Add a missing phone number from Today
 
-1. Tap Email.
-2. Choose email if several exist.
-3. Review/edit subject and body.
-4. Tap Open email app.
-5. On return, confirm whether contact occurred.
-6. Yes records Email interaction and optionally completes the relevant FollowUp.
+1. A Today card with no active valid phone shows Add phone number, even when one or more emails exist.
+2. Tap Add phone number.
+3. Open the same Person's Contact Methods screen with a new unsaved phone row already created and the number field focused.
+4. Enter and save a valid number using the normal region parsing and validation.
+5. Return to the same Today list position.
+6. The card refreshes immediately. Contact now opens the sole resolved target directly or includes the new phone target in the chooser.
 
-No send state is inferred from the email application.
+Cancel or Back discards the unsaved row and returns to Today without creating a ContactMethod. A failed save retains the draft and focus; no partial row is stored.
 
-## UF-14 — Mark contacted without external handoff
+## UF-14 — Already contacted
 
-1. On Today card tap Mark contacted, or Profile → Log interaction.
-2. Select interaction type; most likely type may be preselected from preferred method but is editable.
-3. Confirm date/time and optional summary.
-4. Select which due FollowUp this fulfilled, if any.
-5. Save.
-6. Today recalculates and a brief confirmation identifies the recorded interaction.
+1. On a Today card, tap Already contacted.
+2. The card is visually withdrawn while a bottom sheet asks: “When should I remind you again?” No domain write has occurred yet.
+3. Options are 2 days, 7 days, 14 days, 30 days, and Pick a date…. The global default is visibly preselected; the unchanged default is 14 days. A configured custom interval appears as “In {n} days.”
+4. If other due FollowUps will remain, show “{count} other plan(s) remain due and may bring {display name} back sooner.” Do not add another decision.
+5. Dismiss the sheet to restore the unchanged card and write nothing.
+6. Choose a fixed interval or a future local calendar date to save immediately.
+7. In one transaction PeopleOS:
+   - creates one channel-neutral Contacted Interaction at the current instant without opening an interaction form;
+   - completes the primary FollowUp with contact when the card has one and appends its lifecycle event;
+   - leaves every other due or future FollowUp unchanged;
+   - creates one pending next FollowUp on the selected date, retaining the primary reason/action when present or using reason “Reconnect with {display name}” and action `other` for a New/cadence card;
+   - writes the Person/local-date TodaySkip so another independent reason cannot keep the card visible today;
+   - when Reach Out-linked, appends completion history, retains the same ReachOutEntry, and assigns the new FollowUp as its `currentFollowUpId`.
+8. Today recalculates and the Person leaves the current list. Upcoming, Profile, Timeline, and Reach Out show the same authoritative records.
+
+The command prepares stable child IDs. Retry after failure is idempotent, and failure rolls back every Interaction, FollowUp, lifecycle event, Reach Out event/link, and TodaySkip together while retaining the selected date.
 
 ## UF-15 — Create one-off follow-up
 
 1. From Profile or Add menu, tap Add follow-up.
 2. Select Person if necessary.
 3. Enter reason first.
-4. Select action type: Message, Email, Call, Arrange meeting, Make introduction, Send update, Other.
+4. Select action type: Message, Email, Call, Arrange meeting, Make introduction, Send update, Research contact route, Other.
 5. Select date; suggested date is shown only when an engine rule applies.
 6. Save.
 7. Follow-up appears on Profile and Upcoming; it appears on Today only when due.
@@ -203,7 +212,7 @@ Reason and date are required. A vague empty “remind me” record cannot be sav
 
 ## UF-16 — Complete a follow-up
 
-1. From Today, Upcoming, or Profile, tap Complete.
+1. From Upcoming, Profile, or FollowUp detail, tap Complete. Today uses its standard three-action row instead.
 2. Choose:
    - I contacted them
    - Completed without contacting them
@@ -212,18 +221,21 @@ Reason and date are required. A vague empty “remind me” record cannot be sav
 5. FollowUp becomes completed and leaves Today/Upcoming.
 6. Engine recalculates. A future cadence suggestion may appear but is not auto-saved.
 
-## UF-17 — Skip once
+## UF-17 — Not today
 
-1. From Today card overflow, tap Skip for today.
-2. Card disappears immediately for the current local day.
-3. FollowUp and interactions remain unchanged.
-4. Person returns the next day if still eligible.
+1. On any Today card, tap Not today.
+2. With no confirmation or follow-up question, PeopleOS performs one idempotent transaction:
+   - If the card has a primary explicit FollowUp, keep that FollowUp and move its effective date to tomorrow using the existing snooze field and append-only snooze history.
+   - If the card is eligible through the New or cadence rule, create one pending FollowUp for tomorrow with reason “Reconnect with {display name}” and action `other`.
+   - Create/reuse the Person/local-date TodaySkip for the current day.
+3. Do not create an Interaction, complete outreach, change ReachOutEntry state, or alter any other FollowUp.
+4. The card disappears immediately. The moved/created plan appears in Upcoming/Profile and can return to Today tomorrow under normal engine rules.
 
-No confirmation is needed because the action is reversible by “Undo” in the brief confirmation message.
+Failure rolls back the snooze/new FollowUp, lifecycle event, and TodaySkip together and leaves the card visible. Retry reuses the same prepared IDs and never duplicates history.
 
 ## UF-18 — Snooze follow-up
 
-1. From Today card or FollowUp detail, tap Snooze.
+1. From FollowUp detail, Upcoming, or Profile, tap Snooze. The Today one-day path is Not today in UF-17.
 2. Choose Tomorrow, Next week, In one month, or Pick date.
 3. Confirm.
 4. FollowUp keeps its original date in history and gains the selected effective date.
@@ -360,7 +372,7 @@ PeopleOS never assumes the contact was created and does not store a provider lin
 3. Optionally enter why they matter, intended next action, context/notes, and reminder date.
 4. Save.
 5. One ReachOutEntry is created referencing the existing `Person.id`.
-6. If a reminder date was selected, one linked FollowUp is created through the normal FollowUp command.
+6. If a reminder date was selected, one linked FollowUp is created through the normal FollowUp command and both records point to each other as the sole current plan.
 7. Profile and Reach Out show the same plan; no Person is duplicated.
 
 If a current Reach Out entry already exists, open it for editing rather than creating another.
@@ -373,7 +385,7 @@ If a current Reach Out entry already exists, open it for editing rather than cre
 4. Choose Use as temporary description.
 5. Optionally add why, intended action, reminder shortcut, notes, and Fellowship/Event/organisation/project context.
 6. Save.
-7. PeopleOS atomically creates a provisional Person, ReachOutEntry, optional context link, and optional linked FollowUp.
+7. PeopleOS atomically creates a provisional Person, ReachOutEntry, optional context link, and optional reciprocally linked sole current FollowUp.
 8. Reach Out displays the label with “Identity incomplete.”
 
 Only the descriptive label is required. The app never invents a name, organisation, contact method, or relationship fact.
@@ -384,35 +396,38 @@ Only the descriptive label is required. The app never invents a name, organisati
 2. Before the reminder date, Aaron appears as Waiting in Reach Out and in Upcoming, not Today.
 3. On the reminder date, the same linked FollowUp appears in Today under the normal explicit-FollowUp band.
 4. The Today card explains the planned action/date and may also show the Reach Out reason.
-5. Contact now, Snooze, Reschedule, Complete, and Skip use the existing FollowUp/Today flows.
-6. Move to Dormant or Remove from Reach Out confirms and cancels the pending FollowUp atomically.
+5. The card has the same Contact now, Not today, and Already contacted actions as every other Today card.
+6. Contact now changes nothing. Not today uses UF-17 while retaining the same Reach Out-linked FollowUp. Already contacted uses UF-14, appends Reach Out completion history, and links the selected next FollowUp to the same ReachOutEntry.
+7. Move to Dormant or Remove from Reach Out remains available from Reach Out Detail/Profile rather than competing with the three Today actions; confirmation cancels the pending linked FollowUp and clears the current pointer atomically.
 
 Reach Out never creates a second Today card or a separate reminder.
 
 ## UF-34 — Complete outreach and decide what happens next
 
-1. From Reach Out Detail, Today, or Person Profile, tap Mark outreach complete.
+1. From Reach Out Detail or Person Profile, tap Mark outreach complete. From Today, Already contacted follows UF-14's frictionless path.
 2. Confirm completion date.
 3. Choose whether to log an Interaction:
    - Log contact and select kind/date/summary
    - Complete without interaction
 4. PeopleOS records a ReachOut completion event and optional Interaction.
 5. Ask “Do you want another follow-up?”
-6. If No, the ReachOutEntry becomes Completed, records `lastCompletedAt`, and leaves the default active Reach Out list.
-7. If Yes, create/edit one FollowUp using the existing FollowUp flow; the ReachOutEntry returns/remains Active, links that FollowUp, retains completion history, and displays Waiting when the date is future.
+6. If No, the ReachOutEntry becomes Completed, records `lastCompletedAt`, clears `currentFollowUpId`, and leaves the default active Reach Out list.
+7. If Yes, create/edit one FollowUp using the existing FollowUp flow; the ReachOutEntry returns/remains Active, links that FollowUp reciprocally as its sole current plan, retains completion history, and displays Waiting when the date is future.
 8. Today, Upcoming, Profile, Timeline, and Reach Out recalculate from the same records.
 
 Outreach completion without an Interaction does not change last contact or relationship stage.
+
+Already contacted is different: it is the user's explicit confirmation that contact occurred, so UF-14 creates the channel-neutral Contacted Interaction automatically without requiring the full interaction form.
 
 ## UF-35 — Move Reach Out to Dormant, reactivate, or remove
 
 1. Open Reach Out item overflow or Detail.
 2. Choose Move to Dormant.
 3. If a pending FollowUp exists, confirmation explains it will be cancelled.
-4. Confirm. ReachOutEntry becomes Dormant and linked pending FollowUp is cancelled atomically.
+4. Confirm. ReachOutEntry becomes Dormant, the linked pending FollowUp is cancelled, and `currentFollowUpId` is cleared atomically.
 5. Dormant entry remains searchable/filterable and visible in Person history.
 6. Reactivate returns it to Active with no automatic reminder; user may add one.
-7. Remove from Reach Out requires confirmation, archives the entry, cancels a pending linked FollowUp, and removes it from Reach Out search/filter results without deleting Person or history.
+7. Remove from Reach Out requires confirmation, archives the entry, cancels a pending linked FollowUp, clears `currentFollowUpId`, and removes it from Reach Out search/filter results without deleting Person or history.
 
 ## UF-36 — Complete or link a provisional identity
 
@@ -441,12 +456,56 @@ Status filters use derived display state. Completed and Dormant remain searchabl
 
 1. Open Settings.
 2. Review the nine sections in order: General, Modes, Today, Reach Out, Interactions, Notifications, Privacy & Security, Data, About.
-3. Select Default phone region, Capture mode, or Default Reach Out reminder to open its focused selection sheet.
+3. Select Default phone region, Capture mode, Default Reach Out reminder, Default “Already contacted” interval, or Daily Today summary to open its focused control.
 4. Choose a value and apply it explicitly.
 5. The saved value appears immediately on Settings and affects only the documented future global behavior.
 6. Back without applying preserves the previous value.
 7. A failed save retains the previous value and offers Retry; a stale edit offers Reload instead of overwriting.
 
-Changing Default phone region never rewrites stored canonical phone numbers. Changing Capture mode changes only the default global Add destination. Changing the Reach Out reminder default affects only new drafts and never edits existing entries or FollowUps.
+Changing Default phone region never rewrites stored canonical phone numbers. Changing Capture mode changes only the default global Add destination. Changing the Reach Out reminder default affects only new drafts and never edits existing entries or FollowUps. Changing the Already contacted default only changes the preselected choice on future UF-14 sheets. Turning the daily summary On starts the explicit notification-permission/capability flow; it never changes Today eligibility.
 
-Today, Interactions, Notifications, Privacy & Security, and About show fixed policy or runtime information. They contain no misleading disabled toggles. Data actions continue through UF-06, UF-27, and UF-28.
+Today, Interactions, Notifications, Privacy & Security, and About also show their fixed policy or runtime information. Unsupported notification delivery is reported accurately rather than represented by a working toggle. Data actions continue through UF-06, UF-27, and UF-28.
+
+## UF-39 — Daily Today summary notification
+
+1. Open Settings → Notifications.
+2. PeopleOS checks the approved adapter without requesting permission. If reliable scheduling/action support is unavailable, show Unavailable and do not offer a working On action; a restored On preference is shown separately from device capability.
+3. On a supported runtime, turn Daily Today summary On.
+4. PeopleOS persists the desired On state and requests platform permission only after this explicit action.
+5. If permission is denied, retain the explicit On preference, show “Permission denied,” schedule nothing, and do not re-prompt automatically.
+6. With permission granted, the notification scheduler evaluates the authoritative Today queue at 09:00 in the device's current local timezone.
+7. If Today is empty, send nothing.
+8. If Today contains one or more actionable People, send exactly one summary:
+   - Title: PeopleOS
+   - Body: “You have people to reach out to today. Open PeopleOS to see who's on your list.”
+9. Do not include names or create one notification per Person.
+10. Actions:
+   - Open: open the current Today screen.
+   - Not today: dismiss only this summary and schedule the next queue evaluation for 09:00 tomorrow.
+   - Snooze: schedule one queue re-evaluation two hours later when that instant remains on the same local day. If it would cross midnight, schedule no same-day re-notification and retain the normal 09:00 next-day evaluation.
+11. Before a scheduled or snoozed summary is delivered, evaluate Today again; if it is empty, send nothing.
+
+Notification actions write only device-local delivery coordination. They never create or edit Person, Interaction, FollowUp, FollowUpEvent, TodaySkip, ReachOutEntry, ReachOutEvent, or engine output. Stable notification/action IDs make repeated delivery callbacks idempotent.
+
+## UF-40 — Open Today from a notification deep link
+
+1. The V1 summary notification carries a Today target and no Person ID.
+2. Tap the notification body or Open action.
+3. PeopleOS validates the target and opens Today, even after a cold launch or reload.
+4. Today is recalculated from current records; it may now be empty.
+5. A future targeted notification may carry an internal `personId` only. PeopleOS first builds Today, then opens that Person's Profile over Today when the Person is active and currently eligible; Back returns to Today.
+6. If the optional Person ID is absent, invalid, missing, archived, or no longer eligible, remain safely on Today and never open another Person by fallback matching.
+
+Phone numbers, email addresses, display names, and external-provider identifiers are never used as deep-link identity. Opening a deep link never performs a notification action or relationship mutation.
+
+## UF-41 — Compose a templated message from Profile
+
+1. From Person Profile or another non-Today contact surface, choose Compose message.
+2. Choose an available Email or WhatsApp target. WhatsApp appears only after V1-13 and only for a valid canonical phone.
+3. Choose Networking, Coffee, or Custom.
+4. PeopleOS shows deterministic editable content: Networking uses “Hi {first name}, it was lovely meeting you today at {event}. Great chatting with you.” and omits the Event phrase when unavailable; Coffee uses “Lovely seeing you today. Let's catch up again soon.”; Custom starts blank. Email subject starts blank; email body and WhatsApp text use the chosen content.
+5. Edit or continue, then explicitly open the external application.
+6. If the target application cannot open, keep the draft and offer Copy.
+7. Returning to PeopleOS restores the origin and records nothing.
+
+Today Contact now does not enter this flow: its sole phone/email target launches directly, while several executable targets use S33. Templates are composition conveniences, not saved relationship state, evidence of contact, or a second Today action.

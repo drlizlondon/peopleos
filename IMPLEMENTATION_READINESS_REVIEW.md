@@ -86,10 +86,10 @@ V1-01 is safe to begin after this review is accepted. V1-02 and later packages a
 
 - **Affected documents:** `DATA_MODEL.md`, `RELATIONSHIP_ENGINE_SPEC.md`, `SCREEN_SPECIFICATIONS.md`, `USER_FLOWS.md`
 - **Exact conflict or missing contract:** Today can suggest Message, Email, Call, Arrange meeting, Make introduction, Send update, Other, or Add contact details, but only WhatsApp and email have complete handoff flows. Communication preference is an unrestricted Fact string, so the engine cannot deterministically match it to a channel. Networking/Coffee/Custom templates have no baseline content or missing-Event behavior.
-- **Recommended resolution:** Make Communication preference a controlled V1 value of `whatsapp`, `email`, or `phone`, rendered as a Fact. Map actions as follows: Message uses WhatsApp then Email fallback; Email requires Email then Add contact details; Call shows the preferred phone with Copy number and Log call, with no automatic call; Arrange meeting, Make introduction, Send update, and Other open S21 with Custom selected and require the user to choose WhatsApp or Email. If neither exists, open Add contact details. Use fixed editable starting drafts: Networking with Event — “Hi {firstName}, it was lovely meeting you today at {event}. Great chatting with you.”; Networking without Event — “Hi {firstName}, it was lovely meeting you today. Great chatting with you.”; Coffee — “Lovely seeing you today. Let's catch up again soon.”; Custom — blank. Do not add an owner-profile setting or saved-template system.
+- **Recommended resolution:** Make Communication preference a controlled V1 value of `whatsapp`, `email`, or `phone`, rendered as a Fact. Treat FollowUp action and communication preference as intended-action context only; neither silently selects a Today control or target. Contact now resolves zero, one, or several executable targets from active methods, opening one directly or requiring an explicit chooser. V1-13 adds WhatsApp as a phone-derived target and makes template composition reachable from a non-Today Profile action. Use fixed editable starting drafts: Networking with Event — “Hi {firstName}, it was lovely meeting you today at {event}. Great chatting with you.”; Networking without Event — “Hi {firstName}, it was lovely meeting you today. Great chatting with you.”; Coffee — “Lovely seeing you today. Let's catch up again soon.”; Custom — blank. Email subject starts blank. Do not add an owner-profile setting or saved-template system.
 - **Why it matters:** Several specified primary actions currently lead nowhere or require guessing text/channel behavior.
 - **Package blocked:** V1-06, V1-08, V1-09, V1-10, V1-13
-- **Proposed acceptance test:** Table-test every FollowUp action against phone-only, email-only, both, and neither; test every communication-preference value and unavailable preference; assert exact initial draft for Event/no-Event and that editing is always possible.
+- **Proposed acceptance test:** Table-test every FollowUp action and communication-preference value as explanatory context; independently test zero, one, and several resolved contact targets, including one phone producing Call and WhatsApp; assert exact Profile-composition draft for Event/no-Event and that editing is always possible.
 - **Strongest alternative considered:** Reduce V1 FollowUp actions to Message and Email.
 - **What could make this recommendation wrong:** If V1 intends native call or action-specific composition flows. Those are not specified and would broaden scope.
 
@@ -152,7 +152,7 @@ V1-01 is safe to begin after this review is accepted. V1-02 and later packages a
 
 These are not reasons to delay V1-01 or, once the relevant corrections are made, later packages.
 
-1. **Historical roadmap wording is stale.** `ROADMAP.md` still mentions inferred Event grouping, a fixed WhatsApp-first action, and saved Custom text. Its header correctly says `VERSION1_SCOPE.md` supersedes it. Follow the V1 precedence rather than implementing those historical lines. A later documentation cleanup would reduce confusion but is not required to determine behavior.
+1. **The roadmap keeps historical POS packages.** Its header correctly makes `VERSION1_SCOPE.md` authoritative for the accepted implementation sequence. The duplication is navigation overhead, but current behavior and guardrails are aligned and do not require a second implementation path.
 2. **README points to the historical roadmap.** The README says implementation should proceed through `ROADMAP.md`, while that document redirects to `VERSION1_SCOPE.md`. The redirect is sufficient, but direct README wording would be clearer later.
 3. **ExternalIdentity storage is unnecessary in V1.** Preserve the domain boundary in documentation, but do not create Google/LinkedIn adapters, OAuth infrastructure, provider caches, or sync tables. A type/interface can wait until an approved integration uses it. The strongest alternative is an empty provider store now; that risks cementing guesses about future APIs. This recommendation would be wrong only if an accepted V1 feature needs provider linkage; none does.
 4. **Do not build a generic command bus or event-sourcing framework.** RC-02 needs a small FollowUp lifecycle table and RC-10 needs transactional application commands, not CQRS, a universal event store, background projection workers, or plugin registries. The alternative becomes justified only with sync or multi-user coordination, both excluded.
@@ -259,12 +259,12 @@ These are not reasons to delay V1-01 or, once the relevant corrections are made,
 
 ### V1-10 — Today experience
 
-- **Package objective:** Render Today and complete the core contact/follow-up action loop, including editable WhatsApp/email handoffs and confirmation.
+- **Package objective:** Render Today and complete the three-action phone/email and reminder loop without pulling WhatsApp/template work forward.
 - **Prerequisites:** V1-01–09; RC-02, RC-03, RC-05, RC-07, RC-10, RC-12.
-- **Expected files or system areas affected:** Today query/view model, cards and states, Explanation sheet, handoff templates/helpers, contact confirmation, transition wiring, pagination.
-- **User-visible outcome:** People appear for clear reasons and leave/remain predictably after contact, complete, snooze, reschedule, cancel, or skip.
-- **Required automated tests:** Every Today state; exact order/pages; action mapping; canonical WhatsApp URL; email URL; no Interaction on open; idempotent confirmation; list recalculation; skip/reload/undo; multiple-due handling.
-- **Manual acceptance checks:** Full WhatsApp/email return flows; failure Copy fallback; complete/snooze/skip/reschedule; no-contact details state; 390px action reachability.
+- **Expected files or system areas affected:** Today query/view model, cards and states, Explanation sheet, phone/email target resolver and handoff adapters, S33 chooser, focused Contact Methods route, Already-contacted interval sheet/setting migration, compound command wiring, pagination.
+- **User-visible outcome:** Every card explains itself and exposes Contact now, Not today, and Already contacted; cards and normal reminder/history views remain consistent after each explicit action.
+- **Required automated tests:** Every Today state; exact order/pages; complete Today DTO use; zero/one/several phone/email targets; no Interaction on external open; focused Add phone save/cancel; atomic/idempotent Not today and Already contacted; additional-due disclosure; interval-setting migration/backup; list recalculation and multiple-due handling.
+- **Manual acceptance checks:** Phone/email return flows; labelled chooser; failure Copy fallback; focused Add phone; all interval choices/dismissal; other-plan disclosure; 390px action reachability and keyboard focus.
 - **Can begin safely:** **No**, until V1-09 and corrections land.
 
 ### V1-11 — Search and complete person profile
@@ -289,19 +289,19 @@ These are not reasons to delay V1-01 or, once the relevant corrections are made,
 
 ### V1-13 — Contact actions and product hardening
 
-- **Package objective:** Add previewed vCard contact export and complete accessibility, resilience, performance, empty-state, and end-to-end hardening.
+- **Package objective:** Add WhatsApp target resolution, reachable Profile-origin WhatsApp/email composition, previewed vCard export, and final product hardening.
 - **Prerequisites:** V1-01–12; RC-07, RC-10, RC-12.
-- **Expected files or system areas affected:** vCard generator/preview, Settings selection sheets/status rows, accessibility semantics/focus, error boundaries/recovery, performance fixtures, final responsive/offline checks, all feature tests.
-- **User-visible outcome:** A coherent, resilient V1 that exports contact cards and completes all specified journeys.
-- **Required automated tests:** vCard field/privacy fixtures; exact Settings options/defaults/effects; fixed-policy rows cannot mutate domain rules; WCAG 2.2 AA automated rules; keyboard focus tests where automatable; fixed-scale performance smoke; offline navigation/local flows; broken-route and storage-error recovery; full critical-path E2E.
-- **Manual acceptance checks:** Import generated vCard into representative device contact UI; keyboard-only journey; screen-reader labels/focus; installed-PWA offline pass; 390px visual review; external app fallbacks.
+- **Expected files or system areas affected:** Contact target resolver, WhatsApp adapter, S21/S33 Profile composition flow, deterministic draft templates, vCard generator/preview, Settings selection sheets/status rows, accessibility/focus, error recovery, performance fixtures, responsive/offline and end-to-end tests.
+- **User-visible outcome:** A phone can offer Call and WhatsApp distinctly, Profile can compose editable WhatsApp/email content, Today remains unchanged after handoff, and contact cards export safely.
+- **Required automated tests:** Target-count cardinality including Call plus WhatsApp from one phone; canonical WhatsApp URL; exact Event/no-Event Networking, Coffee, Custom, and blank-email-subject drafts; direct Today email bypass; no contact mutation on handoff; vCard field/privacy fixtures; exact Settings behavior; WCAG 2.2 AA rules; performance, offline-local, error-recovery, and critical-path E2E.
+- **Manual acceptance checks:** Exercise Profile email/WhatsApp composition and Copy fallback; return to unchanged Today; import a generated vCard; keyboard-only and screen-reader focus journey; installed-PWA offline pass; 390px visual review.
 - **Can begin safely:** **No**, until all earlier packages and final quality contracts land.
 
 ### Package safety summary
 
 - **Safe to begin now:** V1-01 only.
 - **Safe after required corrections and prerequisites:** V1-02 through V1-13 in order.
-- **Never pulled into V1:** Google Contacts, LinkedIn, contact permissions/native writes, sync/accounts, notification delivery/permissions, AI, scoring, fuzzy Event grouping, automatic Fact extraction, bulk messaging, or bulk FollowUps.
+- **Historical at the review date; notification clause superseded by the post-review amendment below. Never pulled into the original V1 scope:** Google Contacts, LinkedIn, contact permissions/native writes, sync/accounts, notification delivery/permissions, AI, scoring, fuzzy Event grouping, automatic Fact extraction, bulk messaging, or bulk FollowUps.
 
 ## 5. Recommended first vertical slice
 
@@ -357,7 +357,7 @@ This slice proves the product's differentiating loop without importing Search, F
 2. One implementation package—or one explicitly approved partial package from the vertical-slice milestone—per working session.
 3. Start no blocked package until its required corrections and prerequisites are accepted.
 4. Do not add unapproved scope, even when an abstraction makes it convenient.
-5. Do not implement speculative integrations, provider stores, OAuth, Google Contacts, LinkedIn, native contact permissions, sync, notification delivery/permissions, or background jobs. The Settings notification row is informational only.
+5. **Historical guardrail at the review date; notification clause superseded by the post-review amendment below.** Do not implement speculative integrations, provider stores, OAuth, Google Contacts, LinkedIn, native contact permissions, sync, notification delivery/permissions, or background jobs. The Settings notification row was informational only under the original accepted scope.
 6. Do not introduce a scoring system where deterministic eligibility bands and ordering are specified.
 7. Do not generate or surface cues from free-form Notes. Only explicit cue-enabled Memory Facts and specified structured context may become cues.
 8. Do not perform fuzzy Event grouping. Event membership is explicit through Interactions.
@@ -380,3 +380,69 @@ This slice proves the product's differentiating loop without importing Search, F
 - **Readiness artifact:** `IMPLEMENTATION_READINESS_REVIEW.md`
 - **Specification amendment:** Reach Out is now reflected across the product, screen, flow, engine, navigation, scope, architecture, data-model, decision, roadmap, project, and repository documents; no application implementation is implied.
 - **Application code or dependencies added:** none
+
+## Post-review implementation-readiness amendment — 2026-07-22
+
+### Status and precedence
+
+This section records an accepted product change after the original readiness verdict. It does not reduce the original 12 corrections, rewrite the historical package analysis, or reopen completed V1-01 through V1-03. Where this section conflicts with the earlier notification exclusion, this dated amendment and the current authoritative specification documents take precedence.
+
+The implementation order now contains 14 packages. V1-04 — Duplicate warning and vCard import remains the next package. V1-14 — Today summary notifications follows V1-13 and is the only package authorised to implement notification permission or delivery.
+
+### Accepted Today contract and package delta
+
+- **V1-05 — Interactions and timeline:** add generic `contacted` as a direct-contact Interaction kind. Already contacted creates it from the explicit tap without requiring a type/date/summary form. External handoff still creates nothing.
+- **V1-07 — Follow-ups and cadence:** own the atomic Not today primitives. For a primary explicit FollowUp, snooze it to tomorrow. For New/cadence eligibility, create one explicit tomorrow FollowUp. In both cases create current-day TodaySkip suppression, leave every other due FollowUp unchanged, and preserve complete history.
+- **V1-08 — Reach Out:** enforce a reciprocal sole-current-FollowUp link. When Already contacted resolves a linked plan and creates a next FollowUp, append the completion event, retain the current ReachOutEntry as active, and atomically relink `currentFollowUpId`. Do not create another entry or reminder type.
+- **V1-09 — Relationship Engine core:** return the complete stable `buildToday` DTO and ordering, including primary/additional due FollowUp IDs. Keep suggested intended action as structured explanatory context while the Today UI always renders Contact now, Not today, and Already contacted. Notification eligibility is exactly the ordinary Today projection, not a new engine output or stored queue.
+- **V1-10 — Today experience:** own the three standard card actions, direct `tel:`/`mailto:` target resolution and chooser, focused Add phone number entry and return, the Already contacted interval sheet/additional-plan disclosure and compound transaction, the new setting field/migration, recalculation, idempotency, and error recovery.
+- **V1-11 — Search and complete person profile:** preserve the stable focused Contact Methods route and return-to-Today state when the complete Profile replaces the minimal V1-03 view.
+- **V1-13 — Contact actions and product hardening:** add WhatsApp as a target derived from canonical phone, route one phone with Call plus WhatsApp through the chooser, expose editable email/WhatsApp templates from non-Today Profile composition, add vCard export, and harden. It does not own notification delivery.
+- **V1-14 — Today summary notifications:** own the global Off-by-default preference, permission, scheduler adapter, delivery-only state/actions, deep links, retries, timezone handling, capability reporting, and platform tests.
+
+### Compound Today command contract
+
+Contact now makes no domain mutation. Not today commits its FollowUp/TodaySkip changes once and removes the card only after success.
+
+Already contacted opens the reminder-interval sheet with the saved global default preselected. The card may hide optimistically, but no domain mutation is authoritative until the user selects 2, 7, 14, 30 days or a valid Custom interval. The selection commits one transaction with stable command and child IDs:
+
+1. Create one generic Contacted Interaction at the supplied current time.
+2. Complete the primary due FollowUp when one exists; other due FollowUps remain untouched.
+3. Append/relink Reach Out completion state when the primary FollowUp belongs to Reach Out.
+4. Create one next FollowUp at the chosen local calendar date; never store that date on Person or ReachOutEntry.
+5. Record current-day TodaySkip so the Person remains absent for the rest of the current local day even when another independent due reason exists.
+6. Increment the dataset revision once.
+
+Dismissal before interval selection changes nothing and restores the card. A failed transaction changes nothing, restores the card, retains the sheet selection, and offers Retry with the same IDs. Repeated taps or retries cannot create duplicate Interactions, FollowUps, ReachOutEvents, or TodaySkip records.
+
+The default interval is a global AppSettings draft default: 14 days initially, with 2, 7, 14, 30, or validated Custom days. It is included in backup/restore, affects only future sheets, and is not a Relationship Engine input or Person preference.
+
+### V1-14 — Today summary notifications
+
+- **Package objective:** Deliver one privacy-preserving prompt to open the existing Today queue without creating notification-specific relationship logic.
+- **Prerequisites:** V1-01–13; the V1-10 Today query/action contract; an explicitly approved target-platform adapter capable of reliable closed-app delivery.
+- **Expected files or system areas affected:** AppSettings migration and Settings Notifications row; notification scheduler port; supported platform adapter/service-worker or native bridge; device-local delivery coordination repository; permission/capability adapter; deep-link router; notification action handlers; deterministic clock/timezone fixtures; integration and platform tests.
+- **User-visible outcome:** Notifications are Off until the user enables them. On supported platforms, PeopleOS evaluates Today at 09:00 local time, sends nothing when empty, or sends one summary saying “You have people to reach out to today. Open PeopleOS to see who's on your list.” No names appear. Open routes to Today; Not today schedules the next summary evaluation for 09:00 tomorrow; Snooze re-shows it two hours later that same local day.
+- **Delivery-state boundary:** Store only device-local coordination such as scheduled occurrence key, last delivered occurrence, day suppression, and snoozed-until instant. Do not duplicate enabled intent from AppSettings, store a notification queue, use Person IDs as reminder ownership, or copy Today. Permission remains runtime/provider state. The global preference is backed up; permission, subscription tokens, and delivery coordination are not.
+- **Idempotency:** Use a stable occurrence identity derived from notification kind plus scheduled local date/time. Re-evaluation, retry, service-worker restart, repeated action delivery, or app reopen cannot create another summary for the same unsnoozed occurrence. Snooze creates one explicitly linked replacement occurrence, not another individual reminder.
+- **Timezone and late-day behavior:** Recalculate future schedules when device timezone changes; never reinterpret FollowUp dates. A two-hour Snooze that would cross midnight creates no same-day re-notification; the ordinary 09:00 next-day evaluation remains. There is no missed-notification catch-up after 09:00; the next ordinary evaluation is the next day unless a same-day Snooze remains valid.
+- **Required automated tests:** Off default; permission requested only after a user gesture; denied/revoked/unsupported capability; denied and restored-On intent with no delivery or automatic prompt; empty versus non-empty Today; exactly one anonymous payload; no names in title/body/data; Open route; optional valid/invalid Person target; Not today and Snooze delivery-state transitions; repeated delivery/action idempotency; timezone and midnight boundaries; queue becomes empty before delivery; adapter failure/retry; notification preference backup round trip; delivery-state exclusion from backup; byte-for-byte unchanged Person, Reach Out, FollowUp, and Interaction stores for every notification action.
+- **Manual acceptance checks:** Install on each supported target; enable/deny/revoke permission; receive the 09:00 summary with the app closed; verify no notification for empty Today; exercise Open, Not today, and Snooze; inspect privacy content; change timezone; verify unsupported runtime copy; verify all Today cards and individual plans remain unchanged after notification actions.
+- **Can begin safely:** **No**, until V1-01–13 are complete and a reliable target adapter is explicitly approved.
+- **Mandatory stop condition:** If the selected runtime cannot reliably deliver while PeopleOS is closed, stop and report the capability gap. Do not substitute foreground timers, polling, a speculative backend, silent pushes, a native shell, or sync without separate approval. Unsupported platforms must show Unavailable.
+
+### Alternatives and reversal conditions
+
+1. **Not today as TodaySkip only:** simpler and preserves every FollowUp unchanged, but it does not fulfil the accepted requirement that the primary plan move to tomorrow. The chosen combined transition would be wrong if the product later changes the promise to “hide this card today without changing the plan”; then TodaySkip alone should replace it.
+2. **Not today as FollowUp snooze only:** preserves primary FollowUp history, but cannot handle New/cadence cards and cannot guarantee the Person leaves Today when another due reason exists. It becomes viable only if Today is later restricted to exactly one explicit FollowUp per card.
+3. **Require interaction classification after Already contacted:** richer channel data, but unnecessary friction after an explicit truthful contact assertion. The generic Contacted kind becomes wrong only if V1 gains a genuine channel-specific reporting or compliance requirement.
+4. **Store the next reminder on Person/ReachOutEntry:** superficially simpler query, but duplicates FollowUp authority and creates competing state. Reconsider only if the product removes FollowUp as the single dated-plan model.
+5. **Keep notifications inside V1-13:** fewer package labels, but it makes the hardening package depend on an unresolved platform capability and weakens its stop line. V1-14 is preferable because it isolates permissions, platform delivery, retries, and deep-link verification after the core product is complete. This separation becomes unnecessary only if a reliable notification adapter is already part of the approved runtime before V1-13 begins.
+
+### Amended safety summary
+
+- Completed baselines remain V1-01 through V1-03; no completed commit is amended or reopened.
+- V1-04 remains the next package and can be assessed against its existing prerequisites.
+- V1-05 through V1-13 remain sequential, with the ownership deltas above incorporated before each package begins.
+- V1-14 is blocked until V1-13 completes and the notification-adapter stop condition is resolved.
+- The historical prohibition on all notification work is replaced only for V1-14. Notification code, permissions, background delivery, or speculative infrastructure must not be pulled into V1-04 through V1-13.
