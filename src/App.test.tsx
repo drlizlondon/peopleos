@@ -15,6 +15,7 @@ describe("PeopleOS shell", () => {
       "Settings"
     ]);
     expect(screen.getByRole("link", { name: "Today" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Add person" })).toHaveAttribute("href", "/people/new");
   });
 
   it("navigates to Reach Out and preserves its canonical empty-state wording", async () => {
@@ -44,6 +45,7 @@ describe("PeopleOS shell", () => {
     ]);
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.getByText("Unavailable in Version 1")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Add person" })).not.toBeInTheDocument();
   });
 
   it("supports browser Back between stable primary routes", async () => {

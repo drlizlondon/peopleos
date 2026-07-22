@@ -195,6 +195,14 @@ Memory cues follow a stable priority: due commitment, explicit communication pre
 
 ContactMethod supports multiple mutable phones and emails. ExternalIdentity links provider records such as Google Contact or LinkedIn. WhatsApp is initially a capability of a canonical phone number, not a Person identity and not a duplicated contact record.
 
+### V1-03 manual capture boundary
+
+The first implemented Person workflow uses three secondary routes: `/people/new`, `/people/:personId`, and `/people/:personId/contact-methods`. The profile at this stage is a recognition summary, not the later complete relationship profile. Screens issue application commands and queries; they do not write to IndexedDB directly.
+
+The manual-capture command creates stable IDs when the draft begins, validates and normalises the whole draft before storage, then uses one IndexedDB transaction across Person, ContactMethod, an optional first OrganisationAffiliation, an optional `met` Interaction, and dataset metadata. Empty optional child records are not written. A retry with the same prepared records is idempotent; an ID collision with different data aborts the transaction. The dataset revision advances once only after all records have been accepted, so a failed write cannot leave a partial Person or orphaned contact method.
+
+Contact-method commands add, edit, choose a preferred method, archive, and restore an immediately archived method for the safe Undo action through the application layer with optimistic revision checks. The first active method of each kind becomes preferred. Choosing another preferred method clears the earlier preference in the same transaction; archiving does not silently select a replacement. These commands preserve one permanent `Person.id` and do not introduce phone- or email-based identity.
+
 All outbound actions use ports such as:
 
 ```ts
@@ -272,6 +280,8 @@ Several signals may change the presentation order, but no hidden numeric confide
 ## Phone numbers and native contacts
 
 Use a libphonenumber implementation with default region input. Store canonical E.164 including `+`, preserve raw input, display a familiar national format, and never silently repair ambiguity.
+
+V1-03 implements this port with the `libphonenumber-js/min` entry point. New input uses the global default region when the number is ambiguous, while each phone row lets the user choose a different region without having to translate a national number into international notation. Common international input without a leading `+` is retried only when its digits begin with that selected region's calling code; parsing and validity still come from the library. The ContactMethod stores trimmed `rawValue`, E.164 `canonicalValue`, and the parsed region when known. Familiar national or international display is derived at read time. Email input is trimmed, preserves the user's case in `rawValue`, and stores a lowercase canonical value for future comparison.
 
 The web baseline generates a standards-compliant vCard after a user gesture. A future Capacitor contact adapter must use the same application port and explicit confirmation. Native contact creation is not approved yet.
 

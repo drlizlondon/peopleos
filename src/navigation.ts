@@ -1,11 +1,12 @@
 export type PrimaryRouteId = "today" | "reach-out" | "people" | "upcoming" | "settings";
-export type RouteId = PrimaryRouteId | "export-backup" | "restore-backup";
+export type RouteId = PrimaryRouteId | "add-person" | "person-profile" | "contact-methods" | "export-backup" | "restore-backup";
 
 export type Route = {
   id: RouteId;
   path: string;
   label: string;
   primaryId: PrimaryRouteId;
+  personId?: string;
 };
 
 export const routes: Route[] = [
@@ -22,5 +23,40 @@ const secondaryRoutes: Route[] = [
 ];
 
 export function routeFromPath(pathname: string): Route {
-  return [...routes, ...secondaryRoutes].find((route) => route.path === pathname) ?? routes[0];
+  const staticRoute = [...routes, ...secondaryRoutes].find((route) => route.path === pathname);
+  if (staticRoute) return staticRoute;
+
+  if (pathname === "/people/new" || pathname === "/people/new/") {
+    return { id: "add-person", path: "/people/new", label: "Add person", primaryId: "people" };
+  }
+
+  const contactMethods = pathname.match(/^\/people\/([^/]+)\/contact-methods\/?$/);
+  if (contactMethods) {
+    const personId = decodePathPart(contactMethods[1]);
+    return { id: "contact-methods", path: pathname, label: "Contact details", primaryId: "people", personId };
+  }
+
+  const profile = pathname.match(/^\/people\/([^/]+)\/?$/);
+  if (profile) {
+    const personId = decodePathPart(profile[1]);
+    return { id: "person-profile", path: pathname, label: "Person", primaryId: "people", personId };
+  }
+
+  return routes[0];
+}
+
+function decodePathPart(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+export function personProfilePath(personId: string): string {
+  return `/people/${encodeURIComponent(personId)}`;
+}
+
+export function contactMethodsPath(personId: string): string {
+  return `${personProfilePath(personId)}/contact-methods`;
 }

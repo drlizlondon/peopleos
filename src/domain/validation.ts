@@ -93,7 +93,8 @@ function validateContact(value: unknown): value is ContactMethod {
   if (!nonEmpty(value.rawValue) || !nonEmpty(value.canonicalValue) || typeof value.isPreferred !== "boolean") return false;
   if (!optionalString(value.label) || !optionalInstant(value.archivedAt)) return false;
   if (value.kind === "phone") return /^\+[1-9]\d{1,14}$/.test(String(value.canonicalValue)) && optionalString(value.region);
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value.canonicalValue));
+  const canonical = String(value.canonicalValue);
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(canonical) && canonical === canonical.toLowerCase();
 }
 
 function validateAffiliation(value: unknown): value is OrganisationAffiliation {
@@ -265,6 +266,14 @@ export function validatePeopleOsData(value: unknown): PeopleOsData {
   });
   data.reachOutContexts.forEach((record) => {
     if (record.eventId) requireReference(issues, eventIds.has(record.eventId), `reachOutContexts.${record.id}.eventId`);
+  });
+  const preferredContactKinds = new Set<string>();
+  data.contactMethods.filter((record) => !record.archivedAt && record.isPreferred).forEach((record) => {
+    const key = `${record.personId}:${record.kind}`;
+    if (preferredContactKinds.has(key)) {
+      issues.push(`contactMethods contains more than one active preferred ${record.kind} for person ${record.personId}`);
+    }
+    preferredContactKinds.add(key);
   });
   if (data.appSettings.length !== 1 || data.appSettings[0]?.id !== "app") issues.push("appSettings must contain exactly one app singleton");
 

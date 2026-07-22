@@ -234,3 +234,21 @@ This is the smallest set that removes repeated global friction without making be
 - **Date:** 2026-07-22
 
 Settings states that notifications are Off and unavailable in Version 1. It does not show a disabled toggle or request platform permission. Due work appears when the user opens PeopleOS and Today evaluates. Notification delivery remains excluded until capability, permissions, scheduling, timezone, retry, and privacy receive a separate product decision.
+
+## POS-D034 — Manual Person capture is one aggregate transaction
+
+- **Status:** Accepted
+- **Date:** 2026-07-22
+
+V1-03 prepares stable IDs for the Person and possible child records when a capture draft begins. Saving validates and normalises the entire draft, then atomically writes the Person, contact methods, optional first affiliation, optional `met` Interaction, and one dataset-revision update. Replaying the same prepared command is idempotent; an ID collision with different content is a conflict and rolls back the complete write.
+
+The strongest alternative was composing the generic single-record repository actions. That would expose intermediate state and could leave a Person without the child records the user submitted, so it is rejected for aggregate capture. This dedicated command does not create a parallel persistence layer; ordinary record mutations continue to use the established application and repository boundaries.
+
+## POS-D035 — V1 phone parsing uses the minimal libphonenumber entry point
+
+- **Status:** Accepted
+- **Date:** 2026-07-22
+
+V1-03 uses `libphonenumber-js/min` at the integration boundary. It stores trimmed user input as `rawValue`, the validated E.164 number as `canonicalValue`, and the parsed region when known; display formatting remains derived. The global default phone region assists ambiguous local input, and a phone row can explicitly override that parsing region without requiring the user to know a calling code. Neither choice becomes Person identity or silently rewrites existing contact methods.
+
+The larger metadata bundles and hand-written national-prefix rules were considered unnecessary for V1. Duplicate-warning UI, phone-based merging, and communication launch actions remain outside V1-03.
