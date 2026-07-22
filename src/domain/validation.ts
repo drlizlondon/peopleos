@@ -6,6 +6,7 @@ import {
   type ContactMethod,
   type DataStoreName,
   type FollowUp,
+  type FollowUpEvent,
   type Interaction,
   type LocalDate,
   type MemoryFact,
@@ -17,6 +18,7 @@ import {
   type ReachOutEntry,
   type RelationshipEvent
 } from "./schema";
+import { interactionCountsAsContact } from "./interactionPolicy";
 
 export class ValidationError extends Error {
   constructor(public readonly issues: string[]) {
@@ -30,8 +32,8 @@ const interactionKinds = new Set([
   "conference", "introduction_received", "introduction_made", "note_added",
   "follow_up_completed"
 ]);
-const followUpActions = new Set(["message", "email", "call", "arrange_meeting", "make_introduction", "send_update", "other"]);
-const reachOutActions = new Set([...followUpActions, "research_contact_route"]);
+const followUpActions = new Set(["message", "email", "call", "arrange_meeting", "make_introduction", "send_update", "research_contact_route", "other"]);
+const reachOutActions = followUpActions;
 const factKinds = new Set(["introduced_by", "interest", "seeking", "family", "communication_preference", "location", "other"]);
 
 function object(value: unknown): value is Record<string, unknown> {
@@ -82,7 +84,7 @@ function validatePerson(value: unknown): value is Person {
     && ["provisional", "confirmed", "merged"].includes(String(status))
     && ["normal", "high"].includes(String(value.importance))
     && strings(value.tags)
-    && (value.contactCadenceDays === undefined || (Number.isInteger(value.contactCadenceDays) && Number(value.contactCadenceDays) > 0))
+    && (value.contactCadenceDays === undefined || (Number.isInteger(value.contactCadenceDays) && Number(value.contactCadenceDays) >= 1 && Number(value.contactCadenceDays) <= 3_650))
     && optionalInstant(value.archivedAt)
     && optionalString(value.mergedIntoPersonId)
     && (status === "merged" ? nonEmpty(value.mergedIntoPersonId) : value.mergedIntoPersonId === undefined);
@@ -125,12 +127,46 @@ function validateFact(value: unknown): value is MemoryFact {
 }
 
 function validateFollowUp(value: unknown): value is FollowUp {
-  return object(value) && mutable(value) && nonEmpty(value.personId) && isLocalDate(value.dueDate)
-    && nonEmpty(value.reason) && followUpActions.has(String(value.actionType))
-    && ["pending", "completed", "cancelled", "superseded"].includes(String(value.status))
-    && optionalString(value.suggestedByRule) && optionalString(value.reachOutEntryId)
-    && optionalInstant(value.completedAt) && optionalDate(value.snoozedUntilDate)
-    && optionalString(value.supersedesFollowUpId) && optionalString(value.supersededByFollowUpId);
+  if (!object(value) || !mutable(value) || !nonEmpty(value.personId) || !isLocalDate(value.dueDate)) return false;
+  const reason = String(value.reason ?? "");
+  const status = String(value.status);
+  if (!reason.trim() || reason !== reason.trim() || reason.length > 240) return false;
+  if (!followUpActions.has(String(value.actionType)) || !["pending", "completed", "cancelled", "superseded"].includes(status)) return false;
+  if (!optionalString(value.suggestedByRule) || !optionalString(value.reachOutEntryId)
+    || !optionalInstant(value.completedAt) || !optionalDate(value.snoozedUntilDate)
+    || !optionalString(value.supersedesFollowUpId) || !optionalString(value.supersededByFollowUpId)) return false;
+  if ((status === "completed") !== (value.completedAt !== undefined)) return false;
+  if ((status === "superseded") !== (value.supersededByFollowUpId !== undefined)) return false;
+  if (value.supersedesFollowUpId === value.id || value.supersededByFollowUpId === value.id) return false;
+  if (value.snoozedUntilDate !== undefined && String(value.snoozedUntilDate) <= String(value.dueDate)) return false;
+  return true;
+}
+
+function validateFollowUpEvent(value: unknown): value is FollowUpEvent {
+  if (!object(value) || !nonEmpty(value.id) || !nonEmpty(value.followUpId) || !nonEmpty(value.personId)
+    || !["created", "snoozed", "rescheduled", "completed_with_contact", "completed_without_contact", "cancelled"].includes(String(value.kind))
+    || !isIsoInstant(value.occurredAt) || !optionalDate(value.fromDate) || !optionalDate(value.toDate)
+    || !optionalString(value.replacementFollowUpId) || !optionalString(value.interactionId)) return false;
+  const hasFrom = value.fromDate !== undefined;
+  const hasTo = value.toDate !== undefined;
+  const hasReplacement = value.replacementFollowUpId !== undefined;
+  const hasInteraction = value.interactionId !== undefined;
+  switch (value.kind) {
+    case "created":
+      return !hasFrom && hasTo && !hasReplacement && !hasInteraction;
+    case "snoozed":
+      return hasFrom && hasTo && String(value.toDate) > String(value.fromDate)
+        && !hasReplacement && !hasInteraction;
+    case "rescheduled":
+      return hasFrom && hasTo && hasReplacement && !hasInteraction;
+    case "completed_with_contact":
+    case "completed_without_contact":
+      return !hasFrom && !hasTo && !hasReplacement && hasInteraction;
+    case "cancelled":
+      return !hasFrom && !hasTo && !hasReplacement && !hasInteraction;
+    default:
+      return false;
+  }
 }
 
 function validateReachOutEntry(value: unknown): value is ReachOutEntry {
@@ -163,11 +199,10 @@ const storeValidators: Record<DataStoreName, (value: unknown) => boolean> = {
   events: validateEvent,
   memoryFacts: validateFact,
   followUps: validateFollowUp,
-  followUpEvents: (value) => object(value) && nonEmpty(value.id) && nonEmpty(value.followUpId) && nonEmpty(value.personId)
-    && ["created", "snoozed", "rescheduled", "completed_with_contact", "completed_without_contact", "cancelled"].includes(String(value.kind))
-    && isIsoInstant(value.occurredAt) && optionalDate(value.fromDate) && optionalDate(value.toDate)
-    && optionalString(value.replacementFollowUpId) && optionalString(value.interactionId),
-  todaySkips: (value) => object(value) && nonEmpty(value.id) && nonEmpty(value.personId) && isLocalDate(value.localDate) && isIsoInstant(value.createdAt),
+  followUpEvents: validateFollowUpEvent,
+  todaySkips: (value) => object(value) && nonEmpty(value.id) && nonEmpty(value.personId)
+    && isLocalDate(value.localDate) && value.id === `${value.personId}:${value.localDate}`
+    && isIsoInstant(value.createdAt),
   reachOutEntries: validateReachOutEntry,
   reachOutEvents: (value) => object(value) && nonEmpty(value.id) && nonEmpty(value.reachOutEntryId)
     && ["added", "activated", "completed", "moved_to_dormant", "removed", "follow_up_linked"].includes(String(value.kind))
@@ -228,7 +263,20 @@ export function validatePeopleOsData(value: unknown): PeopleOsData {
   data.interactions.forEach((record) => {
     if (record.eventId) requireReference(issues, eventIds.has(record.eventId), `interactions.${record.id}.eventId`);
     if (record.relatedPersonId) requireReference(issues, personIds.has(record.relatedPersonId), `interactions.${record.id}.relatedPersonId`);
-    if (record.followUpId) requireReference(issues, followUpIds.has(record.followUpId), `interactions.${record.id}.followUpId`);
+    if (record.followUpId) {
+      const followUp = data.followUps.find((candidate) => candidate.id === record.followUpId);
+      requireReference(issues, Boolean(followUp && followUp.personId === record.personId), `interactions.${record.id}.followUpId`);
+      const expectedKind = record.kind === "follow_up_completed"
+        ? "completed_without_contact"
+        : interactionCountsAsContact(record.kind)
+          ? "completed_with_contact"
+          : undefined;
+      const matchingEvents = data.followUpEvents.filter((event) => event.followUpId === record.followUpId
+        && event.interactionId === record.id && event.kind === expectedKind);
+      if (!expectedKind || followUp?.status !== "completed" || matchingEvents.length !== 1) {
+        issues.push(`interactions.${record.id}.followUpId must have one reciprocal completion event`);
+      }
+    }
   });
   data.memoryFacts.forEach((record) => {
     if (record.relatedPersonId) requireReference(issues, personIds.has(record.relatedPersonId), `memoryFacts.${record.id}.relatedPersonId`);
@@ -242,14 +290,76 @@ export function validatePeopleOsData(value: unknown): PeopleOsData {
       const entry = data.reachOutEntries.find((candidate) => candidate.id === record.reachOutEntryId);
       requireReference(issues, Boolean(entry && entry.personId === record.personId), `followUps.${record.id}.reachOutEntryId`);
     }
-    if (record.supersedesFollowUpId) requireReference(issues, followUpIds.has(record.supersedesFollowUpId), `followUps.${record.id}.supersedesFollowUpId`);
-    if (record.supersededByFollowUpId) requireReference(issues, followUpIds.has(record.supersededByFollowUpId), `followUps.${record.id}.supersededByFollowUpId`);
+    if (record.supersedesFollowUpId) {
+      const previous = data.followUps.find((candidate) => candidate.id === record.supersedesFollowUpId);
+      requireReference(issues, Boolean(previous && previous.personId === record.personId && previous.supersededByFollowUpId === record.id), `followUps.${record.id}.supersedesFollowUpId`);
+    }
+    if (record.supersededByFollowUpId) {
+      const next = data.followUps.find((candidate) => candidate.id === record.supersededByFollowUpId);
+      requireReference(issues, Boolean(next && next.personId === record.personId && next.supersedesFollowUpId === record.id), `followUps.${record.id}.supersededByFollowUpId`);
+    }
+    const events = data.followUpEvents.filter((event) => event.followUpId === record.id);
+    const completionEvents = events.filter((event) => event.kind === "completed_with_contact" || event.kind === "completed_without_contact");
+    const cancellationEvents = events.filter((event) => event.kind === "cancelled");
+    const rescheduleEvents = events.filter((event) => event.kind === "rescheduled");
+    const createdEvents = events.filter((event) => event.kind === "created");
+    const snoozeEvents = events.filter((event) => event.kind === "snoozed");
+    if (!record.supersedesFollowUpId) {
+      if (createdEvents.length !== 1 || createdEvents[0].toDate !== record.dueDate
+        || createdEvents[0].occurredAt !== record.createdAt) {
+        issues.push(`followUps.${record.id} must have exactly one matching created event`);
+      }
+    } else if (createdEvents.length > 0) {
+      issues.push(`followUps.${record.id} is a replacement and cannot have a created event`);
+    }
+    if (record.snoozedUntilDate && !snoozeEvents.some((event) => event.toDate === record.snoozedUntilDate)) {
+      issues.push(`followUps.${record.id}.snoozedUntilDate requires matching history`);
+    }
+    if (!record.snoozedUntilDate && snoozeEvents.length > 0) {
+      issues.push(`followUps.${record.id} has snooze history without a snoozed effective date`);
+    }
+    if (record.status === "completed" && completionEvents.length !== 1) {
+      issues.push(`followUps.${record.id} must have exactly one completion event`);
+    }
+    if (record.status === "completed" && completionEvents[0]?.occurredAt !== record.completedAt) {
+      issues.push(`followUps.${record.id}.completedAt must match its completion event`);
+    }
+    if (record.status === "cancelled" && cancellationEvents.length !== 1) {
+      issues.push(`followUps.${record.id} must have exactly one cancellation event`);
+    }
+    if (record.status === "superseded" && rescheduleEvents.filter((event) => event.replacementFollowUpId === record.supersededByFollowUpId).length !== 1) {
+      issues.push(`followUps.${record.id} must have exactly one reschedule event`);
+    }
+    if (record.status !== "completed" && completionEvents.length > 0) {
+      issues.push(`followUps.${record.id} has completion history incompatible with status ${record.status}`);
+    }
+    if (record.status !== "cancelled" && cancellationEvents.length > 0) {
+      issues.push(`followUps.${record.id} has cancellation history incompatible with status ${record.status}`);
+    }
+    if (record.status !== "superseded" && rescheduleEvents.length > 0) {
+      issues.push(`followUps.${record.id} has reschedule history incompatible with status ${record.status}`);
+    }
   });
   data.followUpEvents.forEach((record) => {
     const followUp = data.followUps.find((candidate) => candidate.id === record.followUpId);
     requireReference(issues, Boolean(followUp && followUp.personId === record.personId), `followUpEvents.${record.id}.followUpId`);
-    if (record.replacementFollowUpId) requireReference(issues, followUpIds.has(record.replacementFollowUpId), `followUpEvents.${record.id}.replacementFollowUpId`);
-    if (record.interactionId) requireReference(issues, interactionIds.has(record.interactionId), `followUpEvents.${record.id}.interactionId`);
+    if (record.replacementFollowUpId) {
+      const replacement = data.followUps.find((candidate) => candidate.id === record.replacementFollowUpId);
+      requireReference(issues, Boolean(followUp && replacement && replacement.personId === record.personId
+        && followUp.supersededByFollowUpId === replacement.id && replacement.supersedesFollowUpId === followUp.id
+        && record.fromDate === (followUp.snoozedUntilDate ?? followUp.dueDate)
+        && record.toDate === replacement.dueDate), `followUpEvents.${record.id}.replacementFollowUpId`);
+    }
+    if (record.interactionId) {
+      const interaction = data.interactions.find((candidate) => candidate.id === record.interactionId);
+      const kindMatches = record.kind === "completed_with_contact"
+        ? Boolean(interaction && interactionCountsAsContact(interaction.kind))
+        : record.kind === "completed_without_contact"
+          ? interaction?.kind === "follow_up_completed"
+          : true;
+      requireReference(issues, Boolean(interaction && followUp && interaction.personId === record.personId
+        && interaction.followUpId === followUp.id && kindMatches), `followUpEvents.${record.id}.interactionId`);
+    }
   });
   data.todaySkips.forEach((record) => {
     if (record.id !== `${record.personId}:${record.localDate}`) issues.push(`todaySkips.${record.id}.id must equal personId:localDate`);
@@ -257,7 +367,7 @@ export function validatePeopleOsData(value: unknown): PeopleOsData {
   data.reachOutEntries.forEach((record) => {
     if (record.currentFollowUpId) {
       const followUp = data.followUps.find((candidate) => candidate.id === record.currentFollowUpId);
-      requireReference(issues, Boolean(followUp && followUp.personId === record.personId && followUp.reachOutEntryId === record.id), `reachOutEntries.${record.id}.currentFollowUpId`);
+      requireReference(issues, Boolean(followUp && followUp.personId === record.personId && followUp.reachOutEntryId === record.id && followUp.status === "pending"), `reachOutEntries.${record.id}.currentFollowUpId`);
     }
     record.contextIds.forEach((id) => requireReference(issues, contextIds.has(id), `reachOutEntries.${record.id}.contextIds.${id}`));
   });

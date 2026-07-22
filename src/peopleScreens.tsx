@@ -8,6 +8,8 @@ import EmptyState from "./EmptyState";
 import { Icon } from "./icons";
 import InteractionEditorSheet from "./InteractionEditorSheet";
 import FactEditorSheet from "./FactEditorSheet";
+import FollowUpEditorSheet from "./FollowUpEditorSheet";
+import CadenceEditorSheet from "./CadenceEditorSheet";
 import TimelineList from "./TimelineList";
 import {
   createManualContactMethodDraft,
@@ -48,9 +50,14 @@ import {
   selectCompactProfileFacts,
   selectMemoryCueFactCandidates
 } from "./application/memoryFacts";
+import {
+  getNextPlanForPerson,
+  type NextPlanProjection
+} from "./application/followUpQueries";
 import { getDatabase } from "./data/client";
 import { StaleRevisionError } from "./data/repositories";
-import type { ContactMethod, Interaction, InteractionKind, MemoryFact } from "./domain/schema";
+import type { ContactMethod, FollowUp, Interaction, InteractionKind, MemoryFact } from "./domain/schema";
+import { effectiveFollowUpDate, FOLLOW_UP_ACTION_OPTIONS } from "./domain/followUpPolicy";
 import type { DuplicateMatch } from "./domain/duplicates";
 import { ValidationError } from "./domain/validation";
 import {
@@ -63,6 +70,8 @@ import {
   affiliationsPath,
   contactMethodsPath,
   memoryFactsPath,
+  followUpDetailPath,
+  personFollowUpsPath,
   personProfilePath,
   routeFromPath,
   timelinePath
@@ -782,6 +791,31 @@ function usePerson(personId: string, refreshVersion = 0) {
   return { summary, phoneRegion, error };
 }
 
+function currentLocalDate(): string {
+  const now = new Date();
+  return [
+    String(now.getFullYear()).padStart(4, "0"),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0")
+  ].join("-");
+}
+
+function formatLocalDate(value: string): string {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(year, month - 1, day));
+}
+
+function followUpActionLabel(followUp: FollowUp): string {
+  return FOLLOW_UP_ACTION_OPTIONS.find((option) => option.value === followUp.actionType)?.label ?? "Other";
+}
+
+function followUpTimingLabel(followUp: FollowUp, localDate: string): string {
+  const effectiveDate = effectiveFollowUpDate(followUp);
+  if (effectiveDate < localDate) return `Overdue · ${formatLocalDate(effectiveDate)}`;
+  if (effectiveDate === localDate) return "Due today";
+  return `${followUp.snoozedUntilDate ? "Snoozed until" : "Due"} ${formatLocalDate(effectiveDate)}`;
+}
+
 export function PersonProfileScreen({
   personId,
   navigate,
@@ -797,11 +831,16 @@ export function PersonProfileScreen({
   const [historyError, setHistoryError] = useState("");
   const [memoryFacts, setMemoryFacts] = useState<MemoryFact[] | undefined>(undefined);
   const [memoryError, setMemoryError] = useState("");
+  const [nextPlan, setNextPlan] = useState<NextPlanProjection | null | undefined>(undefined);
+  const [planError, setPlanError] = useState("");
   const [editor, setEditor] = useState<{ interaction?: TimelineDisplayItem["interaction"]; initialKind?: InteractionKind } | null>(null);
+  const [followUpEditorOpen, setFollowUpEditorOpen] = useState(false);
+  const [cadenceEditorOpen, setCadenceEditorOpen] = useState(false);
   const [factEditor, setFactEditor] = useState<{ sourceInteractionId?: string } | null>(null);
   const [memoryChoiceOpen, setMemoryChoiceOpen] = useState(false);
   const [promotionNoteId, setPromotionNoteId] = useState<string | null>(null);
   const editorOpenerRef = useRef<HTMLElement | null>(null);
+  const planOpenerRef = useRef<HTMLElement | null>(null);
   const profileHeadingRef = useRef<HTMLHeadingElement>(null);
   const memoryChoiceFirstRef = useRef<HTMLButtonElement>(null);
 
@@ -812,6 +851,16 @@ export function PersonProfileScreen({
     getDatabase().then((db) => getPersonHistory(db, personId)).then((result) => {
       if (active) setHistory(result ?? null);
     }).catch(() => { if (active) setHistoryError("PeopleOS could not load recent history."); });
+    return () => { active = false; };
+  }, [personId, refreshVersion]);
+
+  useEffect(() => {
+    let active = true;
+    setNextPlan(undefined);
+    setPlanError("");
+    getDatabase().then((db) => getNextPlanForPerson(db, personId, currentLocalDate())).then((result) => {
+      if (active) setNextPlan(result);
+    }).catch(() => { if (active) setPlanError("PeopleOS could not load this person's follow-up plan."); });
     return () => { active = false; };
   }, [personId, refreshVersion]);
 
@@ -890,11 +939,38 @@ export function PersonProfileScreen({
     if (item.interaction && item.editable) openInteraction(opener, undefined, item.interaction);
   }
 
+  function openFollowUpEditor(opener: HTMLElement) {
+    planOpenerRef.current = opener;
+    setFollowUpEditorOpen(true);
+  }
+
+  function openCadenceEditor(opener: HTMLElement) {
+    planOpenerRef.current = opener;
+    setCadenceEditorOpen(true);
+  }
+
+  function closePlanEditor() {
+    setFollowUpEditorOpen(false);
+    setCadenceEditorOpen(false);
+    requestAnimationFrame(() => {
+      if (planOpenerRef.current?.isConnected) planOpenerRef.current.focus();
+      else profileHeadingRef.current?.focus();
+    });
+  }
+
+  function finishPlanEditor() {
+    setFollowUpEditorOpen(false);
+    setCadenceEditorOpen(false);
+    setRefreshVersion((current) => current + 1);
+    requestAnimationFrame(() => profileHeadingRef.current?.focus());
+  }
+
   const requestedBackRoute = routeFromPath(backPath);
   const resumesCapture = backPath === "/people/new";
   const resumesImport = backPath === "/people/import";
   const resumesContactEditor = requestedBackRoute.id === "contact-methods";
-  const resumesPreviousFlow = resumesCapture || resumesImport || resumesContactEditor;
+  const resumesFollowUp = requestedBackRoute.id === "follow-up-detail";
+  const resumesPreviousFlow = resumesCapture || resumesImport || resumesContactEditor || resumesFollowUp;
   const backRoute = ["today", "reach-out", "people", "upcoming"].includes(requestedBackRoute.id)
     ? requestedBackRoute
     : routeFromPath("/people");
@@ -918,6 +994,8 @@ export function PersonProfileScreen({
             ? "Continue import"
             : resumesContactEditor
               ? "Continue editing contact"
+              : resumesFollowUp
+                ? "Back to follow-up"
               : backRoute.label}
       </button>
       {summary === undefined && !error && <p role="status">Loading person…</p>}
@@ -943,6 +1021,9 @@ export function PersonProfileScreen({
               <button className="primary-action" type="button" onClick={(event) => openInteraction(event.currentTarget)}>
                 Log interaction
               </button>
+              <button className="secondary-action" type="button" onClick={(event) => openFollowUpEditor(event.currentTarget)}>
+                Plan follow-up
+              </button>
               <button
                 className="secondary-action"
                 type="button"
@@ -951,6 +1032,9 @@ export function PersonProfileScreen({
                 onClick={(event) => openMemoryChoice(event.currentTarget)}
               >
                 Add memory
+              </button>
+              <button className="secondary-action" type="button" onClick={(event) => openCadenceEditor(event.currentTarget)}>
+                Cadence
               </button>
             </div>
           )}
@@ -980,6 +1064,48 @@ export function PersonProfileScreen({
                 Promote part to memory fact
               </button>
             </div>
+          )}
+          {(nextPlan === undefined || planError || nextPlan?.kind !== "none") && (
+            <section className="profile-card profile-plan-card" aria-labelledby="profile-plan-heading">
+              <div className="card-heading-with-action">
+                <div>
+                  <h3 id="profile-plan-heading">Current plan</h3>
+                  <p>What you have deliberately planned for this relationship.</p>
+                </div>
+                <button className="secondary-action" type="button" onClick={() => navigate(personFollowUpsPath(summary.person.id))}>See all</button>
+              </div>
+              {nextPlan === undefined && !planError && <p role="status">Loading follow-up plan…</p>}
+              {planError && (
+                <div className="section-error">
+                  <p role="alert">{planError}</p>
+                  <button type="button" onClick={() => setRefreshVersion((current) => current + 1)}>Retry</button>
+                </div>
+              )}
+              {nextPlan?.kind === "explicit_follow_up" && nextPlan.followUp && (
+                <div className="current-plan-summary">
+                  <span className="status-chip">{followUpTimingLabel(nextPlan.followUp, currentLocalDate())}</span>
+                  <strong>{nextPlan.followUp.reason}</strong>
+                  <p>{followUpActionLabel(nextPlan.followUp)}</p>
+                  <div className="button-row compact-buttons">
+                    <button type="button" onClick={() => navigate(followUpDetailPath(nextPlan.followUp!.id))}>Open follow-up</button>
+                    <button type="button" onClick={(event) => openFollowUpEditor(event.currentTarget)}>Add another</button>
+                  </div>
+                </div>
+              )}
+              {nextPlan?.kind === "cadence" && (
+                <div className="current-plan-summary">
+                  <strong>Every {nextPlan.cadenceDays} days</strong>
+                  {nextPlan.date
+                    ? <p>Next expected contact: {formatLocalDate(nextPlan.date)}</p>
+                    : <p>Cadence is saved. Plan the first follow-up when you are ready.</p>}
+                  <p className="muted-copy">A cadence never creates a follow-up automatically.</p>
+                  <div className="button-row compact-buttons">
+                    <button type="button" onClick={(event) => openFollowUpEditor(event.currentTarget)}>Plan follow-up</button>
+                    <button type="button" onClick={(event) => openCadenceEditor(event.currentTarget)}>Change cadence</button>
+                  </div>
+                </div>
+              )}
+            </section>
           )}
           <section className="profile-card" aria-labelledby="profile-contact-heading">
             <div className="card-heading-with-action">
@@ -1132,10 +1258,11 @@ export function PersonProfileScreen({
                 onOpenInteraction={!summary.person.archivedAt && summary.person.identityStatus !== "merged"
                   ? openTimelineInteraction
                   : undefined}
+                onOpenFollowUp={(followUpId) => navigate(followUpDetailPath(followUpId))}
               />
             ) : null}
           </section>
-          <p className="scope-note">Follow-ups, Reach Out and relationship insights are added in later implementation packages.</p>
+          <p className="scope-note">Reach Out and relationship insights are added in later implementation packages.</p>
           {editor && (
             <InteractionEditorSheet
               personId={summary.person.id}
@@ -1154,6 +1281,22 @@ export function PersonProfileScreen({
               sourceInteractionId={factEditor.sourceInteractionId}
               onClose={closeFactEditor}
               onSaved={finishFact}
+            />
+          )}
+          {followUpEditorOpen && (
+            <FollowUpEditorSheet
+              mode="create"
+              personId={summary.person.id}
+              personName={summary.person.displayName}
+              onClose={closePlanEditor}
+              onSaved={finishPlanEditor}
+            />
+          )}
+          {cadenceEditorOpen && (
+            <CadenceEditorSheet
+              person={summary.person}
+              onClose={closePlanEditor}
+              onSaved={finishPlanEditor}
             />
           )}
         </>

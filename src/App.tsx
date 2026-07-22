@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "./icons";
-import { personProfilePath, routeFromPath, routes, type Route } from "./navigation";
-import { ReachOutScreen, SettingsScreen, UpcomingScreen } from "./screens";
+import { followUpDetailPath, personProfilePath, routeFromPath, routes, type Route } from "./navigation";
+import { ReachOutScreen, SettingsScreen } from "./screens";
 import {
   AddPersonScreen,
   ContactMethodsScreen,
@@ -19,6 +19,10 @@ import GlobalAddSheet from "./GlobalAddSheet";
 import InteractionEditorSheet from "./InteractionEditorSheet";
 import MemoryFactsScreen from "./MemoryFactsScreen";
 import AffiliationsScreen from "./AffiliationsScreen";
+import FollowUpEditorSheet from "./FollowUpEditorSheet";
+import FollowUpDetailScreen from "./FollowUpDetailScreen";
+import PersonFollowUpsScreen from "./PersonFollowUpsScreen";
+import UpcomingScreen from "./UpcomingScreen";
 import type { PersonPickerOption } from "./application/interactionQueries";
 import type { ContactImportSession } from "./application/contactImport";
 
@@ -37,6 +41,7 @@ export default function App() {
   const [suspendedContactEditor, setSuspendedContactEditor] = useState<ContactEditorResumeState | null>(null);
   const [globalAddOpen, setGlobalAddOpen] = useState(false);
   const [globalInteractionPerson, setGlobalInteractionPerson] = useState<PersonPickerOption | null>(null);
+  const [globalFollowUpPerson, setGlobalFollowUpPerson] = useState<PersonPickerOption | null>(null);
   const routeRef = useRef(route);
   const unsavedChangesRef = useRef(false);
   const navigationLockedRef = useRef(false);
@@ -170,6 +175,15 @@ export default function App() {
           ? window.history.state.fromPath
           : "/people"
       };
+    } else if (next.id === "person-follow-ups") {
+      defaultState = {
+        fromProfile: route.id === "person-profile",
+        fromPath: typeof window.history.state?.fromPath === "string"
+          ? window.history.state.fromPath
+          : "/people"
+      };
+    } else if (next.id === "follow-up-detail") {
+      defaultState = { fromPath: route.path };
     }
     const state = options.state ?? defaultState;
     if (options.replace) window.history.replaceState(state, "", next.path);
@@ -240,7 +254,7 @@ export default function App() {
           onClearImportedFilter={() => setImportedPeopleFilter(null)}
         />
       );
-      case "upcoming": return <UpcomingScreen />;
+      case "upcoming": return <UpcomingScreen navigate={navigatePath} />;
       case "settings": return <SettingsScreen navigate={navigatePath} />;
       case "add-person": return (
         <AddPersonScreen
@@ -319,6 +333,26 @@ export default function App() {
           }}
         />
       );
+      case "person-follow-ups": return (
+        <PersonFollowUpsScreen
+          personId={route.personId ?? ""}
+          navigate={navigatePath}
+          onBack={() => window.history.state?.fromProfile === true
+            ? window.history.back()
+            : navigatePath(personProfilePath(route.personId ?? ""), { replace: true })}
+        />
+      );
+      case "follow-up-detail": return (
+        <FollowUpDetailScreen
+          followUpId={route.followUpId ?? ""}
+          navigate={navigatePath}
+          onBack={() => {
+            const fromPath = window.history.state?.fromPath;
+            if (typeof fromPath === "string" && fromPath !== route.path) window.history.back();
+            else navigatePath("/upcoming", { replace: true });
+          }}
+        />
+      );
       case "import-contacts": return (
         <ImportContactsScreen
           session={importSession}
@@ -353,6 +387,11 @@ export default function App() {
 
   function closeGlobalInteraction() {
     setGlobalInteractionPerson(null);
+    requestAnimationFrame(() => globalAddButtonRef.current?.focus());
+  }
+
+  function closeGlobalFollowUp() {
+    setGlobalFollowUpPerson(null);
     requestAnimationFrame(() => globalAddButtonRef.current?.focus());
   }
 
@@ -404,6 +443,11 @@ export default function App() {
             setGlobalAddOpen(false);
             setGlobalInteractionPerson(person);
           }}
+          onAddFollowUp={(person) => {
+            setGlobalAddOpen(false);
+            setGlobalFollowUpPerson(person);
+          }}
+          preferFollowUp={route.id === "upcoming"}
         />
       )}
       {globalInteractionPerson && (
@@ -413,6 +457,18 @@ export default function App() {
           onClose={closeGlobalInteraction}
           onSaved={closeGlobalInteraction}
           onDeleted={closeGlobalInteraction}
+        />
+      )}
+      {globalFollowUpPerson && (
+        <FollowUpEditorSheet
+          mode="create"
+          personId={globalFollowUpPerson.person.id}
+          personName={globalFollowUpPerson.person.displayName}
+          onClose={closeGlobalFollowUp}
+          onSaved={(followUp) => {
+            setGlobalFollowUpPerson(null);
+            navigatePath(followUpDetailPath(followUp.id));
+          }}
         />
       )}
     </div>

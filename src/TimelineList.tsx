@@ -13,10 +13,12 @@ function dateLabel(instant: string): string {
 
 export default function TimelineList({
   items,
-  onOpenInteraction
+  onOpenInteraction,
+  onOpenFollowUp
 }: {
   items: TimelineDisplayItem[];
   onOpenInteraction?: (item: TimelineDisplayItem, opener: HTMLElement) => void;
+  onOpenFollowUp?: (followUpId: string, opener: HTMLElement) => void;
 }) {
   const groups = items.reduce<Array<{ key: string; label: string; items: TimelineDisplayItem[] }>>((all, item) => {
     const key = timelineMonthKey(item.occurredAt);
@@ -60,6 +62,15 @@ export default function TimelineList({
                       onClick={(event) => onOpenInteraction(item, event.currentTarget)}
                     >
                       Edit interaction
+                    </button>
+                  )}
+                  {item.followUpId && onOpenFollowUp && (
+                    <button
+                      className="text-action"
+                      type="button"
+                      onClick={(event) => onOpenFollowUp(item.followUpId!, event.currentTarget)}
+                    >
+                      Open follow-up
                     </button>
                   )}
                 </article>

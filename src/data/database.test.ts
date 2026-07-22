@@ -113,7 +113,10 @@ describe("PeopleOS IndexedDB foundation", () => {
     await createAppendOnlyRecord(db, "followUpEvents", data.followUpEvents[0]);
     expect(await db.count("todaySkips")).toBe(1);
     expect(await db.count("followUpEvents")).toBe(1);
-    await expect(createAppendOnlyRecord(db, "followUpEvents", { ...data.followUpEvents[0], kind: "cancelled" })).rejects.toBeInstanceOf(RecordConflictError);
+    await expect(createAppendOnlyRecord(db, "followUpEvents", {
+      ...data.followUpEvents[0],
+      toDate: "2026-08-09"
+    })).rejects.toBeInstanceOf(RecordConflictError);
     db.close();
   });
 });

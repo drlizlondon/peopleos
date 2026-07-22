@@ -125,6 +125,25 @@ describe("automatic Timeline projection", () => {
     });
   });
 
+  it("places a backdated linked completion at the contact time, not the later audit time", () => {
+    const contactTime = "2026-01-28T09:30:00.000Z";
+    const auditTime = "2026-02-01T10:00:00.000Z";
+    const completed = interaction("interaction-backdated", "phone_call", contactTime, {
+      followUpId: "follow-up-backdated"
+    });
+    const result = buildTimeline(person(), [completed], [followUpEvent(
+      "follow-up-event-backdated",
+      "completed_with_contact",
+      {
+        followUpId: "follow-up-backdated",
+        interactionId: completed.id,
+        occurredAt: auditTime
+      }
+    )]);
+
+    expect(result.find((item) => item.id === "follow-up-event-backdated")?.occurredAt).toBe(contactTime);
+  });
+
   it("keeps a lifecycle item understandable when its optional linked Interaction is unavailable", () => {
     const result = buildTimeline(person(), [], [followUpEvent(
       "follow-up-event-missing-link",

@@ -3,6 +3,7 @@ import { buildTimeline, deriveLastContact, type TimelineItem } from "../domain/t
 import type { Interaction, Person, RelationshipEvent } from "../domain/schema";
 import { normalizeEventName } from "./interactions";
 import { selectDisplayAffiliation } from "./peopleQueries";
+import { memoryFactValueLabel, selectMemoryCueFactCandidates } from "./memoryFacts";
 
 export type TimelineDisplayItem = TimelineItem & {
   event?: RelationshipEvent;
@@ -82,16 +83,18 @@ export async function listEvents(
 export type PersonPickerOption = {
   person: Person;
   affiliation?: string;
+  memoryCue?: string;
 };
 
 export async function listActivePersonOptions(
   db: PeopleOsDatabase,
   excludePersonId?: string
 ): Promise<PersonPickerOption[]> {
-  const tx = db.transaction(["people", "affiliations"], "readonly");
-  const [people, affiliations] = await Promise.all([
+  const tx = db.transaction(["people", "affiliations", "memoryFacts"], "readonly");
+  const [people, affiliations, facts] = await Promise.all([
     tx.objectStore("people").getAll(),
-    tx.objectStore("affiliations").getAll()
+    tx.objectStore("affiliations").getAll(),
+    tx.objectStore("memoryFacts").getAll()
   ]);
   await tx.done;
   return people
@@ -100,9 +103,13 @@ export async function listActivePersonOptions(
       const current = selectDisplayAffiliation(
         affiliations.filter((affiliation) => affiliation.personId === person.id)
       );
+      const cue = selectMemoryCueFactCandidates(
+        facts.filter((fact) => fact.personId === person.id)
+      )[0];
       return {
         person,
-        ...(current ? { affiliation: [current.role, current.organisationName].filter(Boolean).join(" · ") } : {})
+        ...(current ? { affiliation: [current.role, current.organisationName].filter(Boolean).join(" · ") } : {}),
+        ...(cue ? { memoryCue: memoryFactValueLabel(cue) } : {})
       };
     })
     .sort((left, right) =>

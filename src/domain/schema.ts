@@ -87,6 +87,7 @@ export type FollowUpActionType =
   | "arrange_meeting"
   | "make_introduction"
   | "send_update"
+  | "research_contact_route"
   | "other";
 
 export type FollowUp = MutableRecord & {
@@ -130,9 +131,7 @@ export type TodaySkip = {
 
 export type ReachOutIntentStatus = "active" | "completed" | "dormant";
 
-export type ReachOutActionType =
-  | FollowUpActionType
-  | "research_contact_route";
+export type ReachOutActionType = FollowUpActionType;
 
 export type ReachOutEntry = MutableRecord & {
   personId: EntityId;

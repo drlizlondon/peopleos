@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   affiliationsPath,
   contactMethodsPath,
+  followUpDetailPath,
   memoryFactsPath,
+  personFollowUpsPath,
   personProfilePath,
   routeFromPath,
   timelinePath
@@ -26,11 +28,22 @@ describe("People secondary routes", () => {
     const factsPath = memoryFactsPath(personId);
     const workPath = affiliationsPath(personId);
     const historyPath = timelinePath(personId);
+    const plansPath = personFollowUpsPath(personId);
     expect(routeFromPath(profilePath)).toMatchObject({ id: "person-profile", personId, primaryId: "people" });
     expect(routeFromPath(methodsPath)).toMatchObject({ id: "contact-methods", personId, primaryId: "people" });
     expect(routeFromPath(factsPath)).toMatchObject({ id: "memory-facts", personId, primaryId: "people" });
     expect(routeFromPath(workPath)).toMatchObject({ id: "affiliations", personId, primaryId: "people" });
     expect(routeFromPath(historyPath)).toMatchObject({ id: "timeline", personId, primaryId: "people" });
+    expect(routeFromPath(plansPath)).toMatchObject({ id: "person-follow-ups", personId, primaryId: "people" });
+  });
+
+  it("round-trips a safe Follow-up ID through its detail route", () => {
+    const followUpId = "follow-up/one";
+    expect(routeFromPath(followUpDetailPath(followUpId))).toMatchObject({
+      id: "follow-up-detail",
+      followUpId,
+      primaryId: "upcoming"
+    });
   });
 
   it("continues to fall back to Today for an unknown route", () => {

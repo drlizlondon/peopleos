@@ -10,6 +10,7 @@ import { getDatabase } from "./data/client";
 import { filterTimelineItems, type TimelineFilter } from "./domain/timeline";
 import type { InteractionKind } from "./domain/schema";
 import { timelineYearKey } from "./timelineDates";
+import { followUpDetailPath } from "./navigation";
 
 type Navigate = (path: string, options?: { replace?: boolean }) => void;
 
@@ -155,6 +156,7 @@ export default function TimelineScreen({
               onOpenInteraction={!history.person.archivedAt && history.person.identityStatus !== "merged"
                 ? openExisting
                 : undefined}
+              onOpenFollowUp={(followUpId) => navigate(followUpDetailPath(followUpId))}
             />
           ) : (
             <p className="profile-card muted-copy" role="status">No timeline items match this filter.</p>

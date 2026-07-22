@@ -107,8 +107,11 @@ export function buildTimeline(
     return {
       id: event.id,
       source: "follow_up",
-      occurredAt: event.occurredAt,
-      title: interaction
+      // A completion may be recorded after the contact happened. Keep the
+      // lifecycle event's audit timestamp in storage, but place the coalesced
+      // Timeline item at the linked Interaction's real-world timestamp.
+      occurredAt: interaction?.occurredAt ?? event.occurredAt,
+      title: interaction && event.kind !== "completed_without_contact"
         ? `${FOLLOW_UP_LABELS[event.kind]} · ${interactionKindLabel(interaction.kind)}`
         : FOLLOW_UP_LABELS[event.kind],
       ...(interaction?.summary

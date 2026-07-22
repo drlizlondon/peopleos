@@ -6,6 +6,8 @@ export type RouteId = PrimaryRouteId
   | "memory-facts"
   | "affiliations"
   | "timeline"
+  | "person-follow-ups"
+  | "follow-up-detail"
   | "import-contacts"
   | "import-results"
   | "export-backup"
@@ -17,6 +19,7 @@ export type Route = {
   label: string;
   primaryId: PrimaryRouteId;
   personId?: string;
+  followUpId?: string;
 };
 
 export const routes: Route[] = [
@@ -66,6 +69,18 @@ export function routeFromPath(pathname: string): Route {
     return { id: "timeline", path: pathname, label: "Timeline", primaryId: "people", personId };
   }
 
+  const personFollowUps = pathname.match(/^\/people\/([^/]+)\/follow-ups\/?$/);
+  if (personFollowUps) {
+    const personId = decodePathPart(personFollowUps[1]);
+    return { id: "person-follow-ups", path: pathname, label: "Follow-ups", primaryId: "people", personId };
+  }
+
+  const followUpDetail = pathname.match(/^\/follow-ups\/([^/]+)\/?$/);
+  if (followUpDetail) {
+    const followUpId = decodePathPart(followUpDetail[1]);
+    return { id: "follow-up-detail", path: pathname, label: "Follow-up", primaryId: "upcoming", followUpId };
+  }
+
   const profile = pathname.match(/^\/people\/([^/]+)\/?$/);
   if (profile) {
     const personId = decodePathPart(profile[1]);
@@ -101,4 +116,12 @@ export function affiliationsPath(personId: string): string {
 
 export function timelinePath(personId: string): string {
   return `${personProfilePath(personId)}/timeline`;
+}
+
+export function personFollowUpsPath(personId: string): string {
+  return `${personProfilePath(personId)}/follow-ups`;
+}
+
+export function followUpDetailPath(followUpId: string): string {
+  return `/follow-ups/${encodeURIComponent(followUpId)}`;
 }

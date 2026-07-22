@@ -5,34 +5,40 @@ import { getDatabase } from "./data/client";
 export default function GlobalAddSheet({
   onClose,
   onNavigate,
-  onLogInteraction
+  onLogInteraction,
+  onAddFollowUp,
+  preferFollowUp = false
 }: {
   onClose: () => void;
   onNavigate: (path: string) => void;
   onLogInteraction: (person: PersonPickerOption) => void;
+  onAddFollowUp: (person: PersonPickerOption) => void;
+  preferFollowUp?: boolean;
 }) {
   const modalId = useId();
-  const [choosingPerson, setChoosingPerson] = useState(false);
+  const [choice, setChoice] = useState<"interaction" | "follow_up" | null>(null);
   const [people, setPeople] = useState<PersonPickerOption[]>([]);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   const sheetRef = useRef<HTMLElement>(null);
   const logInteractionRef = useRef<HTMLButtonElement>(null);
+  const addFollowUpRef = useRef<HTMLButtonElement>(null);
   const personSearchRef = useRef<HTMLInputElement>(null);
-  const previousChoosingRef = useRef(false);
+  const previousChoiceRef = useRef<typeof choice>(null);
   const closeRef = useRef(onClose);
-  const choosingRef = useRef(false);
+  const choiceRef = useRef<typeof choice>(null);
   closeRef.current = onClose;
-  choosingRef.current = choosingPerson;
+  choiceRef.current = choice;
 
   useEffect(() => {
-    const wasChoosing = previousChoosingRef.current;
-    previousChoosingRef.current = choosingPerson;
+    const previousChoice = previousChoiceRef.current;
+    previousChoiceRef.current = choice;
     requestAnimationFrame(() => {
-      if (choosingPerson) personSearchRef.current?.focus();
-      else if (wasChoosing) logInteractionRef.current?.focus();
+      if (choice) personSearchRef.current?.focus();
+      else if (previousChoice === "follow_up") addFollowUpRef.current?.focus();
+      else if (previousChoice) logInteractionRef.current?.focus();
     });
-  }, [choosingPerson]);
+  }, [choice]);
 
   useEffect(() => {
     const id = `global-add-${modalId}`;
@@ -40,7 +46,7 @@ export default function GlobalAddSheet({
       detail: {
         id,
         dismiss: () => {
-          if (choosingRef.current) setChoosingPerson(false);
+          if (choiceRef.current) setChoice(null);
           else closeRef.current();
         }
       }
@@ -54,7 +60,7 @@ export default function GlobalAddSheet({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        if (choosingPerson) setChoosingPerson(false);
+        if (choice) setChoice(null);
         else onClose();
         return;
       }
@@ -75,10 +81,10 @@ export default function GlobalAddSheet({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [choosingPerson, onClose]);
+  }, [choice, onClose]);
 
-  async function startPersonPicker() {
-    setChoosingPerson(true);
+  async function startPersonPicker(nextChoice: "interaction" | "follow_up") {
+    setChoice(nextChoice);
     setError("");
     try {
       setPeople(await listActivePersonOptions(await getDatabase()));
@@ -96,15 +102,15 @@ export default function GlobalAddSheet({
     <div className="sheet-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section ref={sheetRef} className="contact-sheet global-add-sheet" role="dialog" aria-modal="true" aria-labelledby="global-add-title">
         <div className="sheet-heading">
-          <h3 id="global-add-title">{choosingPerson ? "Choose a person" : "Add to PeopleOS"}</h3>
+          <h3 id="global-add-title">{choice ? "Choose a person" : "Add to PeopleOS"}</h3>
           <button
             type="button"
             autoFocus
-            aria-label={choosingPerson ? "Back to Add menu" : "Close Add menu"}
-            onClick={() => choosingPerson ? setChoosingPerson(false) : onClose()}
-          >{choosingPerson ? "←" : "×"}</button>
+            aria-label={choice ? "Back to Add menu" : "Close Add menu"}
+            onClick={() => choice ? setChoice(null) : onClose()}
+          >{choice ? "←" : "×"}</button>
         </div>
-        {choosingPerson ? (
+        {choice ? (
           <div className="person-picker">
             <div className="form-field">
               <label htmlFor="global-person-picker">Find a person</label>
@@ -123,9 +129,10 @@ export default function GlobalAddSheet({
             <ul className="selector-list" aria-label="People">
               {visiblePeople.map((option) => (
                 <li key={option.person.id}>
-                  <button type="button" onClick={() => onLogInteraction(option)}>
+                  <button type="button" onClick={() => choice === "follow_up" ? onAddFollowUp(option) : onLogInteraction(option)}>
                     <strong>{option.person.displayName}</strong>
                     {option.affiliation && <span>{option.affiliation}</span>}
+                    {option.memoryCue && <span>{option.memoryCue}</span>}
                   </button>
                 </li>
               ))}
@@ -133,8 +140,10 @@ export default function GlobalAddSheet({
           </div>
         ) : (
           <div className="global-add-actions">
+            {preferFollowUp && <button ref={addFollowUpRef} className="primary-action" type="button" onClick={() => void startPersonPicker("follow_up")}>Add follow-up</button>}
             <button className="primary-action" type="button" onClick={() => onNavigate("/people/new")}>Add person</button>
-            <button ref={logInteractionRef} type="button" onClick={() => void startPersonPicker()}>Log interaction</button>
+            {!preferFollowUp && <button ref={addFollowUpRef} type="button" onClick={() => void startPersonPicker("follow_up")}>Add follow-up</button>}
+            <button ref={logInteractionRef} type="button" onClick={() => void startPersonPicker("interaction")}>Log interaction</button>
             <button type="button" onClick={() => onNavigate("/people/import")}>Import contacts</button>
           </div>
         )}

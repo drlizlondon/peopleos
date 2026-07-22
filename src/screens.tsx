@@ -51,18 +51,6 @@ export function PeopleScreen() {
   );
 }
 
-export function UpcomingScreen() {
-  return (
-    <main className="screen" id="main-content" tabIndex={-1}>
-      <EmptyState
-        eyebrow="Upcoming"
-        title="No follow-ups planned"
-        description="Future plans will appear here after you choose when to reconnect."
-      />
-    </main>
-  );
-}
-
 type SettingsSection = { title: string; description: string; rows: { label: string; value: string; href?: string }[] };
 
 const settingsSections: SettingsSection[] = [

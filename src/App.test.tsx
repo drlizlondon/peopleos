@@ -18,6 +18,7 @@ describe("PeopleOS shell", () => {
     expect(screen.getByRole("link", { name: "Today" })).toHaveAttribute("aria-current", "page");
     await user.click(screen.getByRole("button", { name: "Add" }));
     expect(screen.getByRole("button", { name: "Add person" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add follow-up" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Log interaction" })).toBeInTheDocument();
   });
 
