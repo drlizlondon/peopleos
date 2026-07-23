@@ -79,7 +79,7 @@ describe("V1-04 duplicate review and vCard import UI", () => {
   it("exposes import from first-launch Today, People, and Settings without adding it to the global action", async () => {
     const user = userEvent.setup();
     render(<App />);
-    expect(await screen.findByRole("button", { name: "Import a vCard file" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Import vCard" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Import contacts" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("link", { name: "People" }));
@@ -95,7 +95,7 @@ describe("V1-04 duplicate review and vCard import UI", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Import a vCard file" }));
+    await user.click(await screen.findByRole("button", { name: "Import vCard" }));
     await user.click(screen.getByRole("button", { name: "← Today" }));
     await waitFor(() => expect(window.location.pathname).toBe("/"));
 

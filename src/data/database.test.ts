@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { BACKUP_SCHEMA_VERSION, type AppSettings } from "../domain/schema";
 import { createDefaultSettings, deletePeopleOsDatabase, openPeopleOsDatabase, readAllData } from "./database";
 import { createAppendOnlyRecord, createRepositories, RecordConflictError, StaleRevisionError } from "./repositories";
 import { completeData, fixedNow } from "../test/fixtures";
@@ -26,7 +27,12 @@ describe("PeopleOS IndexedDB foundation", () => {
       "reachOutContexts", "reachOutEntries", "reachOutEvents", "todaySkips"
     ]);
     const settings = await db.get("appSettings", "app");
-    expect(settings).toMatchObject({ id: "app", captureMode: "standard", revision: 1 });
+    expect(settings).toMatchObject({
+      id: "app",
+      captureMode: "standard",
+      alreadyContactedDefaultReminderDays: 14,
+      revision: 1
+    });
     expect(settings?.reachOutDefaultReminderDays).toBeUndefined();
     db.close();
   });
@@ -86,7 +92,43 @@ describe("PeopleOS IndexedDB foundation", () => {
   });
 
   it("uses the same deterministic Settings shape when called directly", () => {
-    expect(createDefaultSettings(fixedNow)).toMatchObject({ id: "app", captureMode: "standard", revision: 1 });
+    expect(createDefaultSettings(fixedNow)).toMatchObject({
+      id: "app",
+      captureMode: "standard",
+      alreadyContactedDefaultReminderDays: 14,
+      revision: 1
+    });
+  });
+
+  it("migrates an existing Settings singleton once without changing its other fields or metadata", async () => {
+    const name = databaseName("settings-migration");
+    const first = await openPeopleOsDatabase(name, fixedNow);
+    const metadata = await first.get("metadata", "app");
+    const legacy = {
+      id: "app" as const,
+      defaultPhoneRegion: "FR",
+      captureMode: "networking" as const,
+      reachOutDefaultReminderDays: 30 as const,
+      revision: 7,
+      createdAt: "2026-07-01T08:00:00.000Z",
+      updatedAt: "2026-07-02T08:00:00.000Z"
+    };
+    await first.put("appSettings", legacy as AppSettings);
+    first.close();
+
+    const migratedDb = await openPeopleOsDatabase(name, "2026-08-02T09:00:00.000Z");
+    const migrated = await migratedDb.get("appSettings", "app");
+    expect(migrated).toEqual({
+      ...legacy,
+      alreadyContactedDefaultReminderDays: 14
+    });
+    expect(await migratedDb.get("metadata", "app")).toEqual(metadata);
+    migratedDb.close();
+
+    const reopened = await openPeopleOsDatabase(name, "2026-08-03T09:00:00.000Z");
+    expect(await reopened.get("appSettings", "app")).toEqual(migrated);
+    expect(await reopened.get("metadata", "app")).toEqual(metadata);
+    reopened.close();
   });
 
   it("prevents concurrent Settings edits from overwriting one another", async () => {
@@ -108,7 +150,7 @@ describe("PeopleOS IndexedDB foundation", () => {
   it("stores lifecycle and skip records append-only with idempotent retry", async () => {
     const db = await openPeopleOsDatabase(databaseName("append-only"), fixedNow);
     const data = completeData();
-    await restoreBackup(db, previewBackup({ product: "peopleos", schemaVersion: 1, exportedAt: fixedNow, data }), fixedNow);
+    await restoreBackup(db, previewBackup({ product: "peopleos", schemaVersion: BACKUP_SCHEMA_VERSION, exportedAt: fixedNow, data }), fixedNow);
     await createAppendOnlyRecord(db, "todaySkips", data.todaySkips[0]);
     await createAppendOnlyRecord(db, "followUpEvents", data.followUpEvents[0]);
     expect(await db.count("todaySkips")).toBe(1);

@@ -1,6 +1,7 @@
 export const DATABASE_NAME = "peopleos-v1";
 export const DATABASE_VERSION = 1;
-export const BACKUP_SCHEMA_VERSION = 1;
+export const BACKUP_SCHEMA_VERSION = 2;
+export const DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS = 14;
 
 export type EntityId = string;
 export type IsoInstant = string;
@@ -202,6 +203,7 @@ export type AppSettings = MutableRecord & {
   id: "app";
   defaultPhoneRegion: string;
   captureMode: "standard" | "networking";
+  alreadyContactedDefaultReminderDays: number;
   reachOutDefaultReminderDays?: 1 | 7 | 14 | 30;
 };
 

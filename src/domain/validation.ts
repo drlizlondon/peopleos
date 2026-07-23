@@ -227,6 +227,9 @@ export function validateAppSettings(value: unknown): value is AppSettings {
   const reminder = value.reachOutDefaultReminderDays;
   return /^[A-Z]{2}$/.test(String(value.defaultPhoneRegion))
     && ["standard", "networking"].includes(String(value.captureMode))
+    && Number.isInteger(value.alreadyContactedDefaultReminderDays)
+    && Number(value.alreadyContactedDefaultReminderDays) >= 1
+    && Number(value.alreadyContactedDefaultReminderDays) <= 3_650
     && (reminder === undefined || [1, 7, 14, 30].includes(Number(reminder)));
 }
 

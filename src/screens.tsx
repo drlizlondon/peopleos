@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import EmptyState from "./EmptyState";
 import { Icon } from "./icons";
 import { getAppSettings } from "./application/peopleQueries";
 import { getDatabase } from "./data/client";
+import AlreadyContactedDefaultSheet from "./AlreadyContactedDefaultSheet";
+import type { AppSettings } from "./domain/schema";
 
 function PlannedAction({ children }: { children: string }) {
   return (
@@ -10,20 +12,6 @@ function PlannedAction({ children }: { children: string }) {
       <Icon name="plus" />
       {children}
     </button>
-  );
-}
-
-export function TodayScreen() {
-  return (
-    <main className="screen" id="main-content" tabIndex={-1}>
-      <EmptyState
-        eyebrow="Today"
-        title="No one needs your attention yet"
-        description="PeopleOS helps you remember who to contact and why. Add your first person to begin."
-        note="Your data stays on this device unless you export it."
-        action={<PlannedAction>Add your first person</PlannedAction>}
-      />
-    </main>
   );
 }
 
@@ -40,7 +28,16 @@ export function PeopleScreen() {
   );
 }
 
-type SettingsSection = { title: string; description: string; rows: { label: string; value: string; href?: string }[] };
+type SettingsSection = {
+  title: string;
+  description: string;
+  rows: {
+    label: string;
+    value: string;
+    href?: string;
+    action?: "already-contacted-default";
+  }[];
+};
 
 const settingsSections: SettingsSection[] = [
   { title: "General", description: "Global parsing and device conventions.", rows: [
@@ -51,7 +48,8 @@ const settingsSections: SettingsSection[] = [
     { label: "Capture mode", value: "Standard" }
   ]},
   { title: "Today", description: "PeopleOS uses one fixed, explainable ordering.", rows: [
-    { label: "How Today works", value: "Deterministic policy" }
+    { label: "How Today works", value: "Deterministic policy" },
+    { label: "Default “Already contacted” interval", value: "Loading…", action: "already-contacted-default" }
   ]},
   { title: "Reach Out", description: "Set a lightweight default for new outreach drafts.", rows: [
     { label: "Default reminder", value: "No reminder" }
@@ -78,19 +76,44 @@ const settingsSections: SettingsSection[] = [
 ];
 
 export function SettingsScreen({ navigate }: { navigate: (path: string) => void }) {
+  const [settings, setSettings] = useState<AppSettings>();
+  const [settingsLoadFailed, setSettingsLoadFailed] = useState(false);
   const [reachOutDefault, setReachOutDefault] = useState("Loading…");
+  const [editingAlreadyContacted, setEditingAlreadyContacted] = useState(false);
+  const alreadyContactedOpenerRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     let active = true;
     getDatabase().then(getAppSettings).then((settings) => {
       if (!active) return;
+      setSettings(settings);
       const days = settings.reachOutDefaultReminderDays;
       setReachOutDefault(days === undefined ? "No reminder" : days === 1 ? "Tomorrow" : `In ${days} days`);
-    }).catch(() => { if (active) setReachOutDefault("Unavailable"); });
+    }).catch(() => {
+      if (!active) return;
+      setSettingsLoadFailed(true);
+      setReachOutDefault("Unavailable");
+    });
     return () => { active = false; };
   }, []);
-  const visibleSections = settingsSections.map((section) => section.title === "Reach Out"
-    ? { ...section, rows: section.rows.map((row) => row.label === "Default reminder" ? { ...row, value: reachOutDefault } : row) }
-    : section);
+  const visibleSections = settingsSections.map((section) => ({
+    ...section,
+    rows: section.rows.map((row) => {
+      if (section.title === "Reach Out" && row.label === "Default reminder") {
+        return { ...row, value: reachOutDefault };
+      }
+      if (row.action === "already-contacted-default") {
+        const days = settings?.alreadyContactedDefaultReminderDays;
+        return { ...row, value: settingsLoadFailed ? "Unavailable" : days === undefined ? "Loading…" : `${days} days` };
+      }
+      return row;
+    })
+  }));
+
+  function closeAlreadyContactedEditor() {
+    setEditingAlreadyContacted(false);
+    requestAnimationFrame(() => alreadyContactedOpenerRef.current?.focus());
+  }
+
   return (
     <main className="screen settings-screen" id="main-content" tabIndex={-1}>
       <header className="page-heading">
@@ -108,7 +131,19 @@ export function SettingsScreen({ navigate }: { navigate: (path: string) => void 
             <dl>
               {section.rows.map((row) => (
                 <div className="settings-row" key={row.label}>
-                  <dt>{row.href ? <a href={row.href} onClick={(event) => { event.preventDefault(); navigate(row.href!); }}>{row.label}</a> : row.label}</dt>
+                  <dt>{row.href
+                    ? <a href={row.href} onClick={(event) => { event.preventDefault(); navigate(row.href!); }}>{row.label}</a>
+                    : row.action === "already-contacted-default"
+                      ? (
+                        <button
+                          ref={alreadyContactedOpenerRef}
+                          className="settings-action"
+                          type="button"
+                          disabled={!settings}
+                          onClick={() => setEditingAlreadyContacted(true)}
+                        >{row.label}</button>
+                      )
+                      : row.label}</dt>
                   <dd>{row.value}</dd>
                 </div>
               ))}
@@ -116,6 +151,16 @@ export function SettingsScreen({ navigate }: { navigate: (path: string) => void 
           </section>
         ))}
       </div>
+      {editingAlreadyContacted && settings && (
+        <AlreadyContactedDefaultSheet
+          settings={settings}
+          onClose={closeAlreadyContactedEditor}
+          onSaved={(saved) => {
+            setSettings(saved);
+            closeAlreadyContactedEditor();
+          }}
+        />
+      )}
     </main>
   );
 }

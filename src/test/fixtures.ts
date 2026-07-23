@@ -134,6 +134,7 @@ export function completeData(): PeopleOsData {
       revision: 1,
       defaultPhoneRegion: "GB",
       captureMode: "standard",
+      alreadyContactedDefaultReminderDays: 14,
       reachOutDefaultReminderDays: 7,
       createdAt: fixedNow,
       updatedAt: fixedNow

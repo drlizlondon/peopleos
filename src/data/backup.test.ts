@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { BACKUP_SCHEMA_VERSION } from "../domain/schema";
 import { generateBackup, previewBackup, restoreBackup } from "./backup";
 import { deletePeopleOsDatabase, openPeopleOsDatabase, readAllData } from "./database";
 import { ValidationError } from "../domain/validation";
@@ -19,9 +20,14 @@ afterEach(async () => {
 describe("PeopleOS backup and restore", () => {
   it("round-trips the complete V1 schema and global preferences losslessly", async () => {
     const source = await openPeopleOsDatabase(name("source"), fixedNow);
-    await restoreBackup(source, previewBackup({ product: "peopleos", schemaVersion: 1, exportedAt: fixedNow, data: completeData() }), fixedNow);
+    await restoreBackup(source, previewBackup({ product: "peopleos", schemaVersion: BACKUP_SCHEMA_VERSION, exportedAt: fixedNow, data: completeData() }), fixedNow);
     const generated = await generateBackup(source, "2026-08-02T10:00:00.000Z");
-    expect(generated.envelope.data.appSettings[0]).toMatchObject({ captureMode: "standard", reachOutDefaultReminderDays: 7 });
+    expect(generated.envelope.schemaVersion).toBe(2);
+    expect(generated.envelope.data.appSettings[0]).toMatchObject({
+      captureMode: "standard",
+      alreadyContactedDefaultReminderDays: 14,
+      reachOutDefaultReminderDays: 7
+    });
     expect((await source.get("metadata", "app"))?.lastBackupGeneratedAt).toBe("2026-08-02T10:00:00.000Z");
 
     const target = await openPeopleOsDatabase(name("target"), fixedNow);
@@ -33,7 +39,7 @@ describe("PeopleOS backup and restore", () => {
 
   it("rejects corrupt, wrong-product, and future-version backups before writes", async () => {
     expect(() => previewBackup("not-json")).toThrow(ValidationError);
-    expect(() => previewBackup({ product: "other", schemaVersion: 1 })).toThrow(/not a PeopleOS backup/);
+    expect(() => previewBackup({ product: "other", schemaVersion: BACKUP_SCHEMA_VERSION })).toThrow(/not a PeopleOS backup/);
     expect(() => previewBackup({ product: "peopleos", schemaVersion: 99 })).toThrow(/newer unsupported/);
   });
 
@@ -45,13 +51,51 @@ describe("PeopleOS backup and restore", () => {
     expect(preview.migratedFromVersion).toBe(0);
     expect(preview.envelope.data.people).toHaveLength(1);
     expect(preview.envelope.data.appSettings).toHaveLength(1);
+    expect(preview.envelope.data.appSettings[0]?.alreadyContactedDefaultReminderDays).toBe(14);
     expect(preview.envelope.data.followUps).toEqual([]);
+  });
+
+  it("migrates schema-one Settings deterministically without mutating the source", () => {
+    const current = completeData();
+    const { alreadyContactedDefaultReminderDays: _newDefault, ...legacySettings } = current.appSettings[0]!;
+    const legacy = {
+      product: "peopleos",
+      schemaVersion: 1,
+      exportedAt: fixedNow,
+      data: { ...current, appSettings: [legacySettings] }
+    } as const;
+
+    const first = previewBackup(legacy);
+    const retry = previewBackup(legacy);
+    expect(first).toEqual(retry);
+    expect(first.migratedFromVersion).toBe(1);
+    expect(first.envelope.schemaVersion).toBe(BACKUP_SCHEMA_VERSION);
+    expect(first.envelope.data.appSettings[0]).toEqual({
+      ...legacySettings,
+      alreadyContactedDefaultReminderDays: 14
+    });
+    expect("alreadyContactedDefaultReminderDays" in legacy.data.appSettings[0]).toBe(false);
+
+    const currentPreview = previewBackup(first.envelope);
+    expect(currentPreview.migratedFromVersion).toBeUndefined();
+    expect(currentPreview.envelope).toEqual(first.envelope);
+  });
+
+  it("rejects a current schema backup when the required interval is missing", () => {
+    const current = completeData();
+    const { alreadyContactedDefaultReminderDays: _missing, ...invalidSettings } = current.appSettings[0]!;
+    expect(() => previewBackup({
+      product: "peopleos",
+      schemaVersion: BACKUP_SCHEMA_VERSION,
+      exportedAt: fixedNow,
+      data: { ...current, appSettings: [invalidSettings] }
+    })).toThrow(/appSettings\[0\] is invalid/);
   });
 
   it("leaves the original database unchanged when restore fails before commit", async () => {
     const db = await openPeopleOsDatabase(name("rollback"), fixedNow);
     const initial = await readAllData(db);
-    const preview = previewBackup({ product: "peopleos", schemaVersion: 1, exportedAt: fixedNow, data: completeData() });
+    const preview = previewBackup({ product: "peopleos", schemaVersion: BACKUP_SCHEMA_VERSION, exportedAt: fixedNow, data: completeData() });
     await expect(restoreBackup(db, preview, fixedNow, { beforeCommit: () => { throw new Error("injected failure"); } })).rejects.toThrow("injected failure");
     expect(await readAllData(db)).toEqual(initial);
     db.close();
@@ -62,7 +106,7 @@ describe("PeopleOS backup and restore", () => {
     const before = await readAllData(db);
     const invalid = completeData();
     invalid.people = [];
-    expect(() => previewBackup({ product: "peopleos", schemaVersion: 1, exportedAt: fixedNow, data: invalid })).toThrow(ValidationError);
+    expect(() => previewBackup({ product: "peopleos", schemaVersion: BACKUP_SCHEMA_VERSION, exportedAt: fixedNow, data: invalid })).toThrow(ValidationError);
     expect(await readAllData(db)).toEqual(before);
     db.close();
   });
@@ -88,7 +132,7 @@ describe("PeopleOS backup and restore", () => {
     for (const candidate of cases) {
       const data = completeData();
       candidate.mutate(data);
-      expect(() => previewBackup({ product: "peopleos", schemaVersion: 1, exportedAt: fixedNow, data }), candidate.name)
+      expect(() => previewBackup({ product: "peopleos", schemaVersion: BACKUP_SCHEMA_VERSION, exportedAt: fixedNow, data }), candidate.name)
         .toThrow(candidate.message);
     }
   });

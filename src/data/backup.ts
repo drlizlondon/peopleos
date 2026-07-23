@@ -1,5 +1,6 @@
 import {
   BACKUP_SCHEMA_VERSION,
+  DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS,
   DATA_STORE_NAMES,
   emptyPeopleOsData,
   type BackupCounts,
@@ -17,6 +18,13 @@ type LegacyBackupEnvelope = {
   data?: Partial<PeopleOsData>;
 };
 
+type SchemaOneBackupEnvelope = {
+  product: "peopleos";
+  schemaVersion: 1;
+  exportedAt: string;
+  data?: unknown;
+};
+
 export type GeneratedBackup = {
   envelope: BackupEnvelope;
   json: string;
@@ -32,6 +40,24 @@ export function countData(data: PeopleOsData): BackupCounts {
   return Object.fromEntries(DATA_STORE_NAMES.map((store) => [store, data[store].length])) as BackupCounts;
 }
 
+function migrateAlreadyContactedDefault(data: unknown): unknown {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return data;
+  const record = data as Record<string, unknown>;
+  if (!Array.isArray(record.appSettings)) return data;
+  return {
+    ...record,
+    appSettings: record.appSettings.map((settings) => {
+      if (typeof settings !== "object" || settings === null || Array.isArray(settings)) return settings;
+      const settingRecord = settings as Record<string, unknown>;
+      if (settingRecord.alreadyContactedDefaultReminderDays !== undefined) return settings;
+      return {
+        ...settingRecord,
+        alreadyContactedDefaultReminderDays: DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS
+      };
+    })
+  };
+}
+
 function migrateLegacyBackup(value: LegacyBackupEnvelope): BackupPreview {
   if (!isIsoInstant(value.exportedAt)) throw new ValidationError(["legacy backup exportedAt is invalid"]);
   const defaults = emptyPeopleOsData(createDefaultSettings(value.exportedAt));
@@ -41,9 +67,20 @@ function migrateLegacyBackup(value: LegacyBackupEnvelope): BackupPreview {
     product: "peopleos",
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: value.exportedAt,
-    data: validatePeopleOsData(migrated)
+    data: validatePeopleOsData(migrateAlreadyContactedDefault(migrated))
   };
   return { envelope, counts: countData(envelope.data), migratedFromVersion: 0 };
+}
+
+function migrateSchemaOneBackup(value: SchemaOneBackupEnvelope): BackupPreview {
+  if (!isIsoInstant(value.exportedAt)) throw new ValidationError(["backup exportedAt is invalid"]);
+  const envelope: BackupEnvelope = {
+    product: "peopleos",
+    schemaVersion: BACKUP_SCHEMA_VERSION,
+    exportedAt: value.exportedAt,
+    data: validatePeopleOsData(migrateAlreadyContactedDefault(value.data))
+  };
+  return { envelope, counts: countData(envelope.data), migratedFromVersion: 1 };
 }
 
 export function previewBackup(input: string | unknown): BackupPreview {
@@ -61,6 +98,7 @@ export function previewBackup(input: string | unknown): BackupPreview {
   if (typeof candidate.schemaVersion !== "number" || !Number.isInteger(candidate.schemaVersion)) throw new ValidationError(["backup schema version is missing"]);
   if (candidate.schemaVersion > BACKUP_SCHEMA_VERSION) throw new ValidationError(["backup was created by a newer unsupported PeopleOS version"]);
   if (candidate.schemaVersion === 0) return migrateLegacyBackup(value as LegacyBackupEnvelope);
+  if (candidate.schemaVersion === 1) return migrateSchemaOneBackup(value as SchemaOneBackupEnvelope);
   const envelope = validateBackupEnvelope(value);
   return { envelope, counts: countData(envelope.data) };
 }

@@ -100,7 +100,7 @@ import {
 import DuplicateWarningSheet, { type DuplicateLinkSelection } from "./DuplicateWarningSheet";
 import { DuplicateReviewRequiredError } from "./application/duplicateReview";
 
-type Navigate = (path: string, options?: { replace?: boolean }) => void;
+type Navigate = (path: string, options?: { replace?: boolean; state?: Record<string, unknown> }) => void;
 
 const phoneRegionOptions = getPhoneRegionOptions(globalThis.navigator?.language ?? "en-GB");
 
@@ -135,26 +135,6 @@ function usePeople(): { people: PersonSummary[]; loading: boolean; error: string
   }, []);
 
   return { people, loading, error };
-}
-
-export function TodayScreen({ navigate }: { navigate: Navigate }) {
-  const { people, loading } = usePeople();
-  return (
-    <main className="screen" id="main-content" tabIndex={-1}>
-      <EmptyState
-        eyebrow="Today"
-        title="No one needs your attention yet"
-        description="PeopleOS helps you remember who to contact and why. Add your first person to begin."
-        note="Your data stays on this device unless you export it."
-        action={!loading && people.length === 0 ? (
-          <div className="empty-action-stack">
-            {actionButton("Add your first person", () => navigate("/people/new"))}
-            {importAction(navigate)}
-          </div>
-        ) : undefined}
-      />
-    </main>
-  );
 }
 
 function affiliationLine(summary: PersonSummary): string | undefined {
@@ -1068,7 +1048,8 @@ export function PersonProfileScreen({
   const resumesContactEditor = requestedBackRoute.id === "contact-methods";
   const resumesFollowUp = requestedBackRoute.id === "follow-up-detail";
   const resumesReachOut = requestedBackRoute.id === "reach-out-detail";
-  const resumesPreviousFlow = resumesCapture || resumesImport || resumesContactEditor || resumesFollowUp || resumesReachOut;
+  const resumesToday = requestedBackRoute.id === "today" && window.history.state?.todayOriginPrepared === true;
+  const resumesPreviousFlow = resumesCapture || resumesImport || resumesContactEditor || resumesFollowUp || resumesReachOut || resumesToday;
   const backRoute = ["today", "reach-out", "people", "upcoming"].includes(requestedBackRoute.id)
     ? requestedBackRoute
     : routeFromPath("/people");
@@ -1516,6 +1497,8 @@ export function ContactMethodsScreen({
   onDirtyChange,
   onSavingChange,
   initialEditor,
+  autoAddPhone = false,
+  onBack,
   onOpenDuplicatePerson,
   onEditorFinished
 }: {
@@ -1524,6 +1507,8 @@ export function ContactMethodsScreen({
   onDirtyChange: (dirty: boolean) => void;
   onSavingChange: (saving: boolean) => void;
   initialEditor?: ContactEditorResumeState | null;
+  autoAddPhone?: boolean;
+  onBack?: () => void;
   onOpenDuplicatePerson: (personId: string, editor: ContactEditorResumeState) => void;
   onEditorFinished: () => void;
 }) {
@@ -1544,6 +1529,7 @@ export function ContactMethodsScreen({
   const editorOpenerIdRef = useRef("");
   const mutationInFlightRef = useRef(false);
   const acknowledgedContactDuplicatePersonIdsRef = useRef<string[]>([]);
+  const autoAddStartedRef = useRef(false);
 
   async function load() {
     const db = await getDatabase();
@@ -1580,6 +1566,14 @@ export function ContactMethodsScreen({
       : `edit-contact-${initialEditor.draft.id}`;
     onDirtyChange(true);
   }, [initialEditor, onDirtyChange]);
+
+  useEffect(() => {
+    if (!autoAddPhone || !person || editor || autoAddStartedRef.current) return;
+    autoAddStartedRef.current = true;
+    editorOpenerIdRef.current = "add-phone-contact";
+    setEditorDirty(false);
+    setEditor({ mode: "add", draft: createContactMethodDraft(personId, "phone") });
+  }, [autoAddPhone, editor, person, personId]);
 
   useEffect(() => () => {
     onDirtyChange(false);
@@ -1654,6 +1648,10 @@ export function ContactMethodsScreen({
     setContactDuplicateCandidateState(null);
     setFieldError("");
     onEditorFinished();
+    if (autoAddPhone && onBack) {
+      onBack();
+      return;
+    }
     returnFocusToEditorOpener();
   }
 
@@ -1715,6 +1713,7 @@ export function ContactMethodsScreen({
 
   async function persistContact(acknowledgedDuplicatePersonIds: readonly string[] = []) {
     if (!editor || !beginMutation()) return;
+    let returnToTodayAfterSave = false;
     const cumulativeAcknowledgedPersonIds = mergePersonIds(
       acknowledgedContactDuplicatePersonIdsRef.current,
       acknowledgedDuplicatePersonIds
@@ -1748,7 +1747,11 @@ export function ContactMethodsScreen({
       setContactDuplicateMatches([]);
       setContactDuplicateCandidateState(null);
       onEditorFinished();
-      returnFocusToEditorOpener();
+      if (autoAddPhone && onBack) {
+        returnToTodayAfterSave = true;
+      } else {
+        returnFocusToEditorOpener();
+      }
     } catch (error) {
       if (error instanceof DuplicateReviewRequiredError && person) {
         acknowledgedContactDuplicatePersonIdsRef.current = cumulativeAcknowledgedPersonIds;
@@ -1758,9 +1761,13 @@ export function ContactMethodsScreen({
         setFieldError(error.message);
         requestAnimationFrame(() => editorValueRef.current?.focus());
       }
-      else setPageError(firstIssue(error));
+      else {
+        setPageError(firstIssue(error));
+        requestAnimationFrame(() => editorValueRef.current?.focus());
+      }
     } finally {
       endMutation();
+      if (returnToTodayAfterSave) onBack?.();
     }
   }
 
@@ -1848,7 +1855,9 @@ export function ContactMethodsScreen({
 
   return (
     <main className="screen contact-methods-screen" id="main-content" tabIndex={-1}>
-      <button className="back-button" type="button" onClick={() => navigate(personProfilePath(personId))} disabled={saving}>← Person</button>
+      <button className="back-button" type="button" onClick={() => onBack ? onBack() : navigate(personProfilePath(personId))} disabled={saving}>
+        {onBack ? "← Today" : "← Person"}
+      </button>
       <header className="page-heading compact-heading">
         <p className="eyebrow">{person?.person.displayName ?? "Person"}</p>
         <h2>Contact details</h2>

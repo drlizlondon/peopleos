@@ -2,6 +2,7 @@ import { deleteDB, openDB, type DBSchema, type IDBPDatabase } from "idb";
 import {
   DATABASE_NAME,
   DATABASE_VERSION,
+  DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS,
   DATA_STORE_NAMES,
   type AppMetadata,
   type AppSettings,
@@ -53,9 +54,19 @@ export function createDefaultSettings(now = new Date().toISOString()): AppSettin
     id: "app",
     defaultPhoneRegion: defaultPhoneRegion(),
     captureMode: "standard",
+    alreadyContactedDefaultReminderDays: DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS,
     revision: 1,
     createdAt: now,
     updatedAt: now
+  };
+}
+
+function migrateAppSettings(settings: AppSettings): AppSettings {
+  const legacy = settings as AppSettings & { alreadyContactedDefaultReminderDays?: unknown };
+  if (legacy.alreadyContactedDefaultReminderDays !== undefined) return settings;
+  return {
+    ...settings,
+    alreadyContactedDefaultReminderDays: DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS
   };
 }
 
@@ -130,7 +141,12 @@ export async function openPeopleOsDatabase(
   const tx = db.transaction(["appSettings", "metadata"], "readwrite");
   const settings = await tx.objectStore("appSettings").get("app");
   const metadata = await tx.objectStore("metadata").get("app");
-  if (!settings) await tx.objectStore("appSettings").add(createDefaultSettings(now));
+  if (!settings) {
+    await tx.objectStore("appSettings").add(createDefaultSettings(now));
+  } else {
+    const migratedSettings = migrateAppSettings(settings);
+    if (migratedSettings !== settings) await tx.objectStore("appSettings").put(migratedSettings);
+  }
   if (!metadata) await tx.objectStore("metadata").add(createDefaultMetadata(now));
   await tx.done;
   return db;

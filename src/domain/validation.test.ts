@@ -27,6 +27,26 @@ describe("V1 data validation", () => {
     expect(() => validatePeopleOsData(data)).toThrow(/people\[0\] is invalid/);
   });
 
+  it("requires a whole Already contacted default from 1 through 3650 days", () => {
+    const minimum = completeData();
+    minimum.appSettings[0]!.alreadyContactedDefaultReminderDays = 1;
+    expect(validatePeopleOsData(minimum)).toBe(minimum);
+
+    const maximum = completeData();
+    maximum.appSettings[0]!.alreadyContactedDefaultReminderDays = 3_650;
+    expect(validatePeopleOsData(maximum)).toBe(maximum);
+
+    for (const value of [0, 3_651, 14.5, "14"] as const) {
+      const invalid = completeData();
+      invalid.appSettings[0]!.alreadyContactedDefaultReminderDays = value as number;
+      expect(() => validatePeopleOsData(invalid), String(value)).toThrow(/appSettings\[0\] is invalid/);
+    }
+
+    const missing = completeData();
+    delete (missing.appSettings[0] as Partial<(typeof missing.appSettings)[number]>).alreadyContactedDefaultReminderDays;
+    expect(() => validatePeopleOsData(missing)).toThrow(/appSettings\[0\] is invalid/);
+  });
+
   it("validates calendar dates without timezone conversion", () => {
     expect(isLocalDate("2026-03-29")).toBe(true);
     expect(isLocalDate("2026-02-29")).toBe(false);

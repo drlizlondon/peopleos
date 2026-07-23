@@ -2,12 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "./icons";
 import { followUpDetailPath, personProfilePath, reachOutDetailPath, routeFromPath, routes, type Route } from "./navigation";
 import { SettingsScreen } from "./screens";
+import TodayScreen from "./TodayScreen";
 import {
   AddPersonScreen,
   ContactMethodsScreen,
   PeopleScreen,
   PersonProfileScreen,
-  TodayScreen,
   type ContactEditorResumeState,
   type ManualCaptureResumeState
 } from "./peopleScreens";
@@ -272,7 +272,7 @@ export default function App() {
 
   function renderScreen() {
     switch (route.id) {
-      case "today": return <TodayScreen navigate={navigatePath} />;
+      case "today": return <TodayScreen navigate={navigatePath} onAddFollowUp={() => setGlobalAddOpen(true)} />;
       case "reach-out": return <ReachOutScreen navigate={navigatePath} onAdd={(opener) => openReachOutCapture(undefined, opener)} />;
       case "people": return (
         <PeopleScreen
@@ -309,6 +309,24 @@ export default function App() {
           onDirtyChange={setUnsavedCapture}
           onSavingChange={setNavigationLocked}
           initialEditor={window.history.state?.resumeContactEditor ? suspendedContactEditor : null}
+          autoAddPhone={window.history.state?.autoAddPhone === true}
+          onBack={window.history.state?.fromPath === "/" ? () => {
+            if (window.history.state?.todayOriginPrepared === true) {
+              window.history.back();
+              return;
+            }
+            navigate(routeFromPath("/"), {
+              replace: true,
+              state: {
+                ...(Number.isInteger(window.history.state?.todayVisibleCount)
+                  ? { todayVisibleCount: window.history.state.todayVisibleCount }
+                  : {}),
+                ...(typeof window.history.state?.todayFocusPersonId === "string"
+                  ? { todayFocusPersonId: window.history.state.todayFocusPersonId }
+                  : {})
+              }
+            });
+          } : undefined}
           onOpenDuplicatePerson={openExistingFromContactEditor}
           onEditorFinished={() => setSuspendedContactEditor(null)}
         />
