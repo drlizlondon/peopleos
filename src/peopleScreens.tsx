@@ -11,6 +11,7 @@ import FactEditorSheet from "./FactEditorSheet";
 import FollowUpEditorSheet from "./FollowUpEditorSheet";
 import CadenceEditorSheet from "./CadenceEditorSheet";
 import TimelineList from "./TimelineList";
+import ReachOutCompletionSheet from "./ReachOutCompletionSheet";
 import {
   createManualContactMethodDraft,
   createManualPersonCaptureDraft,
@@ -54,9 +55,19 @@ import {
   getNextPlanForPerson,
   type NextPlanProjection
 } from "./application/followUpQueries";
+import {
+  getCurrentReachOutForPerson,
+  getReachOutDetail,
+  listReachOutHistoryForPerson,
+  type ReachOutDetail
+} from "./application/reachOutQueries";
+import {
+  prepareReachOutStatusCommand,
+  removeReachOut
+} from "./application/reachOut";
 import { getDatabase } from "./data/client";
 import { StaleRevisionError } from "./data/repositories";
-import type { ContactMethod, FollowUp, Interaction, InteractionKind, MemoryFact } from "./domain/schema";
+import type { ContactMethod, FollowUp, Interaction, InteractionKind, MemoryFact, Person, ReachOutEntry } from "./domain/schema";
 import { effectiveFollowUpDate, FOLLOW_UP_ACTION_OPTIONS } from "./domain/followUpPolicy";
 import type { DuplicateMatch } from "./domain/duplicates";
 import { ValidationError } from "./domain/validation";
@@ -74,6 +85,8 @@ import {
   personFollowUpsPath,
   personProfilePath,
   routeFromPath,
+  reachOutDetailPath,
+  resolveProvisionalPath,
   timelinePath
 } from "./navigation";
 import DuplicateWarningSheet, { type DuplicateLinkSelection } from "./DuplicateWarningSheet";
@@ -819,11 +832,13 @@ function followUpTimingLabel(followUp: FollowUp, localDate: string): string {
 export function PersonProfileScreen({
   personId,
   navigate,
-  backPath
+  backPath,
+  onAddToReachOut
 }: {
   personId: string;
   navigate: Navigate;
   backPath: string;
+  onAddToReachOut: (person: Person, opener: HTMLElement) => void;
 }) {
   const [refreshVersion, setRefreshVersion] = useState(0);
   const { summary, phoneRegion, error } = usePerson(personId, refreshVersion);
@@ -833,6 +848,11 @@ export function PersonProfileScreen({
   const [memoryError, setMemoryError] = useState("");
   const [nextPlan, setNextPlan] = useState<NextPlanProjection | null | undefined>(undefined);
   const [planError, setPlanError] = useState("");
+  const [reachOut, setReachOut] = useState<ReachOutDetail | null | undefined>(undefined);
+  const [reachOutHistory, setReachOutHistory] = useState<ReachOutEntry[]>([]);
+  const [reachOutError, setReachOutError] = useState("");
+  const [reachOutCompletionOpen, setReachOutCompletionOpen] = useState(false);
+  const [reachOutRemoving, setReachOutRemoving] = useState(false);
   const [editor, setEditor] = useState<{ interaction?: TimelineDisplayItem["interaction"]; initialKind?: InteractionKind } | null>(null);
   const [followUpEditorOpen, setFollowUpEditorOpen] = useState(false);
   const [cadenceEditorOpen, setCadenceEditorOpen] = useState(false);
@@ -843,6 +863,7 @@ export function PersonProfileScreen({
   const planOpenerRef = useRef<HTMLElement | null>(null);
   const profileHeadingRef = useRef<HTMLHeadingElement>(null);
   const memoryChoiceFirstRef = useRef<HTMLButtonElement>(null);
+  const reachOutOpenerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -851,6 +872,26 @@ export function PersonProfileScreen({
     getDatabase().then((db) => getPersonHistory(db, personId)).then((result) => {
       if (active) setHistory(result ?? null);
     }).catch(() => { if (active) setHistoryError("PeopleOS could not load recent history."); });
+    return () => { active = false; };
+  }, [personId, refreshVersion]);
+
+  useEffect(() => {
+    let active = true;
+    setReachOut(undefined);
+    setReachOutHistory([]);
+    setReachOutError("");
+    getDatabase().then(async (db) => {
+      const [current, entries] = await Promise.all([
+        getCurrentReachOutForPerson(db, personId),
+        listReachOutHistoryForPerson(db, personId)
+      ]);
+      const detail = current ? await getReachOutDetail(db, current.id, currentLocalDate()) : undefined;
+      return { detail, entries };
+    }).then(({ detail, entries }) => {
+      if (!active) return;
+      setReachOut(detail ?? null);
+      setReachOutHistory(entries);
+    }).catch(() => { if (active) setReachOutError("PeopleOS could not load this Person’s Reach Out plan."); });
     return () => { active = false; };
   }, [personId, refreshVersion]);
 
@@ -965,12 +1006,42 @@ export function PersonProfileScreen({
     requestAnimationFrame(() => profileHeadingRef.current?.focus());
   }
 
+  function finishReachOutMutation() {
+    setReachOutCompletionOpen(false);
+    setRefreshVersion((current) => current + 1);
+    requestAnimationFrame(() => profileHeadingRef.current?.focus());
+  }
+
+  async function removeCurrentReachOut() {
+    if (!reachOut || !window.confirm("Remove this plan from Reach Out? Its history and Person will be kept.")) return;
+    setReachOutRemoving(true);
+    setReachOutError("");
+    try {
+      await removeReachOut(
+        await getDatabase(),
+        prepareReachOutStatusCommand(
+          reachOut.entry,
+          reachOut.person,
+          reachOut.currentFollowUp,
+          "removed"
+        )
+      );
+      finishReachOutMutation();
+    } catch {
+      setReachOutError("PeopleOS could not remove this Reach Out plan. It is unchanged.");
+      requestAnimationFrame(() => reachOutOpenerRef.current?.focus());
+    } finally {
+      setReachOutRemoving(false);
+    }
+  }
+
   const requestedBackRoute = routeFromPath(backPath);
   const resumesCapture = backPath === "/people/new";
   const resumesImport = backPath === "/people/import";
   const resumesContactEditor = requestedBackRoute.id === "contact-methods";
   const resumesFollowUp = requestedBackRoute.id === "follow-up-detail";
-  const resumesPreviousFlow = resumesCapture || resumesImport || resumesContactEditor || resumesFollowUp;
+  const resumesReachOut = requestedBackRoute.id === "reach-out-detail";
+  const resumesPreviousFlow = resumesCapture || resumesImport || resumesContactEditor || resumesFollowUp || resumesReachOut;
   const backRoute = ["today", "reach-out", "people", "upcoming"].includes(requestedBackRoute.id)
     ? requestedBackRoute
     : routeFromPath("/people");
@@ -986,7 +1057,7 @@ export function PersonProfileScreen({
       <button
         className="back-button"
         type="button"
-        onClick={() => resumesPreviousFlow ? window.history.back() : navigate(backRoute.path)}
+        onClick={() => resumesReachOut ? navigate(backPath) : resumesPreviousFlow ? window.history.back() : navigate(backRoute.path)}
       >
         ← {resumesCapture
           ? "Continue adding person"
@@ -996,6 +1067,8 @@ export function PersonProfileScreen({
               ? "Continue editing contact"
               : resumesFollowUp
                 ? "Back to follow-up"
+              : resumesReachOut
+                ? "Back to Reach Out plan"
               : backRoute.label}
       </button>
       {summary === undefined && !error && <p role="status">Loading person…</p>}
@@ -1107,6 +1180,39 @@ export function PersonProfileScreen({
               )}
             </section>
           )}
+          <section className="profile-card profile-reach-out-card" aria-labelledby="profile-reach-out-heading">
+            <div className="card-heading-with-action">
+              <div>
+                <h3 id="profile-reach-out-heading">Reach Out</h3>
+                <p>The deliberate intention attached to this Person.</p>
+              </div>
+              {summary.person.identityStatus === "provisional" && reachOut && (
+                <button className="secondary-action" type="button" onClick={() => navigate(resolveProvisionalPath(reachOut.entry.id))}>Complete identity</button>
+              )}
+            </div>
+            {reachOut === undefined && !reachOutError && <p role="status">Loading Reach Out plan…</p>}
+            {reachOutError && <div className="section-error"><p role="alert">{reachOutError}</p><button type="button" onClick={() => setRefreshVersion((current) => current + 1)}>Retry</button></div>}
+            {reachOut && (
+              <div className="current-plan-summary">
+                <span className="status-chip">{reachOut.displayState === "active" && reachOut.relevantDate === currentLocalDate() ? "Due today" : reachOut.displayState[0].toUpperCase() + reachOut.displayState.slice(1)}</span>
+                <strong>{reachOut.entry.reason ?? "Add why"}</strong>
+                <p>{reachOut.entry.actionDetail ?? (FOLLOW_UP_ACTION_OPTIONS.find((option) => option.value === reachOut.entry.intendedActionType)?.label ?? "Choose next action")}</p>
+                {reachOut.relevantDate && <p>Reminder: {formatLocalDate(reachOut.relevantDate)}</p>}
+                <div className="button-row compact-buttons">
+                  <button type="button" onClick={() => navigate(reachOutDetailPath(reachOut.entry.id))}>Open plan</button>
+                  {reachOut.entry.intentStatus === "active" && <button type="button" onClick={(event) => { reachOutOpenerRef.current = event.currentTarget; setReachOutCompletionOpen(true); }}>Mark complete</button>}
+                  <button className="danger-action" type="button" disabled={reachOutRemoving} onClick={(event) => { reachOutOpenerRef.current = event.currentTarget; void removeCurrentReachOut(); }}>{reachOutRemoving ? "Removing…" : "Remove"}</button>
+                </div>
+              </div>
+            )}
+            {reachOut === null && !reachOutError && (
+              <div className="timeline-empty">
+                <p>{reachOutHistory.some((entry) => entry.intentStatus === "completed") ? "The latest outreach cycle is complete and remains in history." : "This Person is not currently in Reach Out."}</p>
+                {!summary.person.archivedAt && summary.person.identityStatus !== "merged" && <button className="text-action" type="button" onClick={(event) => onAddToReachOut(summary.person, event.currentTarget)}>Add to Reach Out</button>}
+                {reachOutHistory[0] && <button className="text-action" type="button" onClick={() => navigate(reachOutDetailPath(reachOutHistory[0].id))}>Open Reach Out history</button>}
+              </div>
+            )}
+          </section>
           <section className="profile-card" aria-labelledby="profile-contact-heading">
             <div className="card-heading-with-action">
               <div>
@@ -1259,10 +1365,10 @@ export function PersonProfileScreen({
                   ? openTimelineInteraction
                   : undefined}
                 onOpenFollowUp={(followUpId) => navigate(followUpDetailPath(followUpId))}
+                onOpenReachOut={(entryId) => navigate(reachOutDetailPath(entryId))}
               />
             ) : null}
           </section>
-          <p className="scope-note">Reach Out and relationship insights are added in later implementation packages.</p>
           {editor && (
             <InteractionEditorSheet
               personId={summary.person.id}
@@ -1297,6 +1403,15 @@ export function PersonProfileScreen({
               person={summary.person}
               onClose={closePlanEditor}
               onSaved={finishPlanEditor}
+            />
+          )}
+          {reachOutCompletionOpen && reachOut && (
+            <ReachOutCompletionSheet
+              entry={reachOut.entry}
+              person={reachOut.person}
+              currentFollowUp={reachOut.currentFollowUp}
+              onClose={() => { setReachOutCompletionOpen(false); requestAnimationFrame(() => reachOutOpenerRef.current?.focus()); }}
+              onCompleted={finishReachOutMutation}
             />
           )}
         </>

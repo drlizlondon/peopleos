@@ -48,27 +48,37 @@ function optionalTrimmed(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-type PreparedContactMethod = {
-  id: string;
-  revision: number;
-  personId: string;
-  kind: "phone" | "email";
-  label?: string;
-  rawValue: string;
-  canonicalValue: string;
-  region?: string;
-  createdAt: string;
-  updatedAt: string;
-  archivedAt?: string;
-};
+export function prepareNewContactMethod(
+  draft: ContactMethodDraft,
+  defaultPhoneRegion: string,
+  isPreferred: boolean
+): ContactMethod {
+  const normalized = normalizeContactValue(draft.kind, draft.value, draft.region ?? defaultPhoneRegion);
+  const record = {
+    id: draft.id,
+    revision: 1,
+    personId: draft.personId,
+    kind: draft.kind,
+    ...(optionalTrimmed(draft.label) ? { label: optionalTrimmed(draft.label) } : {}),
+    rawValue: normalized.rawValue,
+    canonicalValue: normalized.canonicalValue,
+    ...(draft.kind === "phone" && normalized.region ? { region: normalized.region } : {}),
+    isPreferred,
+    createdAt: draft.createdAt,
+    updatedAt: draft.createdAt
+  } as ContactMethod;
+  assertValidRecord("contactMethods", record);
+  return record;
+}
 
-function semanticMatch(existing: ContactMethod, candidate: PreparedContactMethod): boolean {
+function semanticMatch(existing: ContactMethod, candidate: ContactMethod): boolean {
   return existing.id === candidate.id
     && existing.revision === candidate.revision
     && existing.personId === candidate.personId
     && existing.kind === candidate.kind
     && existing.rawValue === candidate.rawValue
     && existing.canonicalValue === candidate.canonicalValue
+    && existing.isPreferred === candidate.isPreferred
     && existing.label === candidate.label
     && existing.createdAt === candidate.createdAt
     && existing.updatedAt === candidate.updatedAt
@@ -111,40 +121,24 @@ export async function addContactMethod(
   defaultPhoneRegion: string,
   hooks: ContactMethodMutationHooks = {}
 ): Promise<ContactMethod> {
-  const normalized = normalizeContactValue(draft.kind, draft.value, draft.region ?? defaultPhoneRegion);
-  const base = {
-    id: draft.id,
-    revision: 1,
-    personId: draft.personId,
-    kind: draft.kind,
-    ...(optionalTrimmed(draft.label) ? { label: optionalTrimmed(draft.label) } : {}),
-    rawValue: normalized.rawValue,
-    canonicalValue: normalized.canonicalValue,
-    ...(draft.kind === "phone" && normalized.region ? { region: normalized.region } : {}),
-    createdAt: draft.createdAt,
-    updatedAt: draft.createdAt
-  } as PreparedContactMethod;
-
   const tx = db.transaction(["people", "contactMethods", "metadata"], "readwrite");
   try {
     const people = tx.objectStore("people");
     const person = await requireWritablePerson(await people.get(draft.personId), draft.personId);
     const store = tx.objectStore("contactMethods");
+    const siblings = await store.index("by-person").getAll(draft.personId);
+    const isPreferred = !siblings.some((contact) =>
+      contact.id !== draft.id && !contact.archivedAt && contact.kind === draft.kind && contact.isPreferred
+    );
+    const record = prepareNewContactMethod(draft, defaultPhoneRegion, isPreferred);
     const existing = await store.get(draft.id);
     if (existing) {
-      if (semanticMatch(existing, base)) {
+      if (semanticMatch(existing, record)) {
         await tx.done;
         return existing;
       }
       throw new RecordConflictError(`contactMethods already contains id ${draft.id}`);
     }
-
-    const siblings = await store.index("by-person").getAll(draft.personId);
-    const isPreferred = !siblings.some((contact) =>
-      !contact.archivedAt && contact.kind === draft.kind && contact.isPreferred
-    );
-    const record = { ...base, isPreferred } as ContactMethod;
-    assertValidRecord("contactMethods", record);
     await requireReviewedContactDuplicate(people, store, person, record, hooks);
     await store.add(record);
     await updateMetadata(tx.objectStore("metadata"), draft.createdAt);

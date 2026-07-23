@@ -7,13 +7,17 @@ export default function GlobalAddSheet({
   onNavigate,
   onLogInteraction,
   onAddFollowUp,
-  preferFollowUp = false
+  onAddReachOut,
+  preferFollowUp = false,
+  preferReachOut = false
 }: {
   onClose: () => void;
   onNavigate: (path: string) => void;
   onLogInteraction: (person: PersonPickerOption) => void;
   onAddFollowUp: (person: PersonPickerOption) => void;
+  onAddReachOut: () => void;
   preferFollowUp?: boolean;
+  preferReachOut?: boolean;
 }) {
   const modalId = useId();
   const [choice, setChoice] = useState<"interaction" | "follow_up" | null>(null);
@@ -140,8 +144,10 @@ export default function GlobalAddSheet({
           </div>
         ) : (
           <div className="global-add-actions">
+            {preferReachOut && <button className="primary-action" type="button" onClick={onAddReachOut}>Add to Reach Out</button>}
             {preferFollowUp && <button ref={addFollowUpRef} className="primary-action" type="button" onClick={() => void startPersonPicker("follow_up")}>Add follow-up</button>}
             <button className="primary-action" type="button" onClick={() => onNavigate("/people/new")}>Add person</button>
+            {!preferReachOut && <button type="button" onClick={onAddReachOut}>Add to Reach Out</button>}
             {!preferFollowUp && <button ref={addFollowUpRef} type="button" onClick={() => void startPersonPicker("follow_up")}>Add follow-up</button>}
             <button ref={logInteractionRef} type="button" onClick={() => void startPersonPicker("interaction")}>Log interaction</button>
             <button type="button" onClick={() => onNavigate("/people/import")}>Import contacts</button>

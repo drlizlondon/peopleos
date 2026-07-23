@@ -14,11 +14,13 @@ function dateLabel(instant: string): string {
 export default function TimelineList({
   items,
   onOpenInteraction,
-  onOpenFollowUp
+  onOpenFollowUp,
+  onOpenReachOut
 }: {
   items: TimelineDisplayItem[];
   onOpenInteraction?: (item: TimelineDisplayItem, opener: HTMLElement) => void;
   onOpenFollowUp?: (followUpId: string, opener: HTMLElement) => void;
+  onOpenReachOut?: (reachOutEntryId: string, opener: HTMLElement) => void;
 }) {
   const groups = items.reduce<Array<{ key: string; label: string; items: TimelineDisplayItem[] }>>((all, item) => {
     const key = timelineMonthKey(item.occurredAt);
@@ -71,6 +73,15 @@ export default function TimelineList({
                       onClick={(event) => onOpenFollowUp(item.followUpId!, event.currentTarget)}
                     >
                       Open follow-up
+                    </button>
+                  )}
+                  {item.reachOutEntryId && onOpenReachOut && (
+                    <button
+                      className="text-action"
+                      type="button"
+                      onClick={(event) => onOpenReachOut(item.reachOutEntryId!, event.currentTarget)}
+                    >
+                      Open Reach Out plan
                     </button>
                   )}
                 </article>

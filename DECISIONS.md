@@ -302,3 +302,16 @@ The strongest alternative was to persist a notification queue beside Today. That
 PeopleOS must not advertise Today summary delivery on a runtime until an adapter proves permission, scheduled closed-app delivery, replacement and cancellation, notification actions, warm and cold deep links, timezone reconciliation, retries, and idempotency. The browser PWA remains unavailable where it cannot meet this contract. The [Periodic Background Sync API is limited and experimental](https://developer.mozilla.org/en-US/docs/Web/API/Web_Periodic_Background_Synchronization_API), and Chrome ended [Notification Triggers](https://developer.chrome.com/docs/web-platform/notification-triggers/) after consistent cross-platform reliability could not be established.
 
 The strongest V1 candidate is a provider-neutral adapter backed by [Capacitor local notifications](https://capacitorjs.com/). That candidate is not approval to add a native build before its package. Backend push is rejected for V1 because it introduces subscription, delivery, privacy, retry, and likely account/sync decisions solely to wake the app. This decision would be wrong if a portable, reliable, testable browser scheduling capability becomes available before implementation; the adapter boundary permits that substitution without changing Today or reminder rules.
+
+## POS-D040 — Reach Out compound mutations are conservatively retry-safe
+
+- **Status:** Accepted
+- **Date:** 2026-07-23
+
+Reach Out create, plan-edit, completion, and durable-status commands use prepared stable IDs and canonical command fingerprints. Primary ReachOutEvents anchor create, completion, and status retries; the current ReachOutEntry anchors exact plan-edit retries. Aggregate provisional identity completion stores its fingerprint on the confirmed Person. Provisional linking binds its explicit record preview to Person revisions and the complete dataset revision, then stores its command fingerprint on the merged source Person. Exact retries return the established result only when every expected artifact matches; stale, incomplete, or conflicting state aborts without partial writes.
+
+Provisional linking blocks dual current Reach Out plans and unsafe lifecycle or self-reference closures. Its sole exception to append-only ownership is rekeying `FollowUpEvent.personId` while preserving the event ID and all lifecycle content.
+
+The strongest alternative was a generic persisted command log plus a general-purpose merge engine. That would add infrastructure and product behavior beyond Version 1, so prepared commands and the narrow provisional-resolution transaction are preferred.
+
+This decision could become wrong if multi-device sync requires operation-level reconciliation or unrelated dataset mutations make the global preview revision impractically strict. A future implementation could then use dependency-specific revision tokens without changing Reach Out product behavior.

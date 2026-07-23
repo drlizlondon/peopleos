@@ -6,6 +6,8 @@ import {
   memoryFactsPath,
   personFollowUpsPath,
   personProfilePath,
+  reachOutDetailPath,
+  resolveProvisionalPath,
   routeFromPath,
   timelinePath
 } from "./navigation";
@@ -43,6 +45,20 @@ describe("People secondary routes", () => {
       id: "follow-up-detail",
       followUpId,
       primaryId: "upcoming"
+    });
+  });
+
+  it("round-trips Reach Out detail and provisional-resolution routes", () => {
+    const entryId = "reach-out/one";
+    expect(routeFromPath(reachOutDetailPath(entryId))).toMatchObject({
+      id: "reach-out-detail",
+      reachOutEntryId: entryId,
+      primaryId: "reach-out"
+    });
+    expect(routeFromPath(resolveProvisionalPath(entryId))).toMatchObject({
+      id: "resolve-provisional",
+      reachOutEntryId: entryId,
+      primaryId: "reach-out"
     });
   });
 

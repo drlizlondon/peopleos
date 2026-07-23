@@ -16,6 +16,7 @@ import {
   type Person,
   type ReachOutContext,
   type ReachOutEntry,
+  type ReachOutEvent,
   type RelationshipEvent
 } from "./schema";
 import { interactionCountsAsContact } from "./interactionPolicy";
@@ -58,7 +59,11 @@ export function isLocalDate(value: unknown): value is LocalDate {
 }
 
 function optionalString(value: unknown): boolean {
-  return value === undefined || typeof value === "string";
+  return value === undefined || nonEmpty(value);
+}
+
+function optionalCommandFingerprint(value: unknown): boolean {
+  return value === undefined || (typeof value === "string" && /^[0-9a-f]{16}$/.test(value));
 }
 
 function optionalInstant(value: unknown): boolean {
@@ -87,6 +92,10 @@ function validatePerson(value: unknown): value is Person {
     && (value.contactCadenceDays === undefined || (Number.isInteger(value.contactCadenceDays) && Number(value.contactCadenceDays) >= 1 && Number(value.contactCadenceDays) <= 3_650))
     && optionalInstant(value.archivedAt)
     && optionalString(value.mergedIntoPersonId)
+    && optionalCommandFingerprint(value.mergeCommandFingerprint)
+    && (value.mergeCommandFingerprint === undefined || status === "merged")
+    && optionalCommandFingerprint(value.identityCompletionFingerprint)
+    && (value.identityCompletionFingerprint === undefined || status === "confirmed")
     && (status === "merged" ? nonEmpty(value.mergedIntoPersonId) : value.mergedIntoPersonId === undefined);
 }
 
@@ -170,17 +179,47 @@ function validateFollowUpEvent(value: unknown): value is FollowUpEvent {
 }
 
 function validateReachOutEntry(value: unknown): value is ReachOutEntry {
-  return object(value) && mutable(value) && nonEmpty(value.personId)
-    && optionalString(value.reason) && (value.intendedActionType === undefined || reachOutActions.has(String(value.intendedActionType)))
-    && optionalString(value.actionDetail) && optionalString(value.notes)
+  if (!object(value) || !mutable(value) || !nonEmpty(value.personId)) return false;
+  const validOptionalText = (candidate: unknown, maximum: number) => candidate === undefined
+    || (typeof candidate === "string" && candidate.trim().length > 0
+      && candidate === candidate.trim() && candidate.length <= maximum);
+  return validOptionalText(value.reason, 240)
+    && (value.intendedActionType === undefined || reachOutActions.has(String(value.intendedActionType)))
+    && validOptionalText(value.actionDetail, 240)
+    && validOptionalText(value.notes, 5_000)
     && ["active", "completed", "dormant"].includes(String(value.intentStatus))
-    && optionalString(value.currentFollowUpId) && strings(value.contextIds) && isIsoInstant(value.addedAt)
-    && optionalInstant(value.lastCompletedAt) && optionalInstant(value.removedAt);
+    && optionalString(value.currentFollowUpId) && strings(value.contextIds)
+    && new Set(value.contextIds as string[]).size === (value.contextIds as string[]).length
+    && isIsoInstant(value.addedAt)
+    && optionalInstant(value.lastCompletedAt) && optionalInstant(value.removedAt)
+    && optionalCommandFingerprint(value.lastCommandFingerprint)
+    && (value.intentStatus === "active" && value.removedAt === undefined
+      ? true
+      : value.currentFollowUpId === undefined);
 }
 
 function validateReachOutContext(value: unknown): value is ReachOutContext {
   return object(value) && mutable(value) && ["project", "organisation", "event", "fellowship", "other"].includes(String(value.kind))
-    && nonEmpty(value.label) && optionalString(value.eventId) && optionalInstant(value.archivedAt);
+    && nonEmpty(value.label) && value.label === String(value.label).trim() && String(value.label).length <= 120
+    && optionalString(value.eventId)
+    && optionalInstant(value.archivedAt);
+}
+
+function validateReachOutEvent(value: unknown): value is ReachOutEvent {
+  if (!object(value) || !nonEmpty(value.id) || !nonEmpty(value.reachOutEntryId)
+    || !["added", "activated", "completed", "moved_to_dormant", "removed", "follow_up_linked"].includes(String(value.kind))
+    || !isIsoInstant(value.occurredAt) || !optionalString(value.followUpId)
+    || !optionalString(value.interactionId) || !optionalCommandFingerprint(value.commandFingerprint)) return false;
+  if (value.kind === "added" || value.kind === "activated") {
+    return value.followUpId === undefined && value.interactionId === undefined;
+  }
+  if (value.kind === "follow_up_linked") {
+    return nonEmpty(value.followUpId) && value.interactionId === undefined;
+  }
+  if (value.kind === "moved_to_dormant" || value.kind === "removed") {
+    return value.interactionId === undefined;
+  }
+  return true;
 }
 
 export function validateAppSettings(value: unknown): value is AppSettings {
@@ -204,9 +243,7 @@ const storeValidators: Record<DataStoreName, (value: unknown) => boolean> = {
     && isLocalDate(value.localDate) && value.id === `${value.personId}:${value.localDate}`
     && isIsoInstant(value.createdAt),
   reachOutEntries: validateReachOutEntry,
-  reachOutEvents: (value) => object(value) && nonEmpty(value.id) && nonEmpty(value.reachOutEntryId)
-    && ["added", "activated", "completed", "moved_to_dormant", "removed", "follow_up_linked"].includes(String(value.kind))
-    && isIsoInstant(value.occurredAt) && optionalString(value.followUpId) && optionalString(value.interactionId),
+  reachOutEvents: validateReachOutEvent,
   reachOutContexts: validateReachOutContext,
   appSettings: validateAppSettings
 };
@@ -289,6 +326,9 @@ export function validatePeopleOsData(value: unknown): PeopleOsData {
     if (record.reachOutEntryId) {
       const entry = data.reachOutEntries.find((candidate) => candidate.id === record.reachOutEntryId);
       requireReference(issues, Boolean(entry && entry.personId === record.personId), `followUps.${record.id}.reachOutEntryId`);
+      if (record.status === "pending" && entry?.currentFollowUpId !== record.id) {
+        issues.push(`followUps.${record.id} is pending but is not the Reach Out entry's current pointer`);
+      }
     }
     if (record.supersedesFollowUpId) {
       const previous = data.followUps.find((candidate) => candidate.id === record.supersedesFollowUpId);
@@ -365,11 +405,66 @@ export function validatePeopleOsData(value: unknown): PeopleOsData {
     if (record.id !== `${record.personId}:${record.localDate}`) issues.push(`todaySkips.${record.id}.id must equal personId:localDate`);
   });
   data.reachOutEntries.forEach((record) => {
+    const person = data.people.find((candidate) => candidate.id === record.personId);
+    if (!record.removedAt && (person?.archivedAt || person?.identityStatus === "merged")) {
+      issues.push(`reachOutEntries.${record.id} cannot remain visible for an archived or merged Person`);
+    }
+    const linkedPending = data.followUps.filter((candidate) => candidate.reachOutEntryId === record.id && candidate.status === "pending");
     if (record.currentFollowUpId) {
       const followUp = data.followUps.find((candidate) => candidate.id === record.currentFollowUpId);
-      requireReference(issues, Boolean(followUp && followUp.personId === record.personId && followUp.reachOutEntryId === record.id && followUp.status === "pending"), `reachOutEntries.${record.id}.currentFollowUpId`);
+      requireReference(issues, Boolean(record.intentStatus === "active" && !record.removedAt
+        && followUp && followUp.personId === record.personId
+        && followUp.reachOutEntryId === record.id && followUp.status === "pending"), `reachOutEntries.${record.id}.currentFollowUpId`);
+      if (linkedPending.length !== 1 || linkedPending[0]?.id !== record.currentFollowUpId) {
+        issues.push(`reachOutEntries.${record.id} must have exactly one reciprocal pending FollowUp`);
+      }
+    } else if (linkedPending.length > 0) {
+      issues.push(`reachOutEntries.${record.id} has a pending linked FollowUp without a current pointer`);
     }
     record.contextIds.forEach((id) => requireReference(issues, contextIds.has(id), `reachOutEntries.${record.id}.contextIds.${id}`));
+    const entryEvents = data.reachOutEvents.filter((event) => event.reachOutEntryId === record.id);
+    const added = entryEvents.filter((event) => event.kind === "added");
+    if (added.length !== 1 || added[0]?.occurredAt !== record.addedAt) {
+      issues.push(`reachOutEntries.${record.id} must have exactly one added event matching addedAt`);
+    }
+    const completions = entryEvents.filter((event) => event.kind === "completed")
+      .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt) || left.id.localeCompare(right.id));
+    if (record.lastCompletedAt !== completions[0]?.occurredAt) {
+      issues.push(`reachOutEntries.${record.id}.lastCompletedAt must match its latest completed event`);
+    }
+    const removals = entryEvents.filter((event) => event.kind === "removed");
+    if (record.removedAt && (removals.length !== 1 || removals[0]?.occurredAt !== record.removedAt)) {
+      issues.push(`reachOutEntries.${record.id}.removedAt must have one matching removed event`);
+    }
+    if (!record.removedAt && entryEvents.some((event) => event.kind === "removed")) {
+      issues.push(`reachOutEntries.${record.id} has removed history without removedAt`);
+    }
+    if (record.intentStatus === "completed" && !record.lastCompletedAt) {
+      issues.push(`reachOutEntries.${record.id} is completed without completion history`);
+    }
+    if (record.currentFollowUpId) {
+      const links = entryEvents.filter((event) => event.kind === "follow_up_linked" && event.followUpId === record.currentFollowUpId);
+      if (links.length !== 1) issues.push(`reachOutEntries.${record.id}.currentFollowUpId must have one link event`);
+    }
+    const linkedFollowUps = data.followUps.filter((candidate) => candidate.reachOutEntryId === record.id);
+    linkedFollowUps.forEach((followUp) => {
+      const links = entryEvents.filter((event) => event.kind === "follow_up_linked" && event.followUpId === followUp.id);
+      if (links.length !== 1) issues.push(`reachOutEntries.${record.id} FollowUp ${followUp.id} must have exactly one link event`);
+    });
+    completions.forEach((completion) => {
+      if (completion.followUpId) {
+        const followUp = data.followUps.find((candidate) => candidate.id === completion.followUpId);
+        if (!followUp || followUp.status !== "completed") {
+          issues.push(`reachOutEvents.${completion.id}.followUpId must reference a completed FollowUp`);
+        }
+      }
+      if (completion.interactionId) {
+        const interaction = data.interactions.find((candidate) => candidate.id === completion.interactionId);
+        if (!interaction || !interactionCountsAsContact(interaction.kind)) {
+          issues.push(`reachOutEvents.${completion.id}.interactionId must reference a contact Interaction`);
+        }
+      }
+    });
   });
   const currentReachOutPeople = new Set<string>();
   data.reachOutEntries.filter((record) => !record.removedAt && record.intentStatus !== "completed").forEach((record) => {
@@ -377,9 +472,18 @@ export function validatePeopleOsData(value: unknown): PeopleOsData {
     currentReachOutPeople.add(record.personId);
   });
   data.reachOutEvents.forEach((record) => {
-    requireReference(issues, reachOutIds.has(record.reachOutEntryId), `reachOutEvents.${record.id}.reachOutEntryId`);
-    if (record.followUpId) requireReference(issues, followUpIds.has(record.followUpId), `reachOutEvents.${record.id}.followUpId`);
-    if (record.interactionId) requireReference(issues, interactionIds.has(record.interactionId), `reachOutEvents.${record.id}.interactionId`);
+    const entry = data.reachOutEntries.find((candidate) => candidate.id === record.reachOutEntryId);
+    requireReference(issues, Boolean(entry && reachOutIds.has(entry.id)), `reachOutEvents.${record.id}.reachOutEntryId`);
+    if (record.followUpId) {
+      const followUp = data.followUps.find((candidate) => candidate.id === record.followUpId);
+      requireReference(issues, Boolean(entry && followUp && followUpIds.has(followUp.id)
+        && followUp.personId === entry.personId && followUp.reachOutEntryId === entry.id), `reachOutEvents.${record.id}.followUpId`);
+    }
+    if (record.interactionId) {
+      const interaction = data.interactions.find((candidate) => candidate.id === record.interactionId);
+      requireReference(issues, Boolean(entry && interaction && interactionIds.has(interaction.id)
+        && interaction.personId === entry.personId), `reachOutEvents.${record.id}.interactionId`);
+    }
   });
   data.reachOutContexts.forEach((record) => {
     if (record.eventId) requireReference(issues, eventIds.has(record.eventId), `reachOutContexts.${record.id}.eventId`);

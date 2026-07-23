@@ -88,6 +88,10 @@ function prepareAffiliation(
   return affiliation;
 }
 
+export function prepareNewAffiliation(draft: AffiliationDraft): OrganisationAffiliation {
+  return prepareAffiliation(draft, draft.createdAt);
+}
+
 function requireWritablePerson(person: Person | undefined): Person {
   if (!person) throw new RecordConflictError("This person is no longer available.");
   if (person.archivedAt || person.identityStatus === "merged") {

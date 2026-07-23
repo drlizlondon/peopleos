@@ -222,6 +222,12 @@ Incomplete identity creates a normal Person with `identityStatus: "provisional"`
 
 If the provisional Person is later recognised as an existing confirmed Person, an explicit resolution command previews and transactionally reassigns the provisional record's Reach Out entries and selected child history, then marks the provisional Person merged. This is a narrow provisional-resolution workflow, not a general duplicate merge and never runs automatically.
 
+V1-08 binds provisional linking to an explicit preview. The preview identifies the concrete affected records and captures the source Person revision, target Person revision, and dataset revision. Any intervening dataset mutation makes the preview stale. Two current Reach Out plans block linking, and preferred-contact conflicts require an explicit choice. References that would become invalid self-references remain with the merged source together with their dependency closure; an unsafe lifecycle dependency blocks linking rather than silently dropping history.
+
+Safe child ownership changes commit in one transaction. Rekeying `FollowUpEvent.personId` is the sole ownership-correction exception for append-only lifecycle records: event IDs, kinds, timestamps, dates, Interaction links, and replacement links remain unchanged.
+
+Reach Out create, plan-edit, completion, and durable-status commands prepare stable child IDs and use canonical command fingerprints. Primary ReachOutEvents anchor create, completion, and status retries; the current ReachOutEntry anchors exact plan-edit retries. Provisional identity completion anchors its aggregate fingerprint on the confirmed Person, while provisional linking anchors its fingerprint on the merged source Person. Exact retries succeed only when the fingerprint and every expected child artifact match; incomplete or conflicting state fails. These markers have no product, identity, queue, or Relationship Engine meaning and avoid introducing a generic command bus or command-log subsystem.
+
 ### Context and collections
 
 ReachOutContext provides one lightweight reusable grouping seam for project, organisation, Event, fellowship, or other context. It exists only to label, filter, and group Reach Out entries. It does not create project management, company accounts, pipelines, ownership, or analytics.

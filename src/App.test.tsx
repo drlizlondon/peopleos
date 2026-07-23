@@ -27,7 +27,7 @@ describe("PeopleOS shell", () => {
     render(<App />);
     await user.click(screen.getByRole("link", { name: "Reach Out" }));
     expect(window.location.pathname).toBe("/reach-out");
-    expect(screen.getByRole("heading", { name: "People you mean to contact" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "People you mean to contact" })).toBeInTheDocument();
     expect(screen.getByText("You can even add someone if all you remember is where you met them.")).toBeInTheDocument();
   });
 

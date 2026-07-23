@@ -229,8 +229,9 @@ describe("V1-07 full FollowUp screens", () => {
     expect(actionLabels[0]).toBe("Add follow-up");
     await user.click(within(addSheet).getByRole("button", { name: "Add follow-up" }));
     const picker = await screen.findByRole("dialog", { name: "Choose a person" });
-    expect(within(picker).getByRole("button", { name: /Sarah Jones/ })).toBeInTheDocument();
-    await user.click(within(picker).getByRole("button", { name: /Sarah Jones/ }));
+    const sarah = await within(picker).findByRole("button", { name: /Sarah Jones/ });
+    expect(sarah).toBeInTheDocument();
+    await user.click(sarah);
     expect(await screen.findByRole("dialog", { name: "Plan a follow-up" })).toBeInTheDocument();
   });
 

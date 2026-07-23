@@ -30,7 +30,7 @@ Names and contact details may change. History remains attached to the same `Pers
 
 ## Core persisted models
 
-Every mutable record carries `revision`, starting at `1`. Updates require the expected revision, increment it exactly once, preserve `createdAt`, and replace `updatedAt` with a UTC ISO instant. Append-only lifecycle records do not carry a revision because they are never edited.
+Every mutable record carries `revision`, starting at `1`. Updates require the expected revision, increment it exactly once, preserve `createdAt`, and replace `updatedAt` with a UTC ISO instant. Append-only lifecycle records do not carry revisions and their lifecycle content is never edited. Explicit provisional identity resolution may rekey the denormalised `personId` on FollowUpEvent solely to preserve ownership integrity; all event identity and lifecycle facts remain unchanged.
 
 ### Person
 
@@ -41,6 +41,8 @@ type Person = {
   displayName: string;
   identityStatus: "provisional" | "confirmed" | "merged";
   mergedIntoPersonId?: string;
+  mergeCommandFingerprint?: string;
+  identityCompletionFingerprint?: string;
   importance: "normal" | "high";
   tags: string[];
   contactCadenceDays?: number;
@@ -53,6 +55,10 @@ type Person = {
 This is intentionally small. A confirmed Person requires a name. A provisional Person requires only a descriptive `displayName`, such as “Chief Information Officer at Watford” or “Hackathon organiser.” The label is not a second identity system: the provisional record receives a normal permanent `Person.id` and can later be completed or explicitly linked to an existing confirmed Person. `importance`, tags, and cadence describe the user's current relationship preference, not identity. Numerical importance scores are rejected because they imply precision the product does not have.
 
 `mergedIntoPersonId` is set only by the explicit provisional-resolution flow. A merged provisional Person becomes read-only and excluded from active queries. All Reach Out entries and other selected child records are reassigned transactionally after a preview; automatic merging remains prohibited.
+
+`mergeCommandFingerprint` is optional technical retry metadata written only when provisional linking marks a Person merged. It is not identity data and does not affect display, search, duplicate detection, or relationship projections.
+
+`identityCompletionFingerprint` is optional technical retry metadata written only when an aggregate provisional-identity completion produces a confirmed Person. It binds the confirmed name and any contact or affiliation children to an exact retry and has no identity, search, duplicate-detection, or Relationship Engine meaning.
 
 Do not put current phone, email, organisation, event, introducer, last-contact timestamp, relationship stage, or follow-up date on `Person`.
 
@@ -298,6 +304,7 @@ type ReachOutEntry = {
   addedAt: string;
   lastCompletedAt?: string;
   removedAt?: string;
+  lastCommandFingerprint?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -308,6 +315,8 @@ Reach Out is a first-class intention record, not a tag. It always references a P
 Only one non-removed, non-completed ReachOutEntry may exist for a Person at a time; Dormant counts as that retained entry and can be reactivated. Completed entries remain searchable history. A later new outreach cycle may create a new entry after completion.
 
 `currentFollowUpId` is an optional reciprocal pointer, not another reminder. When present it must identify the only pending FollowUp whose `personId` matches the entry and whose `reachOutEntryId` equals this entry's ID. Creating or replacing that plan sets both sides in one transaction. Completing, cancelling, or superseding it without a replacement clears `currentFollowUpId` in the same transaction; replacing it moves the pointer to the replacement. Historical FollowUps and ReachOutEvents retain the audit trail. No ReachOutEntry may have two pending FollowUps linked as its current plan.
+
+`lastCommandFingerprint` is optional technical retry metadata for the latest exact Reach Out plan mutation. It is not product state and has no effect on status, ordering, search, or Relationship Engine outputs.
 
 `intentStatus` stores only durable intention state. User-visible Reach Out state is derived:
 
@@ -336,10 +345,13 @@ type ReachOutEvent = {
   occurredAt: string;
   followUpId?: string;
   interactionId?: string;
+  commandFingerprint?: string;
 };
 ```
 
 ReachOutEvent preserves completion and status history without pretending outreach completion is necessarily contact. Completion may optionally link an Interaction. If the user schedules another FollowUp during completion, the same ReachOutEntry returns to active intention state, keeps `lastCompletedAt`, links the new FollowUp, and remains in the active queue. Otherwise it becomes Completed.
+
+`commandFingerprint` is optional technical retry metadata stored on the primary event for Reach Out create, completion, and durable-status commands. It anchors an exact retry without introducing another persisted command model. These optional fingerprint fields require no IndexedDB schema-version migration or backup-envelope change because the existing V1 stores and runtime-validated envelope already carry the records.
 
 ### ReachOutContext
 

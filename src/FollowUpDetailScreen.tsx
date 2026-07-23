@@ -17,7 +17,7 @@ import {
   FOLLOW_UP_ACTION_OPTIONS,
   pendingFollowUpTemporalState
 } from "./domain/followUpPolicy";
-import { followUpDetailPath, personProfilePath } from "./navigation";
+import { followUpDetailPath, personProfilePath, reachOutDetailPath } from "./navigation";
 
 type Navigate = (path: string, options?: { replace?: boolean }) => void;
 
@@ -187,6 +187,11 @@ export default function FollowUpDetailScreen({
               <div><dt>Created</dt><dd><time dateTime={detail.followUp.createdAt}>{instantLabel(detail.followUp.createdAt)}</time></dd></div>
               {detail.followUp.completedAt && <div><dt>Completed</dt><dd><time dateTime={detail.followUp.completedAt}>{instantLabel(detail.followUp.completedAt)}</time></dd></div>}
             </dl>
+            {reachOutLinked && detail.followUp.reachOutEntryId && (
+              <div className="button-row compact-buttons follow-up-row-actions">
+                <button type="button" onClick={() => navigate(reachOutDetailPath(detail.followUp.reachOutEntryId!))}>Open Reach Out plan</button>
+              </div>
+            )}
           </section>
 
           {(detail.lineage.previous || detail.lineage.next) && (
@@ -231,7 +236,7 @@ export default function FollowUpDetailScreen({
                 {!reachOutLinked && <button type="button" onClick={(event) => { openerRef.current = event.currentTarget; setEditorMode("reschedule"); }}>Reschedule</button>}
                 {!reachOutLinked && <button className="danger-action" type="button" disabled={cancelling} onClick={(event) => { openerRef.current = event.currentTarget; void cancelCurrent(); }}>{cancelling ? "Cancelling…" : "Cancel follow-up"}</button>}
               </div>
-              {reachOutLinked && <p className="muted-copy">This plan belongs to a Reach Out intention. Snoozing keeps the same plan; other outreach transitions arrive with Reach Out.</p>}
+              {reachOutLinked && <p className="muted-copy">This plan belongs to a Reach Out intention. Snoozing keeps the same plan; complete, reschedule or remove it from Reach Out.</p>}
             </section>
           )}
 

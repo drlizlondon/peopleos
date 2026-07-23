@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "./icons";
-import { followUpDetailPath, personProfilePath, routeFromPath, routes, type Route } from "./navigation";
-import { ReachOutScreen, SettingsScreen } from "./screens";
+import { followUpDetailPath, personProfilePath, reachOutDetailPath, routeFromPath, routes, type Route } from "./navigation";
+import { SettingsScreen } from "./screens";
 import {
   AddPersonScreen,
   ContactMethodsScreen,
@@ -23,8 +23,13 @@ import FollowUpEditorSheet from "./FollowUpEditorSheet";
 import FollowUpDetailScreen from "./FollowUpDetailScreen";
 import PersonFollowUpsScreen from "./PersonFollowUpsScreen";
 import UpcomingScreen from "./UpcomingScreen";
+import ReachOutScreen from "./ReachOutScreen";
+import ReachOutDetailScreen from "./ReachOutDetailScreen";
+import ResolveProvisionalPersonScreen from "./ResolveProvisionalPersonScreen";
+import ReachOutEditorSheet from "./ReachOutEditorSheet";
 import type { PersonPickerOption } from "./application/interactionQueries";
 import type { ContactImportSession } from "./application/contactImport";
+import type { Person } from "./domain/schema";
 
 type ModalBackHandler = {
   id: string;
@@ -42,11 +47,14 @@ export default function App() {
   const [globalAddOpen, setGlobalAddOpen] = useState(false);
   const [globalInteractionPerson, setGlobalInteractionPerson] = useState<PersonPickerOption | null>(null);
   const [globalFollowUpPerson, setGlobalFollowUpPerson] = useState<PersonPickerOption | null>(null);
+  const [globalReachOutOpen, setGlobalReachOutOpen] = useState(false);
+  const [globalReachOutPerson, setGlobalReachOutPerson] = useState<Person | undefined>();
   const routeRef = useRef(route);
   const unsavedChangesRef = useRef(false);
   const navigationLockedRef = useRef(false);
   const modalBackHandlerRef = useRef<ModalBackHandler | null>(null);
   const globalAddButtonRef = useRef<HTMLButtonElement>(null);
+  const reachOutCaptureOpenerRef = useRef<HTMLElement | null>(null);
   const captureOriginRef = useRef<string | undefined>(
     typeof window.history.state?.fromPath === "string" ? window.history.state.fromPath : undefined
   );
@@ -184,6 +192,10 @@ export default function App() {
       };
     } else if (next.id === "follow-up-detail") {
       defaultState = { fromPath: route.path };
+    } else if (next.id === "reach-out-detail") {
+      defaultState = { fromPath: route.path };
+    } else if (next.id === "resolve-provisional") {
+      defaultState = { fromPath: route.path };
     }
     const state = options.state ?? defaultState;
     if (options.replace) window.history.replaceState(state, "", next.path);
@@ -192,8 +204,23 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "instant" });
   }
 
-  function navigatePath(path: string, options?: { replace?: boolean }) {
+  function navigatePath(path: string, options?: { replace?: boolean; state?: Record<string, unknown> }) {
     navigate(routeFromPath(path), options);
+  }
+
+  function openReachOutCapture(person?: Person, opener?: HTMLElement | null) {
+    reachOutCaptureOpenerRef.current = opener ?? null;
+    setGlobalReachOutPerson(person);
+    setGlobalReachOutOpen(true);
+  }
+
+  function restoreReachOutCaptureFocus() {
+    const opener = reachOutCaptureOpenerRef.current;
+    reachOutCaptureOpenerRef.current = null;
+    requestAnimationFrame(() => {
+      if (opener?.isConnected) opener.focus();
+      else if (globalAddButtonRef.current?.isConnected) globalAddButtonRef.current.focus();
+    });
   }
 
   function dismissCapture() {
@@ -246,7 +273,7 @@ export default function App() {
   function renderScreen() {
     switch (route.id) {
       case "today": return <TodayScreen navigate={navigatePath} />;
-      case "reach-out": return <ReachOutScreen />;
+      case "reach-out": return <ReachOutScreen navigate={navigatePath} onAdd={(opener) => openReachOutCapture(undefined, opener)} />;
       case "people": return (
         <PeopleScreen
           navigate={navigatePath}
@@ -272,6 +299,7 @@ export default function App() {
           personId={route.personId ?? ""}
           navigate={navigatePath}
           backPath={typeof window.history.state?.fromPath === "string" ? window.history.state.fromPath : "/people"}
+          onAddToReachOut={(person, opener) => openReachOutCapture(person, opener)}
         />
       );
       case "contact-methods": return (
@@ -350,6 +378,33 @@ export default function App() {
             const fromPath = window.history.state?.fromPath;
             if (typeof fromPath === "string" && fromPath !== route.path) window.history.back();
             else navigatePath("/upcoming", { replace: true });
+          }}
+        />
+      );
+      case "reach-out-detail": return (
+        <ReachOutDetailScreen
+          entryId={route.reachOutEntryId ?? ""}
+          navigate={navigatePath}
+          onBack={() => {
+            const fromPath = window.history.state?.fromPath;
+            if (typeof fromPath === "string" && fromPath !== route.path) window.history.back();
+            else navigatePath("/reach-out", { replace: true });
+          }}
+        />
+      );
+      case "resolve-provisional": return (
+        <ResolveProvisionalPersonScreen
+          entryId={route.reachOutEntryId ?? ""}
+          navigate={navigatePath}
+          onDirtyChange={setUnsavedCapture}
+          onSavingChange={setNavigationLocked}
+          onBack={() => {
+            if (navigationLockedRef.current) return;
+            if (unsavedChangesRef.current && !window.confirm("Discard changes?")) return;
+            setUnsavedCapture(false);
+            const fromPath = window.history.state?.fromPath;
+            if (typeof fromPath === "string" && fromPath !== route.path) window.history.back();
+            else navigatePath(reachOutDetailPath(route.reachOutEntryId ?? ""), { replace: true });
           }}
         />
       );
@@ -447,7 +502,12 @@ export default function App() {
             setGlobalAddOpen(false);
             setGlobalFollowUpPerson(person);
           }}
+          onAddReachOut={() => {
+            setGlobalAddOpen(false);
+            openReachOutCapture(undefined, globalAddButtonRef.current);
+          }}
           preferFollowUp={route.id === "upcoming"}
+          preferReachOut={route.id === "reach-out"}
         />
       )}
       {globalInteractionPerson && (
@@ -468,6 +528,29 @@ export default function App() {
           onSaved={(followUp) => {
             setGlobalFollowUpPerson(null);
             navigatePath(followUpDetailPath(followUp.id));
+          }}
+        />
+      )}
+      {globalReachOutOpen && (
+        <ReachOutEditorSheet
+          mode="create"
+          person={globalReachOutPerson}
+          onClose={() => {
+            setGlobalReachOutOpen(false);
+            setGlobalReachOutPerson(undefined);
+            restoreReachOutCaptureFocus();
+          }}
+          onSaved={(entry) => {
+            setGlobalReachOutOpen(false);
+            setGlobalReachOutPerson(undefined);
+            reachOutCaptureOpenerRef.current = null;
+            navigatePath(reachOutDetailPath(entry.id));
+          }}
+          onOpenExisting={(entryId) => {
+            setGlobalReachOutOpen(false);
+            setGlobalReachOutPerson(undefined);
+            reachOutCaptureOpenerRef.current = null;
+            navigatePath(reachOutDetailPath(entryId));
           }}
         />
       )}

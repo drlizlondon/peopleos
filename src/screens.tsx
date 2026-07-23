@@ -1,5 +1,8 @@
+import { useEffect, useState } from "react";
 import EmptyState from "./EmptyState";
 import { Icon } from "./icons";
+import { getAppSettings } from "./application/peopleQueries";
+import { getDatabase } from "./data/client";
 
 function PlannedAction({ children }: { children: string }) {
   return (
@@ -19,20 +22,6 @@ export function TodayScreen() {
         description="PeopleOS helps you remember who to contact and why. Add your first person to begin."
         note="Your data stays on this device unless you export it."
         action={<PlannedAction>Add your first person</PlannedAction>}
-      />
-    </main>
-  );
-}
-
-export function ReachOutScreen() {
-  return (
-    <main className="screen" id="main-content" tabIndex={-1}>
-      <EmptyState
-        eyebrow="Reach Out"
-        title="People you mean to contact"
-        description="Keep a deliberate list of people you want to contact, reconnect with or build a relationship with."
-        note="You can even add someone if all you remember is where you met them."
-        action={<PlannedAction>Add someone</PlannedAction>}
       />
     </main>
   );
@@ -89,6 +78,19 @@ const settingsSections: SettingsSection[] = [
 ];
 
 export function SettingsScreen({ navigate }: { navigate: (path: string) => void }) {
+  const [reachOutDefault, setReachOutDefault] = useState("Loading…");
+  useEffect(() => {
+    let active = true;
+    getDatabase().then(getAppSettings).then((settings) => {
+      if (!active) return;
+      const days = settings.reachOutDefaultReminderDays;
+      setReachOutDefault(days === undefined ? "No reminder" : days === 1 ? "Tomorrow" : `In ${days} days`);
+    }).catch(() => { if (active) setReachOutDefault("Unavailable"); });
+    return () => { active = false; };
+  }, []);
+  const visibleSections = settingsSections.map((section) => section.title === "Reach Out"
+    ? { ...section, rows: section.rows.map((row) => row.label === "Default reminder" ? { ...row, value: reachOutDefault } : row) }
+    : section);
   return (
     <main className="screen settings-screen" id="main-content" tabIndex={-1}>
       <header className="page-heading">
@@ -97,7 +99,7 @@ export function SettingsScreen({ navigate }: { navigate: (path: string) => void 
         <p>Only settings that affect PeopleOS as a whole belong here.</p>
       </header>
       <div className="settings-list">
-        {settingsSections.map((section) => (
+        {visibleSections.map((section) => (
           <section className="settings-section" key={section.title} aria-labelledby={`settings-${section.title.replaceAll(" ", "-").toLowerCase()}`}>
             <div className="settings-section-heading">
               <h3 id={`settings-${section.title.replaceAll(" ", "-").toLowerCase()}`}>{section.title}</h3>

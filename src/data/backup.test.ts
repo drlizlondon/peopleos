@@ -66,4 +66,30 @@ describe("PeopleOS backup and restore", () => {
     expect(await readAllData(db)).toEqual(before);
     db.close();
   });
+
+  it("rejects broken Reach Out reciprocal graphs during preview", () => {
+    const cases: Array<{ name: string; mutate: (data: ReturnType<typeof completeData>) => void; message: RegExp }> = [
+      {
+        name: "missing current FollowUp",
+        mutate: (data) => { data.reachOutEntries[0]!.currentFollowUpId = "missing-follow-up"; },
+        message: /currentFollowUpId/
+      },
+      {
+        name: "FollowUp missing its reciprocal entry",
+        mutate: (data) => { delete data.followUps[0]!.reachOutEntryId; },
+        message: /currentFollowUpId|reciprocal/
+      },
+      {
+        name: "link event points elsewhere",
+        mutate: (data) => { data.reachOutEvents.find((event) => event.kind === "follow_up_linked")!.followUpId = "missing-follow-up"; },
+        message: /followUpId/
+      }
+    ];
+    for (const candidate of cases) {
+      const data = completeData();
+      candidate.mutate(data);
+      expect(() => previewBackup({ product: "peopleos", schemaVersion: 1, exportedAt: fixedNow, data }), candidate.name)
+        .toThrow(candidate.message);
+    }
+  });
 });

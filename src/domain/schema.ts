@@ -17,6 +17,8 @@ export type Person = MutableRecord & {
   displayName: string;
   identityStatus: "provisional" | "confirmed" | "merged";
   mergedIntoPersonId?: EntityId;
+  mergeCommandFingerprint?: string;
+  identityCompletionFingerprint?: string;
   importance: "normal" | "high";
   tags: string[];
   contactCadenceDays?: number;
@@ -145,6 +147,7 @@ export type ReachOutEntry = MutableRecord & {
   addedAt: IsoInstant;
   lastCompletedAt?: IsoInstant;
   removedAt?: IsoInstant;
+  lastCommandFingerprint?: string;
 };
 
 export type ReachOutEvent = {
@@ -160,6 +163,7 @@ export type ReachOutEvent = {
   occurredAt: IsoInstant;
   followUpId?: EntityId;
   interactionId?: EntityId;
+  commandFingerprint?: string;
 };
 
 export type ReachOutContext = MutableRecord & {

@@ -8,6 +8,8 @@ export type RouteId = PrimaryRouteId
   | "timeline"
   | "person-follow-ups"
   | "follow-up-detail"
+  | "reach-out-detail"
+  | "resolve-provisional"
   | "import-contacts"
   | "import-results"
   | "export-backup"
@@ -20,6 +22,7 @@ export type Route = {
   primaryId: PrimaryRouteId;
   personId?: string;
   followUpId?: string;
+  reachOutEntryId?: string;
 };
 
 export const routes: Route[] = [
@@ -81,6 +84,18 @@ export function routeFromPath(pathname: string): Route {
     return { id: "follow-up-detail", path: pathname, label: "Follow-up", primaryId: "upcoming", followUpId };
   }
 
+  const resolveProvisional = pathname.match(/^\/reach-out\/([^/]+)\/resolve\/?$/);
+  if (resolveProvisional) {
+    const reachOutEntryId = decodePathPart(resolveProvisional[1]);
+    return { id: "resolve-provisional", path: pathname, label: "Resolve identity", primaryId: "reach-out", reachOutEntryId };
+  }
+
+  const reachOutDetail = pathname.match(/^\/reach-out\/([^/]+)\/?$/);
+  if (reachOutDetail) {
+    const reachOutEntryId = decodePathPart(reachOutDetail[1]);
+    return { id: "reach-out-detail", path: pathname, label: "Reach Out plan", primaryId: "reach-out", reachOutEntryId };
+  }
+
   const profile = pathname.match(/^\/people\/([^/]+)\/?$/);
   if (profile) {
     const personId = decodePathPart(profile[1]);
@@ -124,4 +139,12 @@ export function personFollowUpsPath(personId: string): string {
 
 export function followUpDetailPath(followUpId: string): string {
   return `/follow-ups/${encodeURIComponent(followUpId)}`;
+}
+
+export function reachOutDetailPath(reachOutEntryId: string): string {
+  return `/reach-out/${encodeURIComponent(reachOutEntryId)}`;
+}
+
+export function resolveProvisionalPath(reachOutEntryId: string): string {
+  return `${reachOutDetailPath(reachOutEntryId)}/resolve`;
 }
