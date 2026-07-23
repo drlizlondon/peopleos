@@ -12,6 +12,7 @@ import FollowUpEditorSheet from "./FollowUpEditorSheet";
 import CadenceEditorSheet from "./CadenceEditorSheet";
 import TimelineList from "./TimelineList";
 import ReachOutCompletionSheet from "./ReachOutCompletionSheet";
+import { ContactMethodChoiceSheet } from "./TodaySheets";
 import {
   createManualContactMethodDraft,
   createManualPersonCaptureDraft,
@@ -40,6 +41,16 @@ import {
   type PersonSummary
 } from "./application/peopleQueries";
 import {
+  getPersonSearchView,
+  MAX_PERSON_SEARCH_QUERY_LENGTH,
+  PersonSearchValidationError,
+  type PersonFilterOptions,
+  type PersonSearchFilters,
+  type PersonSearchMatch,
+  type PersonSearchResult
+} from "./application/personSearch";
+import { restorePerson } from "./application/personLifecycle";
+import {
   getPersonHistory,
   type PersonHistory,
   type TimelineDisplayItem
@@ -65,6 +76,14 @@ import {
   type ReachOutDetail
 } from "./application/reachOutQueries";
 import {
+  contactNowTargetHref,
+  getContactNowProjection,
+  revalidateContactNowTarget,
+  resolveContactNowTargets,
+  type ContactNowProjection,
+  type ContactNowTarget
+} from "./application/contactNow";
+import {
   prepareReachOutStatusCommand,
   removeReachOut
 } from "./application/reachOut";
@@ -85,9 +104,11 @@ import {
   getPhoneRegionOptions,
   normalizeContactValue
 } from "./integrations/contactValues";
+import { openContactHandoff } from "./integrations/contactHandoff";
 import {
   affiliationsPath,
   contactMethodsPath,
+  editPersonPath,
   memoryFactsPath,
   followUpDetailPath,
   personFollowUpsPath,
@@ -95,10 +116,12 @@ import {
   routeFromPath,
   reachOutDetailPath,
   resolveProvisionalPath,
+  resolvePersonPath,
   timelinePath
 } from "./navigation";
 import DuplicateWarningSheet, { type DuplicateLinkSelection } from "./DuplicateWarningSheet";
 import { DuplicateReviewRequiredError } from "./application/duplicateReview";
+import PeopleFilterSheet from "./PeopleFilterSheet";
 
 type Navigate = (path: string, options?: { replace?: boolean; state?: Record<string, unknown> }) => void;
 
@@ -119,28 +142,63 @@ function importAction(navigate: Navigate, label = "Import a vCard file") {
   );
 }
 
-function usePeople(): { people: PersonSummary[]; loading: boolean; error: string } {
-  const [people, setPeople] = useState<PersonSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let active = true;
-    getDatabase()
-      .then(listPeopleSummaries)
-      .then((records) => { if (active) setPeople(records); })
-      .catch(() => { if (active) setError("PeopleOS could not load people from this device."); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, []);
-
-  return { people, loading, error };
-}
-
 function affiliationLine(summary: PersonSummary): string | undefined {
   const affiliation = summary.currentAffiliation;
   if (!affiliation) return undefined;
   return [affiliation.role, affiliation.organisationName].filter(Boolean).join(" · ");
+}
+
+type PeopleDirectoryState = {
+  query: string;
+  filters: PersonSearchFilters;
+  scrollY: number;
+};
+
+const EMPTY_PERSON_FILTER_OPTIONS: PersonFilterOptions = {
+  tags: [],
+  currentOrganisations: [],
+  events: [],
+  relationshipStages: []
+};
+
+function initialPeopleDirectoryState(): PeopleDirectoryState {
+  const saved = window.history.state?.peopleDirectory as Partial<PeopleDirectoryState> | undefined;
+  return {
+    query: typeof saved?.query === "string" ? saved.query : "",
+    filters: saved?.filters && typeof saved.filters === "object" ? saved.filters : { archive: "active" },
+    scrollY: typeof saved?.scrollY === "number" ? saved.scrollY : 0
+  };
+}
+
+function peopleFilterCount(filters: PersonSearchFilters): number {
+  return (filters.tags?.length ?? 0)
+    + (filters.currentOrganisations?.length ?? 0)
+    + (filters.eventIds?.length ?? 0)
+    + (filters.relationshipStages?.length ?? 0)
+    + Number(filters.hasDueFollowUp === true)
+    + Number(filters.missingContactDetails === true)
+    + Number(Boolean(filters.archive && filters.archive !== "active"));
+}
+
+function matchExplanation(match: PersonSearchMatch): string | undefined {
+  if (match.tier <= 3) return undefined;
+  if (match.source === "event") return `Event · ${match.value}`;
+  return `${match.label} · ${match.value}`;
+}
+
+function resultAffiliation(result: PersonSearchResult): string | undefined {
+  if (!result.currentAffiliation) return undefined;
+  return [result.currentAffiliation.role, result.currentAffiliation.organisationName].filter(Boolean).join(" · ");
+}
+
+function preferredProfileContacts(summary: PersonSummary, phoneRegion: string): ContactMethod[] {
+  const validIds = new Set(resolveContactNowTargets(summary.activeContactMethods, phoneRegion)
+    .targets.map((target) => target.contactMethodId));
+  return (["phone", "email"] as const).flatMap((kind) => {
+    const methods = summary.activeContactMethods.filter((contact) => contact.kind === kind && validIds.has(contact.id));
+    const selected = methods.find((contact) => contact.isPreferred) ?? methods[0];
+    return selected ? [selected] : [];
+  });
 }
 
 export function PeopleScreen({
@@ -152,17 +210,121 @@ export function PeopleScreen({
   importedPersonIds?: string[] | null;
   onClearImportedFilter?: () => void;
 }) {
-  const { people, loading, error } = usePeople();
-  const visiblePeople = importedPersonIds
-    ? people.filter((summary) => importedPersonIds.includes(summary.person.id))
-    : people;
+  const initialStateRef = useRef(initialPeopleDirectoryState());
+  const [query, setQuery] = useState(initialStateRef.current.query);
+  const [filters, setFilters] = useState<PersonSearchFilters>(initialStateRef.current.filters);
+  const [results, setResults] = useState<PersonSearchResult[] | undefined>(undefined);
+  const [filterOptions, setFilterOptions] = useState<PersonFilterOptions>(EMPTY_PERSON_FILTER_OPTIONS);
+  const [storedPersonCount, setStoredPersonCount] = useState<number | undefined>(undefined);
+  const [fallbackPeople, setFallbackPeople] = useState<PersonSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [queryError, setQueryError] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [retryVersion, setRetryVersion] = useState(0);
+  const filterOpenerRef = useRef<HTMLButtonElement>(null);
+  const restoredScrollRef = useRef(false);
 
-  if (!loading && people.length === 0 && !error) {
+  useEffect(() => {
+    const state = {
+      ...(window.history.state ?? {}),
+      peopleDirectory: { query, filters, scrollY: window.scrollY }
+    };
+    window.history.replaceState(state, "", window.location.href);
+  }, [filters, query]);
+
+  useEffect(() => {
+    const onScroll = () => {
+      if (window.location.pathname !== "/people") return;
+      window.history.replaceState({
+        ...(window.history.state ?? {}),
+        peopleDirectory: { query, filters, scrollY: window.scrollY }
+      }, "", window.location.href);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [filters, query]);
+
+  useEffect(() => {
+    let active = true;
+    if (query.length > MAX_PERSON_SEARCH_QUERY_LENGTH) {
+      setQueryError(`Search is limited to ${MAX_PERSON_SEARCH_QUERY_LENGTH} characters.`);
+      setResults([]);
+      setFallbackPeople([]);
+      setLoading(false);
+      return () => { active = false; };
+    }
+    setQueryError("");
+    setLoading(true);
+    setError("");
+    getDatabase().then(async (db) => getPersonSearchView(db, {
+      clock: createRelationshipClock(),
+      query,
+      filters
+    })).then((view) => {
+      if (!active) return;
+      setResults(view.results);
+      setFilterOptions(view.filterOptions);
+      setStoredPersonCount(view.totalPersonCount);
+      setFallbackPeople([]);
+    }).catch(async (caught) => {
+      if (!active) return;
+      if (caught instanceof PersonSearchValidationError) {
+        setQueryError(caught.message);
+        setResults([]);
+        return;
+      }
+      setError("Context search is unavailable. Showing the name-only directory.");
+      setResults(undefined);
+      try {
+        const people = await listPeopleSummaries(await getDatabase());
+        if (active) setFallbackPeople(people.filter((summary) => {
+          const normalizedQuery = query.trim().toLocaleLowerCase("en-US");
+          return !normalizedQuery || summary.person.displayName.toLocaleLowerCase("en-US").includes(normalizedQuery);
+        }));
+      } catch {
+        if (active) setFallbackPeople([]);
+      }
+    }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [filters, query, retryVersion]);
+
+  useEffect(() => {
+    if (loading || restoredScrollRef.current) return;
+    restoredScrollRef.current = true;
+    const target = initialStateRef.current.scrollY;
+    if (target > 0) requestAnimationFrame(() => window.scrollTo({ top: target, behavior: "instant" }));
+  }, [loading]);
+
+  const visibleResults = importedPersonIds
+    ? (results ?? []).filter((result) => importedPersonIds.includes(result.person.id))
+    : results ?? [];
+  const visibleFallback = importedPersonIds
+    ? fallbackPeople.filter((summary) => importedPersonIds.includes(summary.person.id))
+    : fallbackPeople;
+  const noStoredPeople = !loading && !error && storedPersonCount === 0;
+
+  function rememberScroll() {
+    window.history.replaceState({
+      ...(window.history.state ?? {}),
+      peopleDirectory: { query, filters, scrollY: window.scrollY }
+    }, "", window.location.href);
+  }
+
+  function removeFilter<K extends "tags" | "currentOrganisations" | "eventIds" | "relationshipStages">(key: K, value: NonNullable<PersonSearchFilters[K]>[number]) {
+    setFilters((current) => ({ ...current, [key]: (current[key] ?? []).filter((candidate) => candidate !== value) }));
+  }
+
+  function clearFilters() {
+    setFilters({ archive: "active" });
+  }
+
+  if (noStoredPeople) {
     return (
       <main className="screen" id="main-content" tabIndex={-1}>
         <EmptyState
           eyebrow="People"
-          title="Your people will live here"
+          title="Your people will appear here."
           description="Add someone manually, even if all you know is enough to recognise them later."
           action={(
             <div className="empty-action-stack">
@@ -180,10 +342,10 @@ export function PeopleScreen({
       <header className="page-heading page-heading-with-action">
         <div>
           <p className="eyebrow">People</p>
-          <h2>{importedPersonIds ? "Imported people" : "People you remember"}</h2>
+          <h2>{importedPersonIds ? "Imported people" : "Find a person"}</h2>
           <p>{importedPersonIds
             ? "People created or updated in the most recent import."
-            : "A simple list for now. Search and relationship summaries arrive in later packages."}</p>
+            : "Search by name or by the context you remember."}</p>
         </div>
         <div className="page-actions">
           <button className="secondary-action" type="button" onClick={() => navigate("/people/import")}>Import contacts</button>
@@ -195,29 +357,114 @@ export function PeopleScreen({
           </button>
         </div>
       </header>
+      <div className="people-search-toolbar">
+        <div className="form-field people-search-field">
+          <label htmlFor="people-search">Search people</label>
+          <input
+            id="people-search"
+            type="search"
+            value={query}
+            maxLength={MAX_PERSON_SEARCH_QUERY_LENGTH + 1}
+            placeholder="Name, organisation, event or memory"
+            aria-invalid={Boolean(queryError) || undefined}
+            aria-describedby={queryError ? "people-search-error" : undefined}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          {queryError && <p id="people-search-error" className="field-error" role="alert">{queryError}</p>}
+        </div>
+        <button
+          ref={filterOpenerRef}
+          className="secondary-action"
+          type="button"
+          aria-expanded={filtersOpen}
+          onClick={() => setFiltersOpen(true)}
+        >Filters{peopleFilterCount(filters) ? ` (${peopleFilterCount(filters)})` : ""}</button>
+      </div>
+      {peopleFilterCount(filters) > 0 && (
+        <div className="active-filter-chips" aria-label="Active People filters">
+          {filters.tags?.map((value) => <button key={`tag-${value}`} type="button" onClick={() => removeFilter("tags", value)}>Tag: {value} ×</button>)}
+          {filters.currentOrganisations?.map((value) => <button key={`org-${value}`} type="button" onClick={() => removeFilter("currentOrganisations", value)}>Organisation: {value} ×</button>)}
+          {filters.eventIds?.map((value) => <button key={`event-${value}`} type="button" onClick={() => removeFilter("eventIds", value)}>Event: {filterOptions.events.find((event) => event.id === value)?.name ?? value} ×</button>)}
+          {filters.relationshipStages?.map((value) => <button key={`stage-${value}`} type="button" onClick={() => removeFilter("relationshipStages", value)}>Stage: {relationshipStageLabel(value)} ×</button>)}
+          {filters.hasDueFollowUp && <button type="button" onClick={() => setFilters((current) => ({ ...current, hasDueFollowUp: undefined }))}>Has due follow-up ×</button>}
+          {filters.missingContactDetails && <button type="button" onClick={() => setFilters((current) => ({ ...current, missingContactDetails: undefined }))}>Missing contact details ×</button>}
+          {filters.archive && filters.archive !== "active" && <button type="button" onClick={() => setFilters((current) => ({ ...current, archive: "active" }))}>{filters.archive === "archived" ? "Archived" : "Active and archived"} ×</button>}
+          <button className="clear-filter-chip" type="button" onClick={clearFilters}>Clear all</button>
+        </div>
+      )}
       {loading && <p className="screen-status" role="status">Loading people…</p>}
-      {error && <p className="error-message screen-status" role="alert">{error}</p>}
-      {!loading && !error && (
-        <ul className="people-list" aria-label="People">
-          {visiblePeople.map((summary) => (
-            <li key={summary.person.id}>
+      {error && (
+        <div className="form-alert" role="alert">
+          <p>{error}</p>
+          <button type="button" onClick={() => setRetryVersion((current) => current + 1)}>Retry</button>
+        </div>
+      )}
+      {!loading && !error && visibleResults.length > 0 && (
+        <ul className="people-list" aria-label="People search results">
+          {visibleResults.map((result) => (
+            <li key={result.person.id}>
               <a
-                href={personProfilePath(summary.person.id)}
-                onClick={(event) => { event.preventDefault(); navigate(personProfilePath(summary.person.id)); }}
+                href={personProfilePath(result.person.id)}
+                onClick={(event) => { event.preventDefault(); rememberScroll(); navigate(personProfilePath(result.person.id)); }}
               >
-                <span className="person-list-name">{summary.person.displayName}</span>
-                {summary.person.identityStatus === "provisional" && <span className="status-chip">Identity incomplete</span>}
-                {affiliationLine(summary) && <span className="person-list-detail">{affiliationLine(summary)}</span>}
-                {!affiliationLine(summary) && summary.latestMetInteraction?.summary && (
-                  <span className="person-list-detail">Met: {summary.latestMetInteraction.summary}</span>
+                <span className="person-list-name">{result.person.displayName}</span>
+                <span className="person-list-markers">
+                  {result.person.identityStatus === "provisional" && <span className="status-chip">Identity incomplete</span>}
+                  {result.person.archivedAt && <span className="status-chip">Archived</span>}
+                </span>
+                {resultAffiliation(result) && <span className="person-list-detail">{resultAffiliation(result)}</span>}
+                {result.recognitionCue && result.recognitionCue.text !== resultAffiliation(result) && (
+                  <span className="person-list-detail">{result.recognitionCue.text}</span>
                 )}
+                {result.match && matchExplanation(result.match) && <span className="person-match-explanation">Matched: {matchExplanation(result.match)}</span>}
               </a>
             </li>
           ))}
         </ul>
       )}
-      {!loading && !error && importedPersonIds && visiblePeople.length === 0 && (
+      {!loading && error && visibleFallback.length > 0 && (
+        <ul className="people-list" aria-label="Name-only People directory">
+          {visibleFallback.map((summary) => (
+            <li key={summary.person.id}>
+              <a href={personProfilePath(summary.person.id)} onClick={(event) => { event.preventDefault(); rememberScroll(); navigate(personProfilePath(summary.person.id)); }}>
+                <span className="person-list-name">{summary.person.displayName}</span>
+                {summary.person.identityStatus === "provisional" && <span className="status-chip">Identity incomplete</span>}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!loading && !error && results && results.length === 0 && (query.trim() || peopleFilterCount(filters) > 0) && (
+        <section className="profile-card people-no-matches" aria-live="polite">
+          <h3>{query.trim() ? `No one matches “${query.trim()}”.` : "No one matches these filters."}</h3>
+          <div className="button-row compact-buttons">
+            {query && <button type="button" onClick={() => setQuery("")}>Clear search</button>}
+            {peopleFilterCount(filters) > 0 && <button type="button" onClick={() => setFiltersOpen(true)}>Adjust filters</button>}
+            <button type="button" onClick={() => navigate("/people/new")}>Add new person</button>
+          </div>
+        </section>
+      )}
+      {!loading && !error && results?.length === 0 && !query.trim() && peopleFilterCount(filters) === 0 && (storedPersonCount ?? 0) > 0 && (
+        <section className="profile-card people-no-matches" aria-live="polite">
+          <h3>No active people.</h3>
+          <p>Archived people remain available when you need their history.</p>
+          <button type="button" onClick={() => setFilters({ archive: "archived" })}>Show archived people</button>
+        </section>
+      )}
+      {!loading && !error && importedPersonIds && visibleResults.length === 0 && (
         <p className="screen-status">No imported people are available in this session.</p>
+      )}
+      {filtersOpen && (
+        <PeopleFilterSheet
+          filters={filters}
+          options={filterOptions}
+          onClose={() => { setFiltersOpen(false); requestAnimationFrame(() => filterOpenerRef.current?.focus()); }}
+          onApply={(next) => {
+            setFilters(next);
+            setFiltersOpen(false);
+            requestAnimationFrame(() => filterOpenerRef.current?.focus());
+          }}
+        />
       )}
     </main>
   );
@@ -792,12 +1039,12 @@ function usePerson(personId: string, refreshVersion = 0) {
       getRelationshipAssessment(db, personId, clock)
     ])).then(([summaryResult, settingsResult, relationshipResult]) => {
         if (!active) return;
-        if (summaryResult.status === "rejected" || settingsResult.status === "rejected") {
+        if (summaryResult.status === "rejected") {
           setError("PeopleOS could not load this person.");
           return;
         }
         setSummary(summaryResult.value ?? null);
-        setPhoneRegion(settingsResult.value.defaultPhoneRegion);
+        if (settingsResult.status === "fulfilled") setPhoneRegion(settingsResult.value.defaultPhoneRegion);
         if (relationshipResult.status === "fulfilled") {
           setRelationship(relationshipResult.value ?? null);
         } else {
@@ -860,6 +1107,11 @@ export function PersonProfileScreen({
   const [reachOutError, setReachOutError] = useState("");
   const [reachOutCompletionOpen, setReachOutCompletionOpen] = useState(false);
   const [reachOutRemoving, setReachOutRemoving] = useState(false);
+  const [restoringPerson, setRestoringPerson] = useState(false);
+  const restoreAttemptTimeRef = useRef<string | null>(null);
+  const [personActionError, setPersonActionError] = useState("");
+  const [contactChoice, setContactChoice] = useState<{ projection: ContactNowProjection; error?: string; copyValue?: string } | null>(null);
+  const [contactBusy, setContactBusy] = useState(false);
   const [editor, setEditor] = useState<{ interaction?: TimelineDisplayItem["interaction"]; initialKind?: InteractionKind } | null>(null);
   const [followUpEditorOpen, setFollowUpEditorOpen] = useState(false);
   const [cadenceEditorOpen, setCadenceEditorOpen] = useState(false);
@@ -871,6 +1123,7 @@ export function PersonProfileScreen({
   const profileHeadingRef = useRef<HTMLHeadingElement>(null);
   const memoryChoiceFirstRef = useRef<HTMLButtonElement>(null);
   const reachOutOpenerRef = useRef<HTMLElement | null>(null);
+  const contactOpenerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -1042,6 +1295,110 @@ export function PersonProfileScreen({
     }
   }
 
+  async function restoreArchivedPerson() {
+    if (!summary?.person.archivedAt || restoringPerson) return;
+    setRestoringPerson(true);
+    setPersonActionError("");
+    const occurredAt = restoreAttemptTimeRef.current ?? new Date().toISOString();
+    restoreAttemptTimeRef.current = occurredAt;
+    try {
+      await restorePerson(await getDatabase(), {
+        personId: summary.person.id,
+        expectedRevision: summary.person.revision,
+        occurredAt
+      });
+      restoreAttemptTimeRef.current = null;
+      setRefreshVersion((current) => current + 1);
+      requestAnimationFrame(() => profileHeadingRef.current?.focus());
+    } catch (caught) {
+      setPersonActionError(firstIssue(caught));
+    } finally {
+      setRestoringPerson(false);
+    }
+  }
+
+  function closeContactChoice() {
+    setContactChoice(null);
+    requestAnimationFrame(() => contactOpenerRef.current?.focus());
+  }
+
+  function openProfileContactMethods(autoAddPhone = false) {
+    setContactChoice(null);
+    navigate(contactMethodsPath(personId), {
+      state: {
+        fromPath: personProfilePath(personId),
+        fromProfile: true,
+        ...(autoAddPhone ? { autoAddPhone: true } : {})
+      }
+    });
+  }
+
+  function openIdentityResolution() {
+    navigate(reachOut ? resolveProvisionalPath(reachOut.entry.id) : resolvePersonPath(personId), {
+      replace: true,
+      state: {
+        ...(window.history.state ?? {}),
+        resolverProfileReturn: true,
+        resolverPersonId: personId
+      }
+    });
+  }
+
+  async function launchProfileTarget(target: ContactNowTarget) {
+    setContactBusy(true);
+    setPersonActionError("");
+    try {
+      const current = await revalidateContactNowTarget(await getDatabase(), personId, target);
+      if (!current) {
+        const projection = await getContactNowProjection(await getDatabase(), personId);
+        setContactChoice({ projection, error: "That contact method is no longer available. Choose another option." });
+        return;
+      }
+      await openContactHandoff(contactNowTargetHref(current));
+      closeContactChoice();
+    } catch {
+      const projection = await getContactNowProjection(await getDatabase(), personId).catch(() => contactChoice?.projection ?? { targets: [], hasActivePhone: false });
+      setContactChoice({
+        projection,
+        error: "PeopleOS could not open that contact method. Copy it, choose another option, or manage contact details.",
+        copyValue: target.canonicalValue
+      });
+    } finally {
+      setContactBusy(false);
+    }
+  }
+
+  async function contactFromProfile(opener: HTMLButtonElement) {
+    if (contactBusy) return;
+    contactOpenerRef.current = opener;
+    setContactBusy(true);
+    setPersonActionError("");
+    try {
+      const projection = await getContactNowProjection(await getDatabase(), personId);
+      if (projection.targets.length === 0) {
+        openProfileContactMethods();
+      } else if (projection.targets.length === 1) {
+        await launchProfileTarget(projection.targets[0]);
+      } else {
+        setContactChoice({ projection });
+      }
+    } catch {
+      setPersonActionError("PeopleOS could not check contact details yet.");
+      requestAnimationFrame(() => opener.focus());
+    } finally {
+      setContactBusy(false);
+    }
+  }
+
+  async function copyProfileContact(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setContactChoice((current) => current ? { ...current, error: "Contact detail copied." } : current);
+    } catch {
+      setContactChoice((current) => current ? { ...current, error: "PeopleOS could not copy that contact detail. You can still select it manually." } : current);
+    }
+  }
+
   const requestedBackRoute = routeFromPath(backPath);
   const resumesCapture = backPath === "/people/new";
   const resumesImport = backPath === "/people/import";
@@ -1049,7 +1406,11 @@ export function PersonProfileScreen({
   const resumesFollowUp = requestedBackRoute.id === "follow-up-detail";
   const resumesReachOut = requestedBackRoute.id === "reach-out-detail";
   const resumesToday = requestedBackRoute.id === "today" && window.history.state?.todayOriginPrepared === true;
-  const resumesPreviousFlow = resumesCapture || resumesImport || resumesContactEditor || resumesFollowUp || resumesReachOut || resumesToday;
+  const returnsToListOrigin = window.history.state?.navigationOrigin === true
+    && ["today", "reach-out", "people", "upcoming"].includes(requestedBackRoute.id);
+  const resumesPreviousFlow = resumesCapture || resumesImport || resumesContactEditor || resumesFollowUp || resumesReachOut || resumesToday || returnsToListOrigin;
+  const preparedReachOutOrigin = resumesReachOut && window.history.state?.profileOriginPrepared === true;
+  const returnsThroughHistory = (resumesPreviousFlow && !resumesReachOut) || preparedReachOutOrigin;
   const backRoute = ["today", "reach-out", "people", "upcoming"].includes(requestedBackRoute.id)
     ? requestedBackRoute
     : routeFromPath("/people");
@@ -1060,12 +1421,17 @@ export function PersonProfileScreen({
   const communicationPreference = (memoryFacts ?? [])
     .find((fact) => fact.kind === "communication_preference");
   const relationshipReady = relationship !== undefined || Boolean(relationshipError);
+  const preferredContacts = summary ? preferredProfileContacts(summary, phoneRegion) : [];
   return (
     <main className="screen person-profile-screen" id="main-content" tabIndex={-1}>
       <button
         className="back-button"
         type="button"
-        onClick={() => resumesReachOut ? navigate(backPath) : resumesPreviousFlow ? window.history.back() : navigate(backRoute.path)}
+        onClick={() => returnsThroughHistory
+          ? window.history.back()
+          : resumesReachOut
+            ? navigate(backPath, { replace: true, state: {} })
+            : navigate(backRoute.path)}
       >
         ← {resumesCapture
           ? "Continue adding person"
@@ -1080,7 +1446,12 @@ export function PersonProfileScreen({
               : backRoute.label}
       </button>
       {summary === undefined && !error && <p role="status">Loading person…</p>}
-      {error && <p className="error-message" role="alert">{error}</p>}
+      {error && (
+        <div className="form-alert" role="alert">
+          <p>{error}</p>
+          <button type="button" onClick={() => setRefreshVersion((current) => current + 1)}>Retry</button>
+        </div>
+      )}
       {summary === null && (
         <EmptyState
           eyebrow="People"
@@ -1094,12 +1465,37 @@ export function PersonProfileScreen({
           <header className="profile-heading">
             <p className="eyebrow">Person</p>
             <h2 ref={profileHeadingRef} tabIndex={-1}>{summary.person.displayName}</h2>
-            {summary.person.identityStatus === "provisional" && <p className="identity-note"><span className="status-chip">Identity incomplete</span> Add their confirmed name whenever you learn it.</p>}
+            {summary.person.identityStatus === "provisional" && (
+              <div className="identity-note">
+                <p><span className="status-chip">Identity incomplete</span> Add their confirmed name whenever you learn it.</p>
+                {!summary.person.archivedAt && <button className="text-action" type="button" onClick={openIdentityResolution}>Complete identity</button>}
+              </div>
+            )}
             {affiliationLine(summary) && <p className="profile-affiliation">{affiliationLine(summary)}</p>}
+            {preferredContacts.length > 0 && (
+              <p className="profile-contact-summary">
+                {preferredContacts.map((contact) => `${contact.label || (contact.kind === "phone" ? "Phone" : "Email")}: ${displayContact(contact, phoneRegion)}`).join(" · ")}
+              </p>
+            )}
           </header>
+          {summary.person.archivedAt && (
+            <section className="archived-person-banner" aria-labelledby="archived-person-heading">
+              <div>
+                <h3 id="archived-person-heading">Archived person</h3>
+                <p>History and plans are preserved. Restore this person to include them in Today, Upcoming, Reach Out and default People results.</p>
+              </div>
+              <button className="primary-action" type="button" onClick={() => void restoreArchivedPerson()} disabled={restoringPerson}>
+                {restoringPerson ? "Restoring…" : "Restore person"}
+              </button>
+            </section>
+          )}
+          {personActionError && <p className="form-alert" role="alert">{personActionError}</p>}
           {!summary.person.archivedAt && summary.person.identityStatus !== "merged" && (
             <div className="profile-action-row" role="group" aria-label="Person actions">
-              <button className="primary-action" type="button" onClick={(event) => openInteraction(event.currentTarget)}>
+              <button className="primary-action" type="button" disabled={contactBusy} onClick={(event) => void contactFromProfile(event.currentTarget)}>
+                {contactBusy ? "Checking…" : preferredContacts.length > 0 ? "Contact now" : "Add contact details"}
+              </button>
+              <button className="secondary-action" type="button" onClick={(event) => openInteraction(event.currentTarget)}>
                 Log interaction
               </button>
               <button className="secondary-action" type="button" onClick={(event) => openFollowUpEditor(event.currentTarget)}>
@@ -1117,6 +1513,15 @@ export function PersonProfileScreen({
               <button className="secondary-action" type="button" onClick={(event) => openCadenceEditor(event.currentTarget)}>
                 Cadence
               </button>
+              <button className="secondary-action" type="button" onClick={() => navigate(editPersonPath(summary.person.id))}>
+                Edit person
+              </button>
+            </div>
+          )}
+          {summary.person.archivedAt && (
+            <div className="profile-archived-links">
+              <button className="secondary-action" type="button" onClick={() => navigate(personFollowUpsPath(summary.person.id))}>View follow-up history</button>
+              <button className="secondary-action" type="button" onClick={() => navigate(editPersonPath(summary.person.id))}>Archived details</button>
             </div>
           )}
           {memoryChoiceOpen && (
@@ -1146,7 +1551,7 @@ export function PersonProfileScreen({
               </button>
             </div>
           )}
-          {(nextPlan === undefined || planError || nextPlan?.kind !== "none") && (
+          {(nextPlan === undefined || planError || nextPlan?.kind !== "none" || Boolean(relationship?.today)) && (
             <section className="profile-card profile-plan-card" aria-labelledby="profile-plan-heading">
               <div className="card-heading-with-action">
                 <div>
@@ -1161,6 +1566,14 @@ export function PersonProfileScreen({
                   <p role="alert">{planError}</p>
                   <button type="button" onClick={() => setRefreshVersion((current) => current + 1)}>Retry</button>
                 </div>
+              )}
+              {relationship?.today && (
+                <p className="current-plan-reason"><strong>Why now:</strong> {formatExplanation(relationship.today.explanation)}</p>
+              )}
+              {relationship?.today && relationship.today.additionalDueFollowUpIds.length > 0 && (
+                <p className="today-also-due">
+                  Also due: {relationship.today.additionalDueFollowUpIds.length} other {relationship.today.additionalDueFollowUpIds.length === 1 ? "plan" : "plans"}
+                </p>
               )}
               {nextPlan?.kind === "explicit_follow_up" && nextPlan.followUp && (
                 <div className="current-plan-summary">
@@ -1186,6 +1599,11 @@ export function PersonProfileScreen({
                   </div>
                 </div>
               )}
+              {nextPlan?.kind === "none" && relationship?.today && (
+                <div className="button-row compact-buttons">
+                  <button type="button" onClick={(event) => openFollowUpEditor(event.currentTarget)}>Plan follow-up</button>
+                </div>
+              )}
             </section>
           )}
           <section className="profile-card profile-reach-out-card" aria-labelledby="profile-reach-out-heading">
@@ -1194,9 +1612,6 @@ export function PersonProfileScreen({
                 <h3 id="profile-reach-out-heading">Reach Out</h3>
                 <p>The deliberate intention attached to this Person.</p>
               </div>
-              {summary.person.identityStatus === "provisional" && reachOut && (
-                <button className="secondary-action" type="button" onClick={() => navigate(resolveProvisionalPath(reachOut.entry.id))}>Complete identity</button>
-              )}
             </div>
             {reachOut === undefined && !reachOutError && <p role="status">Loading Reach Out plan…</p>}
             {reachOutError && <div className="section-error"><p role="alert">{reachOutError}</p><button type="button" onClick={() => setRefreshVersion((current) => current + 1)}>Retry</button></div>}
@@ -1208,8 +1623,8 @@ export function PersonProfileScreen({
                 {reachOut.relevantDate && <p>Reminder: {formatLocalDate(reachOut.relevantDate)}</p>}
                 <div className="button-row compact-buttons">
                   <button type="button" onClick={() => navigate(reachOutDetailPath(reachOut.entry.id))}>Open plan</button>
-                  {reachOut.entry.intentStatus === "active" && <button type="button" onClick={(event) => { reachOutOpenerRef.current = event.currentTarget; setReachOutCompletionOpen(true); }}>Mark complete</button>}
-                  <button className="danger-action" type="button" disabled={reachOutRemoving} onClick={(event) => { reachOutOpenerRef.current = event.currentTarget; void removeCurrentReachOut(); }}>{reachOutRemoving ? "Removing…" : "Remove"}</button>
+                  {!summary.person.archivedAt && reachOut.entry.intentStatus === "active" && <button type="button" onClick={(event) => { reachOutOpenerRef.current = event.currentTarget; setReachOutCompletionOpen(true); }}>Mark complete</button>}
+                  {!summary.person.archivedAt && <button className="danger-action" type="button" disabled={reachOutRemoving} onClick={(event) => { reachOutOpenerRef.current = event.currentTarget; void removeCurrentReachOut(); }}>{reachOutRemoving ? "Removing…" : "Remove"}</button>}
                 </div>
               </div>
             )}
@@ -1221,105 +1636,7 @@ export function PersonProfileScreen({
               </div>
             )}
           </section>
-          <section className="profile-card" aria-labelledby="profile-contact-heading">
-            <div className="card-heading-with-action">
-              <div>
-                <h3 id="profile-contact-heading">Contact details</h3>
-                <p>Stored methods only. Communication actions arrive later.</p>
-              </div>
-              <button className="secondary-action" type="button" onClick={() => navigate(contactMethodsPath(summary.person.id))}>Manage</button>
-            </div>
-            {summary.activeContactMethods.length === 0 && (
-              <p className="muted-copy">Add a phone number or email when you have one.</p>
-            )}
-            {(summary.activeContactMethods.length > 0 || communicationPreference) && (
-              <dl className="profile-details">
-                {summary.activeContactMethods.map((contact) => (
-                  <div key={contact.id}>
-                    <dt>{contact.label || (contact.kind === "phone" ? "Phone" : "Email")}{contact.isPreferred ? " · Preferred" : ""}</dt>
-                    <dd>{displayContact(contact, phoneRegion)}</dd>
-                  </div>
-                ))}
-                {communicationPreference && (
-                  <div>
-                    <dt>Communication preference</dt>
-                    <dd>{memoryFactValueLabel(communicationPreference)}</dd>
-                  </div>
-                )}
-              </dl>
-            )}
-          </section>
-          <section className="profile-card" aria-labelledby="profile-context-heading">
-            <h3 id="profile-context-heading">Context</h3>
-            <dl className="profile-details">
-              {summary.latestMetInteraction?.summary && <div><dt>Where you met</dt><dd>{summary.latestMetInteraction.summary}</dd></div>}
-              <div><dt>Importance</dt><dd>{summary.person.importance === "high" ? "High" : "Normal"}</dd></div>
-              {summary.person.tags.length > 0 && <div><dt>Tags</dt><dd>{summary.person.tags.join(", ")}</dd></div>}
-              {summary.person.contactCadenceDays && <div><dt>Contact cadence</dt><dd>Every {summary.person.contactCadenceDays} days</dd></div>}
-            </dl>
-          </section>
-          <section className="profile-card" aria-labelledby="profile-memory-heading">
-            <div className="card-heading-with-action">
-              <div>
-                <h3 id="profile-memory-heading">Memory</h3>
-                <p>Structured details you chose to keep easy to find.</p>
-              </div>
-              <button className="secondary-action" type="button" onClick={() => navigate(memoryFactsPath(summary.person.id))}>See all</button>
-            </div>
-            {memoryFacts === undefined && !memoryError && <p role="status">Loading memory…</p>}
-            {memoryError && (
-              <div className="section-error">
-                <p role="alert">{memoryError}</p>
-                <button type="button" onClick={() => setRefreshVersion((current) => current + 1)}>Retry</button>
-              </div>
-            )}
-            {memoryFacts && memoryFacts.length === 0 && (
-              <div className="timeline-empty">
-                <p>Add one thing you want to remember.</p>
-                {!summary.person.archivedAt && summary.person.identityStatus !== "merged" && (
-                  <button className="text-action" type="button" onClick={(event) => openMemoryChoice(event.currentTarget)}>Add memory</button>
-                )}
-              </div>
-            )}
-            {memoryCue && (
-              <div className="memory-cue" aria-label="Memory cue">
-                <span>Memory cue</span>
-                <strong>{memoryCue.text}</strong>
-                <p>{formatExplanation(memoryCue.explanation)}</p>
-              </div>
-            )}
-            {compactFacts.length > 0 && (
-              <dl className="profile-details profile-memory-facts">
-                {compactFacts.map((fact) => (
-                  <div key={fact.id}>
-                    <dt>{memoryFactKindLabel(fact.kind)}</dt>
-                    <dd>{memoryFactValueLabel(fact)}</dd>
-                  </div>
-                ))}
-              </dl>
-            )}
-            {memoryFacts && memoryFacts.length > 0 && !memoryCue && compactFacts.length === 0 && (
-              <p className="muted-copy">Saved in Memory facts. None are currently set to surface on the profile.</p>
-            )}
-          </section>
-          <section className="profile-card" aria-labelledby="profile-affiliation-heading">
-            <div className="card-heading-with-action">
-              <div>
-                <h3 id="profile-affiliation-heading">Affiliation</h3>
-                <p>Current organisation and role context.</p>
-              </div>
-              <button className="secondary-action" type="button" onClick={() => navigate(affiliationsPath(summary.person.id))}>See history</button>
-            </div>
-            {summary.currentAffiliation ? (
-              <dl className="profile-details">
-                <div><dt>Organisation</dt><dd>{summary.currentAffiliation.organisationName}</dd></div>
-                {summary.currentAffiliation.role && <div><dt>Role</dt><dd>{summary.currentAffiliation.role}</dd></div>}
-              </dl>
-            ) : (
-              <p className="muted-copy">Add an organisation when it helps you remember their context.</p>
-            )}
-          </section>
-          <section className="profile-card" aria-labelledby="relationship-summary-heading">
+          <section className="profile-card profile-relationship-card" aria-labelledby="relationship-summary-heading">
             <h3 id="relationship-summary-heading">Relationship summary</h3>
             {relationship === undefined && !relationshipError && <p role="status">Calculating relationship summary…</p>}
             {relationshipError && (
@@ -1368,7 +1685,51 @@ export function PersonProfileScreen({
               </div>
             </dl>
           </section>
-          <section className="profile-card" aria-labelledby="recent-timeline-heading">
+          <section className="profile-card profile-memory-card" aria-labelledby="profile-memory-heading">
+            <div className="card-heading-with-action">
+              <div>
+                <h3 id="profile-memory-heading">Memory</h3>
+                <p>Structured details you chose to keep easy to find.</p>
+              </div>
+              <button className="secondary-action" type="button" onClick={() => navigate(memoryFactsPath(summary.person.id))}>See all</button>
+            </div>
+            {memoryFacts === undefined && !memoryError && <p role="status">Loading memory…</p>}
+            {memoryError && (
+              <div className="section-error">
+                <p role="alert">{memoryError}</p>
+                <button type="button" onClick={() => setRefreshVersion((current) => current + 1)}>Retry</button>
+              </div>
+            )}
+            {memoryFacts && memoryFacts.length === 0 && (
+              <div className="timeline-empty">
+                <p>Add one thing you want to remember.</p>
+                {!summary.person.archivedAt && summary.person.identityStatus !== "merged" && (
+                  <button className="text-action" type="button" onClick={(event) => openMemoryChoice(event.currentTarget)}>Add memory</button>
+                )}
+              </div>
+            )}
+            {memoryCue && (
+              <div className="memory-cue" aria-label="Memory cue">
+                <span>Memory cue</span>
+                <strong>{memoryCue.text}</strong>
+                <p>{formatExplanation(memoryCue.explanation)}</p>
+              </div>
+            )}
+            {compactFacts.length > 0 && (
+              <dl className="profile-details profile-memory-facts">
+                {compactFacts.map((fact) => (
+                  <div key={fact.id}>
+                    <dt>{memoryFactKindLabel(fact.kind)}</dt>
+                    <dd>{memoryFactValueLabel(fact)}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+            {memoryFacts && memoryFacts.length > 0 && !memoryCue && compactFacts.length === 0 && (
+              <p className="muted-copy">Saved in Memory facts. None are currently set to surface on the profile.</p>
+            )}
+          </section>
+          <section className="profile-card profile-timeline-card" aria-labelledby="recent-timeline-heading">
             <div className="card-heading-with-action">
               <div>
                 <h3 id="recent-timeline-heading">Recent timeline</h3>
@@ -1404,6 +1765,54 @@ export function PersonProfileScreen({
                 onOpenReachOut={(entryId) => navigate(reachOutDetailPath(entryId))}
               />
             ) : null}
+          </section>
+          <section className="profile-card profile-contact-card" aria-labelledby="profile-contact-heading">
+            <div className="card-heading-with-action">
+              <div>
+                <h3 id="profile-contact-heading">Contact details</h3>
+                <p>Preferred ways to reach this person.</p>
+              </div>
+              <button className="secondary-action" type="button" onClick={() => navigate(contactMethodsPath(summary.person.id))}>See all</button>
+            </div>
+            {preferredContacts.length === 0 && !communicationPreference && (
+              <div className="timeline-empty">
+                <p>No contact details yet.</p>
+                {!summary.person.archivedAt && <button className="text-action" type="button" onClick={() => navigate(contactMethodsPath(summary.person.id))}>Add contact details</button>}
+              </div>
+            )}
+            {(preferredContacts.length > 0 || communicationPreference) && (
+              <dl className="profile-details">
+                {preferredContacts.map((contact) => (
+                  <div key={contact.id}>
+                    <dt>{contact.label || (contact.kind === "phone" ? "Phone" : "Email")}{contact.isPreferred ? " · Preferred" : ""}</dt>
+                    <dd>{displayContact(contact, phoneRegion)}</dd>
+                  </div>
+                ))}
+                {communicationPreference && (
+                  <div>
+                    <dt>Communication preference</dt>
+                    <dd>{memoryFactValueLabel(communicationPreference)}</dd>
+                  </div>
+                )}
+              </dl>
+            )}
+          </section>
+          <section className="profile-card profile-affiliation-card" aria-labelledby="profile-affiliation-heading">
+            <div className="card-heading-with-action">
+              <div>
+                <h3 id="profile-affiliation-heading">Affiliation</h3>
+                <p>Current organisation and role context.</p>
+              </div>
+              <button className="secondary-action" type="button" onClick={() => navigate(affiliationsPath(summary.person.id))}>See history</button>
+            </div>
+            {summary.currentAffiliation ? (
+              <dl className="profile-details">
+                <div><dt>Organisation</dt><dd>{summary.currentAffiliation.organisationName}</dd></div>
+                {summary.currentAffiliation.role && <div><dt>Role</dt><dd>{summary.currentAffiliation.role}</dd></div>}
+              </dl>
+            ) : (
+              <p className="muted-copy">Add an organisation when it helps you remember their context.</p>
+            )}
           </section>
           {editor && (
             <InteractionEditorSheet
@@ -1448,6 +1857,23 @@ export function PersonProfileScreen({
               currentFollowUp={reachOut.currentFollowUp}
               onClose={() => { setReachOutCompletionOpen(false); requestAnimationFrame(() => reachOutOpenerRef.current?.focus()); }}
               onCompleted={finishReachOutMutation}
+            />
+          )}
+          {contactChoice && (
+            <ContactMethodChoiceSheet
+              personName={summary.person.displayName}
+              targets={contactChoice.projection.targets}
+              hasPhone={contactChoice.projection.hasActivePhone}
+              error={contactChoice.error}
+              copyValue={contactChoice.copyValue}
+              onChoose={(targetId) => {
+                const target = contactChoice.projection.targets.find((candidate) => candidate.id === targetId);
+                if (target) void launchProfileTarget(target);
+              }}
+              onCopy={contactChoice.copyValue ? () => void copyProfileContact(contactChoice.copyValue!) : undefined}
+              onAddPhone={() => openProfileContactMethods(true)}
+              onManage={() => openProfileContactMethods()}
+              onClose={closeContactChoice}
             />
           )}
         </>
@@ -1498,6 +1924,7 @@ export function ContactMethodsScreen({
   onSavingChange,
   initialEditor,
   autoAddPhone = false,
+  backLabel = "Person",
   onBack,
   onOpenDuplicatePerson,
   onEditorFinished
@@ -1508,6 +1935,7 @@ export function ContactMethodsScreen({
   onSavingChange: (saving: boolean) => void;
   initialEditor?: ContactEditorResumeState | null;
   autoAddPhone?: boolean;
+  backLabel?: "Today" | "Person";
   onBack?: () => void;
   onOpenDuplicatePerson: (personId: string, editor: ContactEditorResumeState) => void;
   onEditorFinished: () => void;
@@ -1568,7 +1996,7 @@ export function ContactMethodsScreen({
   }, [initialEditor, onDirtyChange]);
 
   useEffect(() => {
-    if (!autoAddPhone || !person || editor || autoAddStartedRef.current) return;
+    if (!autoAddPhone || !person || person.person.archivedAt || person.person.identityStatus === "merged" || editor || autoAddStartedRef.current) return;
     autoAddStartedRef.current = true;
     editorOpenerIdRef.current = "add-phone-contact";
     setEditorDirty(false);
@@ -1852,11 +2280,12 @@ export function ContactMethodsScreen({
 
   const active = contacts.filter((contact) => !contact.archivedAt);
   const archived = contacts.filter((contact) => contact.archivedAt);
+  const editable = Boolean(person && !person.person.archivedAt && person.person.identityStatus !== "merged");
 
   return (
     <main className="screen contact-methods-screen" id="main-content" tabIndex={-1}>
       <button className="back-button" type="button" onClick={() => onBack ? onBack() : navigate(personProfilePath(personId))} disabled={saving}>
-        {onBack ? "← Today" : "← Person"}
+        ← {backLabel}
       </button>
       <header className="page-heading compact-heading">
         <p className="eyebrow">{person?.person.displayName ?? "Person"}</p>
@@ -1875,16 +2304,21 @@ export function ContactMethodsScreen({
       {person === null && <p className="error-message" role="alert">This person could not be found.</p>}
       {person && (
         <>
+          {!editable && (
+            <p className="archived-notice" role="status">This person is archived. Contact details are read-only until you restore them.</p>
+          )}
           <section className="profile-card" aria-labelledby="active-contact-heading">
             <div className="card-heading-with-action contact-heading-actions">
               <div>
                 <h3 id="active-contact-heading">Current details</h3>
                 <p>The first saved phone and email become preferred by default.</p>
               </div>
-              <div className="button-row compact-buttons">
-                <button id="add-phone-contact" type="button" onClick={(event) => startAdd("phone", event.currentTarget)} disabled={saving}>Add phone</button>
-                <button id="add-email-contact" type="button" onClick={(event) => startAdd("email", event.currentTarget)} disabled={saving}>Add email</button>
-              </div>
+              {editable && (
+                <div className="button-row compact-buttons">
+                  <button id="add-phone-contact" type="button" onClick={(event) => startAdd("phone", event.currentTarget)} disabled={saving}>Add phone</button>
+                  <button id="add-email-contact" type="button" onClick={(event) => startAdd("email", event.currentTarget)} disabled={saving}>Add email</button>
+                </div>
+              )}
             </div>
 
             {active.length === 0 ? <p className="muted-copy">Add a phone number or email when you have one.</p> : (
@@ -1903,28 +2337,32 @@ export function ContactMethodsScreen({
                         disabled={saving}
                         onClick={() => copy(contact)}
                       >Copy</button>
-                      <button
-                        id={`edit-contact-${contact.id}`}
-                        type="button"
-                        aria-label={`Edit ${displayContact(contact, phoneRegion)}`}
-                        disabled={saving}
-                        onClick={(event) => startEdit(contact, event.currentTarget)}
-                      >Edit</button>
-                      {!contact.isPreferred && (
-                        <button
-                          type="button"
-                          aria-label={`Make ${displayContact(contact, phoneRegion)} preferred`}
-                          disabled={saving}
-                          onClick={() => makePreferred(contact)}
-                        >Make preferred</button>
+                      {editable && (
+                        <>
+                          <button
+                            id={`edit-contact-${contact.id}`}
+                            type="button"
+                            aria-label={`Edit ${displayContact(contact, phoneRegion)}`}
+                            disabled={saving}
+                            onClick={(event) => startEdit(contact, event.currentTarget)}
+                          >Edit</button>
+                          {!contact.isPreferred && (
+                            <button
+                              type="button"
+                              aria-label={`Make ${displayContact(contact, phoneRegion)} preferred`}
+                              disabled={saving}
+                              onClick={() => makePreferred(contact)}
+                            >Make preferred</button>
+                          )}
+                          <button
+                            className="danger-text"
+                            type="button"
+                            aria-label={`Remove ${displayContact(contact, phoneRegion)}`}
+                            disabled={saving}
+                            onClick={() => remove(contact)}
+                          >Remove</button>
+                        </>
                       )}
-                      <button
-                        className="danger-text"
-                        type="button"
-                        aria-label={`Remove ${displayContact(contact, phoneRegion)}`}
-                        disabled={saving}
-                        onClick={() => remove(contact)}
-                      >Remove</button>
                     </div>
                   </li>
                 ))}
@@ -1944,7 +2382,7 @@ export function ContactMethodsScreen({
               </ul>
             </details>
           )}
-          {editor && contactDuplicateMatches.length === 0 && (
+          {editable && editor && contactDuplicateMatches.length === 0 && (
             <div
               className="sheet-backdrop"
               onMouseDown={(event) => { if (event.target === event.currentTarget) closeEditor(); }}

@@ -107,8 +107,10 @@ describe("Reach Out graph validation", () => {
     invalid((data) => { data.reachOutEntries[0].lastCommandFingerprint = ""; });
   });
 
-  it("excludes visible Reach Out entries owned by archived or merged People", () => {
-    invalid((data) => { data.people[0].archivedAt = fixedNow; });
+  it("allows an archived Person to preserve Reach Out history but rejects a merged owner", () => {
+    const archived = completeData();
+    archived.people[0].archivedAt = fixedNow;
+    expect(() => validatePeopleOsData(archived)).not.toThrow();
     invalid((data) => {
       data.people.push({ ...data.people[0], id: "person-survivor", displayName: "Survivor" });
       data.people[0].identityStatus = "merged";

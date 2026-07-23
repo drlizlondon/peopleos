@@ -27,6 +27,7 @@ import ReachOutScreen from "./ReachOutScreen";
 import ReachOutDetailScreen from "./ReachOutDetailScreen";
 import ResolveProvisionalPersonScreen from "./ResolveProvisionalPersonScreen";
 import ReachOutEditorSheet from "./ReachOutEditorSheet";
+import EditPersonScreen from "./EditPersonScreen";
 import type { PersonPickerOption } from "./application/interactionQueries";
 import type { ContactImportSession } from "./application/contactImport";
 import type { Person } from "./domain/schema";
@@ -36,6 +37,22 @@ type ModalBackHandler = {
   dismiss: () => void;
   historyState: unknown;
 };
+
+function profileStateFromResolver(): Record<string, unknown> {
+  const state = { ...(window.history.state ?? {}) };
+  delete state.resolverProfileReturn;
+  delete state.resolverPersonId;
+  delete state.resolverOriginPrepared;
+  return state;
+}
+
+function resolverSuccessProfileState(route: Route): Record<string, unknown> {
+  if (window.history.state?.resolverProfileReturn === true) return profileStateFromResolver();
+  if (window.history.state?.resolverOriginPrepared === true && typeof window.history.state?.fromPath === "string") {
+    return { fromPath: window.history.state.fromPath, profileOriginPrepared: true };
+  }
+  return { fromPath: route.reachOutEntryId ? reachOutDetailPath(route.reachOutEntryId) : "/people" };
+}
 
 export default function App() {
   const [route, setRoute] = useState(() => routeFromPath(window.location.pathname));
@@ -50,6 +67,7 @@ export default function App() {
   const [globalReachOutOpen, setGlobalReachOutOpen] = useState(false);
   const [globalReachOutPerson, setGlobalReachOutPerson] = useState<Person | undefined>();
   const routeRef = useRef(route);
+  const activeHistoryStateRef = useRef<Record<string, unknown>>(window.history.state ?? {});
   const unsavedChangesRef = useRef(false);
   const navigationLockedRef = useRef(false);
   const modalBackHandlerRef = useRef<ModalBackHandler | null>(null);
@@ -69,6 +87,7 @@ export default function App() {
 
   useEffect(() => {
     routeRef.current = route;
+    activeHistoryStateRef.current = window.history.state ?? {};
   }, [route]);
 
   useEffect(() => {
@@ -96,28 +115,22 @@ export default function App() {
       const modal = modalBackHandlerRef.current;
       if (modal) {
         window.history.pushState(modal.historyState, "", routeRef.current.path);
+        activeHistoryStateRef.current = (modal.historyState as Record<string, unknown> | null) ?? {};
         modal.dismiss();
         return;
       }
       if (navigationLockedRef.current) {
-        window.history.pushState(
-          captureOriginRef.current ? { fromPath: captureOriginRef.current } : {},
-          "",
-          routeRef.current.path
-        );
+        window.history.pushState(activeHistoryStateRef.current, "", routeRef.current.path);
         return;
       }
       if (unsavedChangesRef.current) {
         if (!window.confirm("Discard changes?")) {
-          window.history.pushState(
-            captureOriginRef.current ? { fromPath: captureOriginRef.current } : {},
-            "",
-            routeRef.current.path
-          );
+          window.history.pushState(activeHistoryStateRef.current, "", routeRef.current.path);
           return;
         }
         setUnsavedCapture(false);
       }
+      activeHistoryStateRef.current = window.history.state ?? {};
       setRoute(routeFromPath(window.location.pathname));
     };
     window.addEventListener("popstate", onPopState);
@@ -165,10 +178,26 @@ export default function App() {
         : route.id === "contact-methods" && typeof existingOrigin === "string"
           ? existingOrigin
           : route.path;
-      defaultState = { fromPath };
+      const returnsToList = ["today", "reach-out", "people", "upcoming"].includes(route.id)
+        || route.id === "add-person";
+      defaultState = {
+        fromPath,
+        ...(returnsToList ? { navigationOrigin: true } : {}),
+        ...(route.id === "reach-out-detail" ? { profileOriginPrepared: true } : {})
+      };
     } else if (next.id === "contact-methods") {
       const existingOrigin = window.history.state?.fromPath;
-      defaultState = { fromPath: typeof existingOrigin === "string" ? existingOrigin : "/people" };
+      defaultState = {
+        fromPath: typeof existingOrigin === "string" ? existingOrigin : "/people",
+        ...(["person-profile", "edit-person"].includes(route.id) ? { fromProfile: true } : {})
+      };
+    } else if (next.id === "edit-person") {
+      defaultState = {
+        fromProfile: route.id === "person-profile",
+        fromPath: typeof window.history.state?.fromPath === "string"
+          ? window.history.state.fromPath
+          : "/people"
+      };
     } else if (next.id === "timeline") {
       defaultState = {
         fromProfile: route.id === "person-profile",
@@ -178,7 +207,7 @@ export default function App() {
       };
     } else if (next.id === "memory-facts" || next.id === "affiliations") {
       defaultState = {
-        fromProfile: route.id === "person-profile",
+        fromProfile: ["person-profile", "edit-person"].includes(route.id),
         fromPath: typeof window.history.state?.fromPath === "string"
           ? window.history.state.fromPath
           : "/people"
@@ -195,11 +224,15 @@ export default function App() {
     } else if (next.id === "reach-out-detail") {
       defaultState = { fromPath: route.path };
     } else if (next.id === "resolve-provisional") {
-      defaultState = { fromPath: route.path };
+      defaultState = {
+        fromPath: route.path,
+        ...(route.id === "reach-out-detail" ? { resolverOriginPrepared: true } : {})
+      };
     }
     const state = options.state ?? defaultState;
     if (options.replace) window.history.replaceState(state, "", next.path);
     else window.history.pushState(state, "", next.path);
+    activeHistoryStateRef.current = state;
     setRoute(next);
     window.scrollTo({ top: 0, behavior: "instant" });
   }
@@ -310,6 +343,7 @@ export default function App() {
           onSavingChange={setNavigationLocked}
           initialEditor={window.history.state?.resumeContactEditor ? suspendedContactEditor : null}
           autoAddPhone={window.history.state?.autoAddPhone === true}
+          backLabel={window.history.state?.fromPath === "/" ? "Today" : "Person"}
           onBack={window.history.state?.fromPath === "/" ? () => {
             if (window.history.state?.todayOriginPrepared === true) {
               window.history.back();
@@ -326,9 +360,29 @@ export default function App() {
                   : {})
               }
             });
-          } : undefined}
+          } : window.history.state?.fromProfile === true
+            ? () => window.history.back()
+            : undefined}
           onOpenDuplicatePerson={openExistingFromContactEditor}
           onEditorFinished={() => setSuspendedContactEditor(null)}
+        />
+      );
+      case "edit-person": return (
+        <EditPersonScreen
+          personId={route.personId ?? ""}
+          navigate={navigatePath}
+          onDirtyChange={setUnsavedCapture}
+          onSavingChange={setNavigationLocked}
+          onBack={() => {
+            if (window.history.state?.fromProfile === true) {
+              window.history.back();
+              return;
+            }
+            navigatePath(personProfilePath(route.personId ?? ""), {
+              replace: true,
+              state: { fromPath: typeof window.history.state?.fromPath === "string" ? window.history.state.fromPath : "/people" }
+            });
+          }}
         />
       );
       case "timeline": return (
@@ -412,7 +466,9 @@ export default function App() {
       );
       case "resolve-provisional": return (
         <ResolveProvisionalPersonScreen
-          entryId={route.reachOutEntryId ?? ""}
+          entryId={route.reachOutEntryId}
+          personId={route.personId}
+          profileStateAfterResolution={resolverSuccessProfileState(route)}
           navigate={navigatePath}
           onDirtyChange={setUnsavedCapture}
           onSavingChange={setNavigationLocked}
@@ -420,9 +476,36 @@ export default function App() {
             if (navigationLockedRef.current) return;
             if (unsavedChangesRef.current && !window.confirm("Discard changes?")) return;
             setUnsavedCapture(false);
+            if (window.history.state?.resolverProfileReturn === true) {
+              const sourcePersonId = typeof window.history.state?.resolverPersonId === "string"
+                ? window.history.state.resolverPersonId
+                : route.personId;
+              if (sourcePersonId) {
+                navigatePath(personProfilePath(sourcePersonId), {
+                  replace: true,
+                  state: profileStateFromResolver()
+                });
+                return;
+              }
+            }
+            if (route.personId) {
+              navigatePath(personProfilePath(route.personId), {
+                replace: true,
+                state: { fromPath: "/people" }
+              });
+              return;
+            }
             const fromPath = window.history.state?.fromPath;
-            if (typeof fromPath === "string" && fromPath !== route.path) window.history.back();
-            else navigatePath(reachOutDetailPath(route.reachOutEntryId ?? ""), { replace: true });
+            if (window.history.state?.resolverOriginPrepared === true
+              && typeof fromPath === "string"
+              && fromPath !== route.path) {
+              window.history.back();
+            } else {
+              navigatePath(reachOutDetailPath(route.reachOutEntryId ?? ""), {
+                replace: true,
+                state: {}
+              });
+            }
           }}
         />
       );

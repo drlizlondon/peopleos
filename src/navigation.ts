@@ -2,6 +2,7 @@ export type PrimaryRouteId = "today" | "reach-out" | "people" | "upcoming" | "se
 export type RouteId = PrimaryRouteId
   | "add-person"
   | "person-profile"
+  | "edit-person"
   | "contact-methods"
   | "memory-facts"
   | "affiliations"
@@ -46,6 +47,18 @@ export function routeFromPath(pathname: string): Route {
 
   if (pathname === "/people/new" || pathname === "/people/new/") {
     return { id: "add-person", path: "/people/new", label: "Add person", primaryId: "people" };
+  }
+
+  const editPerson = pathname.match(/^\/people\/([^/]+)\/edit\/?$/);
+  if (editPerson) {
+    const personId = decodePathPart(editPerson[1]);
+    return { id: "edit-person", path: pathname, label: "Edit person", primaryId: "people", personId };
+  }
+
+  const resolvePerson = pathname.match(/^\/people\/([^/]+)\/resolve\/?$/);
+  if (resolvePerson) {
+    const personId = decodePathPart(resolvePerson[1]);
+    return { id: "resolve-provisional", path: pathname, label: "Complete identity", primaryId: "people", personId };
   }
 
   const contactMethods = pathname.match(/^\/people\/([^/]+)\/contact-methods\/?$/);
@@ -119,6 +132,14 @@ export function personProfilePath(personId: string): string {
 
 export function contactMethodsPath(personId: string): string {
   return `${personProfilePath(personId)}/contact-methods`;
+}
+
+export function editPersonPath(personId: string): string {
+  return `${personProfilePath(personId)}/edit`;
+}
+
+export function resolvePersonPath(personId: string): string {
+  return `${personProfilePath(personId)}/resolve`;
 }
 
 export function memoryFactsPath(personId: string): string {

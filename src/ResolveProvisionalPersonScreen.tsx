@@ -20,9 +20,9 @@ import {
   type PreferredContactResolution,
   type ProvisionalResolutionPreview
 } from "./application/reachOutIdentity";
-import { getReachOutDetail, type ReachOutDetail } from "./application/reachOutQueries";
+import { getReachOutDetail } from "./application/reachOutQueries";
 import { getDatabase } from "./data/client";
-import type { LocalDate } from "./domain/schema";
+import type { LocalDate, Person, ReachOutContext } from "./domain/schema";
 import {
   ContactValueValidationError,
   getPhoneRegionOptions,
@@ -33,6 +33,11 @@ import { personProfilePath, reachOutDetailPath } from "./navigation";
 type Navigate = (path: string, options?: { replace?: boolean; state?: Record<string, unknown> }) => void;
 
 type ResolverFieldErrors = Record<string, string>;
+
+type ResolutionSubject = {
+  person: Person;
+  contexts: ReachOutContext[];
+};
 
 const phoneRegionOptions = getPhoneRegionOptions(globalThis.navigator?.language ?? "en-GB");
 
@@ -61,18 +66,22 @@ function linkCommandSignature(
 
 export default function ResolveProvisionalPersonScreen({
   entryId,
+  personId,
+  profileStateAfterResolution,
   navigate,
   onBack,
   onDirtyChange,
   onSavingChange
 }: {
-  entryId: string;
+  entryId?: string;
+  personId?: string;
+  profileStateAfterResolution?: Record<string, unknown>;
   navigate: Navigate;
   onBack: () => void;
   onDirtyChange: (dirty: boolean) => void;
   onSavingChange: (saving: boolean) => void;
 }) {
-  const [detail, setDetail] = useState<ReachOutDetail | null | undefined>(undefined);
+  const [detail, setDetail] = useState<ResolutionSubject | null | undefined>(undefined);
   const [people, setPeople] = useState<PersonPickerOption[]>([]);
   const [mode, setMode] = useState<"complete" | "link">("complete");
   const [name, setName] = useState("");
@@ -96,6 +105,8 @@ export default function ResolveProvisionalPersonScreen({
   const completionCommandRef = useRef<ReturnType<typeof prepareCompleteProvisionalPersonCommand>>();
   const linkCommandRef = useRef<{ signature: string; command: LinkProvisionalPersonCommand }>();
   const affiliationDraftRef = useRef<AffiliationDraft>();
+  const resolvedProfileState = profileStateAfterResolution
+    ?? (entryId ? { fromPath: reachOutDetailPath(entryId) } : { fromPath: "/people" });
 
   function markDirty(): void {
     completionCommandRef.current = undefined;
@@ -115,7 +126,13 @@ export default function ResolveProvisionalPersonScreen({
     try {
       const db = await getDatabase();
       const [current, settings] = await Promise.all([
-        getReachOutDetail(db, entryId, todayLocalDate()),
+        entryId
+          ? getReachOutDetail(db, entryId, todayLocalDate()).then((reachOut) => reachOut
+            ? { person: reachOut.person, contexts: reachOut.contexts }
+            : undefined)
+          : personId
+            ? db.get("people", personId).then((person) => person ? { person, contexts: [] } : undefined)
+            : Promise.resolve(undefined),
         getAppSettings(db)
       ]);
       setDefaultPhoneRegion(settings.defaultPhoneRegion);
@@ -128,7 +145,7 @@ export default function ResolveProvisionalPersonScreen({
     } catch {
       setError("PeopleOS could not load identity resolution.");
     }
-  }, [entryId]);
+  }, [entryId, personId]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -253,7 +270,7 @@ export default function ResolveProvisionalPersonScreen({
         onSavingChange(false);
         navigate(personProfilePath(person.id), {
           replace: true,
-          state: { fromPath: reachOutDetailPath(entryId) }
+          state: resolvedProfileState
         });
       } else {
         if (!preview) throw new Error("Choose an existing Person and review what will move.");
@@ -270,7 +287,7 @@ export default function ResolveProvisionalPersonScreen({
         onSavingChange(false);
         navigate(personProfilePath(result.target.id), {
           replace: true,
-          state: { fromPath: reachOutDetailPath(entryId) }
+          state: resolvedProfileState
         });
       }
     } catch (caught) {
@@ -291,7 +308,7 @@ export default function ResolveProvisionalPersonScreen({
 
   return (
     <main className="screen resolve-provisional-screen" id="main-content" tabIndex={-1}>
-      <button className="back-button" type="button" onClick={onBack}>← Reach Out plan</button>
+      <button className="back-button" type="button" onClick={onBack}>← {entryId ? "Reach Out plan" : "Person"}</button>
       {detail === undefined && !error && <p role="status">Loading identity…</p>}
       {detail === undefined && error && (
         <div className="form-alert" role="alert">
@@ -299,8 +316,8 @@ export default function ResolveProvisionalPersonScreen({
           <button type="button" onClick={() => void load()}>Retry</button>
         </div>
       )}
-      {detail === null && <EmptyState eyebrow="Reach Out" title="Plan not found" description="This Reach Out plan is no longer available." action={<button className="primary-action" type="button" onClick={() => navigate("/reach-out")}>Open Reach Out</button>} />}
-      {detail && detail.person.identityStatus !== "provisional" && <EmptyState eyebrow="Reach Out" title="Identity already resolved" description="This Person now has a confirmed identity." action={<button className="primary-action" type="button" onClick={() => navigate(personProfilePath(detail.person.id))}>Open Person</button>} />}
+      {detail === null && <EmptyState eyebrow={entryId ? "Reach Out" : "People"} title={entryId ? "Plan not found" : "Person not found"} description={entryId ? "This Reach Out plan is no longer available." : "This Person is no longer available."} action={<button className="primary-action" type="button" onClick={() => navigate(entryId ? "/reach-out" : "/people")}>Return</button>} />}
+      {detail && detail.person.identityStatus !== "provisional" && <EmptyState eyebrow={entryId ? "Reach Out" : "People"} title="Identity already resolved" description="This Person now has a confirmed identity." action={<button className="primary-action" type="button" onClick={() => navigate(personProfilePath(detail.person.id))}>Open Person</button>} />}
       {detail?.person.identityStatus === "provisional" && (
         <>
           <header className="page-heading compact-heading">

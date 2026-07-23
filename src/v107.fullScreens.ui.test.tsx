@@ -59,6 +59,7 @@ async function seedFollowUp(
 describe("V1-07 full FollowUp screens", () => {
   beforeEach(async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
+    window.history.replaceState({}, "", "/upcoming");
     await resetDatabase();
   });
 

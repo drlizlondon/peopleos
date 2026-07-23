@@ -409,8 +409,8 @@ export function validatePeopleOsData(value: unknown): PeopleOsData {
   });
   data.reachOutEntries.forEach((record) => {
     const person = data.people.find((candidate) => candidate.id === record.personId);
-    if (!record.removedAt && (person?.archivedAt || person?.identityStatus === "merged")) {
-      issues.push(`reachOutEntries.${record.id} cannot remain visible for an archived or merged Person`);
+    if (!record.removedAt && person?.identityStatus === "merged") {
+      issues.push(`reachOutEntries.${record.id} cannot remain attached to a merged Person`);
     }
     const linkedPending = data.followUps.filter((candidate) => candidate.reachOutEntryId === record.id && candidate.status === "pending");
     if (record.currentFollowUpId) {

@@ -100,13 +100,14 @@ describe("V1-04 duplicate review and vCard import UI", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/"));
 
     await user.click(screen.getByRole("link", { name: "People" }));
-    await user.click(await screen.findByRole("button", { name: "Import contacts" }));
-    await user.click(screen.getByRole("button", { name: "← People" }));
+    await screen.findByRole("heading", { name: "Your people will appear here." });
+    await user.click(screen.getByRole("button", { name: "Import contacts" }));
+    await user.click(await screen.findByRole("button", { name: "← People" }));
     await waitFor(() => expect(window.location.pathname).toBe("/people"));
 
     await user.click(screen.getByRole("link", { name: "Settings" }));
     await user.click(screen.getByRole("link", { name: "Import contacts" }));
-    await user.click(screen.getByRole("button", { name: "← Settings" }));
+    await user.click(await screen.findByRole("button", { name: "← Settings" }));
     await waitFor(() => expect(window.location.pathname).toBe("/settings"));
   });
 

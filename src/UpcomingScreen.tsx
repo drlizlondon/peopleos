@@ -24,6 +24,36 @@ import { followUpDetailPath, personProfilePath } from "./navigation";
 type Navigate = (path: string, options?: { replace?: boolean }) => void;
 type WindowFilter = NonNullable<UpcomingFilters["window"]>;
 
+type UpcomingViewState = {
+  window: "" | WindowFilter;
+  personId: string;
+  actionType: "" | FollowUpActionType;
+  scrollY: number;
+};
+
+const WINDOW_FILTERS = new Set<WindowFilter>(["next_7_days", "next_30_days", "later"]);
+const ACTION_FILTERS = new Set<FollowUpActionType>(FOLLOW_UP_ACTION_OPTIONS.map((option) => option.value));
+
+function readUpcomingViewState(): UpcomingViewState {
+  const saved = window.history.state?.upcomingView as Partial<UpcomingViewState> | undefined;
+  return {
+    window: typeof saved?.window === "string" && WINDOW_FILTERS.has(saved.window as WindowFilter)
+      ? saved.window as WindowFilter
+      : "",
+    personId: typeof saved?.personId === "string" ? saved.personId : "",
+    actionType: typeof saved?.actionType === "string" && ACTION_FILTERS.has(saved.actionType as FollowUpActionType)
+      ? saved.actionType as FollowUpActionType
+      : "",
+    scrollY: typeof saved?.scrollY === "number" && Number.isFinite(saved.scrollY)
+      ? Math.max(0, saved.scrollY)
+      : 0
+  };
+}
+
+function writeUpcomingViewState(view: UpcomingViewState) {
+  window.history.replaceState({ ...(window.history.state ?? {}), upcomingView: view }, "", window.location.href);
+}
+
 type EditorState = {
   mode: "create" | "reschedule" | "snooze";
   person: PersonPickerOption["person"];
@@ -282,10 +312,11 @@ function UpcomingFilterSheet({
 }
 
 export default function UpcomingScreen({ navigate }: { navigate: Navigate }) {
+  const [initialView] = useState(readUpcomingViewState);
   const [localDate] = useState(currentLocalDate);
-  const [windowFilter, setWindowFilter] = useState<"" | WindowFilter>("");
-  const [personFilter, setPersonFilter] = useState("");
-  const [actionFilter, setActionFilter] = useState<"" | FollowUpActionType>("");
+  const [windowFilter, setWindowFilter] = useState<"" | WindowFilter>(initialView.window);
+  const [personFilter, setPersonFilter] = useState(initialView.personId);
+  const [actionFilter, setActionFilter] = useState<"" | FollowUpActionType>(initialView.actionType);
   const [result, setResult] = useState<UpcomingResult | undefined>(undefined);
   const [allItems, setAllItems] = useState<UpcomingFollowUp[]>([]);
   const [error, setError] = useState("");
@@ -297,6 +328,8 @@ export default function UpcomingScreen({ navigate }: { navigate: Navigate }) {
   const [actionError, setActionError] = useState("");
   const headingRef = useRef<HTMLHeadingElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
+  const rememberedScrollRef = useRef(initialView.scrollY);
+  const restoredScrollRef = useRef(false);
 
   const filters = useMemo<UpcomingFilters>(() => ({
     localDate,
@@ -322,6 +355,47 @@ export default function UpcomingScreen({ navigate }: { navigate: Navigate }) {
   }, [filters, localDate]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    writeUpcomingViewState({
+      window: windowFilter,
+      personId: personFilter,
+      actionType: actionFilter,
+      scrollY: rememberedScrollRef.current
+    });
+  }, [actionFilter, personFilter, windowFilter]);
+
+  useEffect(() => {
+    const rememberScroll = () => {
+      if (window.location.pathname !== "/upcoming") return;
+      rememberedScrollRef.current = window.scrollY;
+      writeUpcomingViewState({
+        window: windowFilter,
+        personId: personFilter,
+        actionType: actionFilter,
+        scrollY: rememberedScrollRef.current
+      });
+    };
+    window.addEventListener("scroll", rememberScroll, { passive: true });
+    return () => window.removeEventListener("scroll", rememberScroll);
+  }, [actionFilter, personFilter, windowFilter]);
+
+  useEffect(() => {
+    if (result === undefined || restoredScrollRef.current) return;
+    restoredScrollRef.current = true;
+    const frame = requestAnimationFrame(() => window.scrollTo({ top: initialView.scrollY, behavior: "instant" }));
+    return () => cancelAnimationFrame(frame);
+  }, [initialView.scrollY, result]);
+
+  function rememberBeforeNavigation() {
+    rememberedScrollRef.current = window.scrollY;
+    writeUpcomingViewState({
+      window: windowFilter,
+      personId: personFilter,
+      actionType: actionFilter,
+      scrollY: rememberedScrollRef.current
+    });
+  }
 
   function restoreFocus() {
     requestAnimationFrame(() => {
@@ -449,11 +523,11 @@ export default function UpcomingScreen({ navigate }: { navigate: Navigate }) {
                         {item.followUp.snoozedUntilDate && <span className="status-chip">Snoozed</span>}
                       </div>
                       <dl className="timeline-context follow-up-meta">
-                        <div><dt>Person</dt><dd><button className="text-action" type="button" onClick={() => navigate(personProfilePath(item.person.id))}>{item.person.displayName}</button></dd></div>
+                        <div><dt>Person</dt><dd><button className="text-action" type="button" onClick={() => { rememberBeforeNavigation(); navigate(personProfilePath(item.person.id)); }}>{item.person.displayName}</button></dd></div>
                         <div><dt>Next action</dt><dd>{actionLabel(item.followUp.actionType)}</dd></div>
                       </dl>
                       <div className="button-row compact-buttons follow-up-row-actions" role="group" aria-label={`Actions for ${item.followUp.reason}`}>
-                        <button className="primary-action" type="button" onClick={() => navigate(followUpDetailPath(item.followUp.id))}>Open plan</button>
+                        <button className="primary-action" type="button" onClick={() => { rememberBeforeNavigation(); navigate(followUpDetailPath(item.followUp.id)); }}>Open plan</button>
                         <button type="button" onClick={(event) => beginEditor(item, "snooze", event.currentTarget)}>Snooze</button>
                         {!item.followUp.reachOutEntryId && <button type="button" onClick={(event) => beginEditor(item, "reschedule", event.currentTarget)}>Reschedule</button>}
                         {!item.followUp.reachOutEntryId && <button type="button" onClick={(event) => { openerRef.current = event.currentTarget; setCompletion(item); }}>Complete</button>}

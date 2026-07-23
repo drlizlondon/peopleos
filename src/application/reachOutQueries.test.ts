@@ -18,6 +18,7 @@ import {
 import {
   getCurrentReachOutForPerson,
   getReachOutDetail,
+  hasReachOutEntries,
   listReachOut,
   listReachOutHistoryForPerson
 } from "./reachOutQueries";
@@ -122,6 +123,57 @@ describe("Reach Out queries", () => {
     expect(results.map((item) => item.searchSources[0])).toEqual([
       "Person", "Organisation", "Why", "Context", "Notes"
     ]);
+    expect(results.map((item) => item.primarySearchMatch)).toEqual([
+      { source: "Person", value: "NHS AI Founder" },
+      { source: "Organisation", value: "NHS AI Lab" },
+      { source: "Why", value: "Discuss NHS-AI pilots" },
+      { source: "Context", value: "NHS AI Fellowship" },
+      { source: "Notes", value: "Interested in the NHS AI programme" }
+    ]);
+  });
+
+  it("combines query and context with an OR across selected statuses", async () => {
+    const db = await openDatabase("combined-filters");
+    const repositories = createRepositories(db);
+    const due = person("due-filter", "Due match");
+    const overdue = person("overdue-filter", "Overdue match");
+    const other = person("other-filter", "Other person");
+    for (const record of [due, overdue, other]) await repositories.people.create(record);
+
+    const dueCreated = await createReachOut(db, prepareCreateReachOutCommand({
+      person: due,
+      reason: "Discuss NHS pilot",
+      reminderDate: "2026-08-10",
+      newContexts: [{ kind: "fellowship", label: "Clinical Fellowship" }]
+    }, { now: baseNow, localDate: "2026-08-01", idFactory: sequence("due-filter") }));
+    await createReachOut(db, prepareCreateReachOutCommand({
+      person: overdue,
+      reason: "Discuss NHS pilot",
+      reminderDate: "2026-08-01",
+      newContexts: [{ kind: "event", label: "Health event" }]
+    }, { now: baseNow, localDate: "2026-08-01", idFactory: sequence("overdue-filter") }));
+    await createReachOut(db, prepareCreateReachOutCommand({
+      person: other,
+      reason: "Discuss private research",
+      reminderDate: "2026-08-10",
+      existingContextIds: [dueCreated.contexts[0]!.id]
+    }, { now: baseNow, localDate: "2026-08-01", idFactory: sequence("other-filter") }));
+
+    const combined = await listReachOut(db, {
+      localDate: "2026-08-10",
+      query: "nhs",
+      statusFilters: ["due", "overdue"],
+      contextId: dueCreated.contexts[0]!.id
+    });
+    expect(combined.map((item) => item.person.id)).toEqual(["due-filter"]);
+    expect(combined[0]?.primarySearchMatch).toEqual({ source: "Why", value: "Discuss NHS pilot" });
+
+    const statusOr = await listReachOut(db, {
+      localDate: "2026-08-10",
+      query: "nhs",
+      statusFilters: ["due", "overdue"]
+    });
+    expect(new Set(statusOr.map((item) => item.person.id))).toEqual(new Set(["due-filter", "overdue-filter"]));
   });
 
   it("retains Completed and Dormant in query/history while excluding removed records", async () => {
@@ -165,6 +217,42 @@ describe("Reach Out queries", () => {
     expect((await listReachOutHistoryForPerson(db, removedPerson.id))).toEqual([
       expect.objectContaining({ id: removedCreated.entry.id, removedAt: "2026-08-02T11:00:00.000Z" })
     ]);
+    expect(await hasReachOutEntries(db)).toBe(true);
+  });
+
+  it("does not treat removed, archived or merged owners as available Reach Out records", async () => {
+    const db = await openDatabase("unavailable-owners");
+    const repositories = createRepositories(db);
+    const removed = person("removed-owner", "Removed owner");
+    const archived = person("archived-owner", "Archived owner");
+    const merged = person("merged-owner", "Merged owner");
+    for (const record of [removed, archived, merged]) await repositories.people.create(record);
+    const removedCreated = await createReachOut(db, prepareCreateReachOutCommand({ person: removed }, {
+      now: baseNow, localDate: "2026-08-01", idFactory: sequence("removed-owner")
+    }));
+    await createReachOut(db, prepareCreateReachOutCommand({ person: archived }, {
+      now: baseNow, localDate: "2026-08-01", idFactory: sequence("archived-owner")
+    }));
+    await createReachOut(db, prepareCreateReachOutCommand({ person: merged }, {
+      now: baseNow, localDate: "2026-08-01", idFactory: sequence("merged-owner")
+    }));
+    await removeReachOut(db, prepareReachOutStatusCommand(removedCreated.entry, removed, undefined, "removed", {
+      now: "2026-08-02T11:00:00.000Z", idFactory: sequence("removed-owner-transition")
+    }));
+    await db.put("people", { ...archived, revision: 2, archivedAt: baseNow, updatedAt: baseNow });
+    await db.put("people", {
+      ...merged,
+      revision: 2,
+      identityStatus: "merged",
+      mergedIntoPersonId: removed.id,
+      updatedAt: baseNow
+    });
+
+    expect(await hasReachOutEntries(db)).toBe(false);
+    expect(await listReachOut(db, {
+      localDate: "2026-08-03",
+      statusFilters: ["active", "completed", "dormant"]
+    })).toEqual([]);
   });
 
   it("returns detail history and reports a broken current link without inventing a date", async () => {

@@ -60,7 +60,7 @@ describe("PeopleOS shell", () => {
     window.history.back();
     await waitFor(() => {
       expect(window.location.pathname).toBe("/people");
-      expect(screen.getByRole("heading", { name: "Your people will live here" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Your people will appear here." })).toBeInTheDocument();
     });
   });
 

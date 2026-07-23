@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   affiliationsPath,
   contactMethodsPath,
+  editPersonPath,
   followUpDetailPath,
   memoryFactsPath,
   personFollowUpsPath,
   personProfilePath,
+  resolvePersonPath,
   reachOutDetailPath,
   resolveProvisionalPath,
   routeFromPath,
@@ -27,12 +29,16 @@ describe("People secondary routes", () => {
     const personId = "person-one/two";
     const profilePath = personProfilePath(personId);
     const methodsPath = contactMethodsPath(personId);
+    const editPath = editPersonPath(personId);
+    const resolvePath = resolvePersonPath(personId);
     const factsPath = memoryFactsPath(personId);
     const workPath = affiliationsPath(personId);
     const historyPath = timelinePath(personId);
     const plansPath = personFollowUpsPath(personId);
     expect(routeFromPath(profilePath)).toMatchObject({ id: "person-profile", personId, primaryId: "people" });
     expect(routeFromPath(methodsPath)).toMatchObject({ id: "contact-methods", personId, primaryId: "people" });
+    expect(routeFromPath(editPath)).toMatchObject({ id: "edit-person", personId, primaryId: "people" });
+    expect(routeFromPath(resolvePath)).toMatchObject({ id: "resolve-provisional", personId, primaryId: "people" });
     expect(routeFromPath(factsPath)).toMatchObject({ id: "memory-facts", personId, primaryId: "people" });
     expect(routeFromPath(workPath)).toMatchObject({ id: "affiliations", personId, primaryId: "people" });
     expect(routeFromPath(historyPath)).toMatchObject({ id: "timeline", personId, primaryId: "people" });

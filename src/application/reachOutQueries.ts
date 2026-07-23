@@ -22,6 +22,11 @@ import { selectDisplayAffiliation } from "./affiliations";
 
 export type ReachOutSearchSource = "Person" | "Role" | "Organisation" | "Why" | "Notes" | "Context";
 
+export type ReachOutSearchMatch = {
+  source: ReachOutSearchSource;
+  value: string;
+};
+
 export type ReachOutListItem = {
   entry: ReachOutEntry;
   person: Person;
@@ -31,6 +36,7 @@ export type ReachOutListItem = {
   displayState: ReachOutDisplayState;
   relevantDate?: LocalDate;
   searchSources: ReachOutSearchSource[];
+  primarySearchMatch?: ReachOutSearchMatch;
   repairNotice?: string;
 };
 
@@ -56,22 +62,40 @@ function normalize(value: string | undefined): string {
     .replace(/\s+/g, " ");
 }
 
-function searchSources(
+function compareSearchAffiliations(
+  left: OrganisationAffiliation,
+  right: OrganisationAffiliation
+): number {
+  if (left.isCurrent !== right.isCurrent) return left.isCurrent ? -1 : 1;
+  return right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id);
+}
+
+function searchMatches(
   query: string,
   person: Person,
   entry: ReachOutEntry,
   affiliations: OrganisationAffiliation[],
   contexts: ReachOutContext[]
-): ReachOutSearchSource[] {
+): ReachOutSearchMatch[] {
   if (!query) return [];
-  const sources: ReachOutSearchSource[] = [];
-  if (normalize(person.displayName).includes(query)) sources.push("Person");
-  if (affiliations.some((affiliation) => !affiliation.archivedAt && normalize(affiliation.role).includes(query))) sources.push("Role");
-  if (affiliations.some((affiliation) => !affiliation.archivedAt && normalize(affiliation.organisationName).includes(query))) sources.push("Organisation");
-  if (normalize(entry.reason).includes(query)) sources.push("Why");
-  if (normalize(entry.notes).includes(query)) sources.push("Notes");
-  if (contexts.some((context) => normalize(context.label).includes(query))) sources.push("Context");
-  return sources;
+  const searchableAffiliations = affiliations
+    .filter((affiliation) => !affiliation.archivedAt)
+    .sort(compareSearchAffiliations);
+  const sortedContexts = [...contexts].sort((left, right) =>
+    left.label.localeCompare(right.label, undefined, { sensitivity: "base" })
+      || left.id.localeCompare(right.id)
+  );
+  const candidates: ReachOutSearchMatch[] = [
+    { source: "Person", value: person.displayName },
+    ...searchableAffiliations
+      .filter((affiliation) => Boolean(affiliation.role))
+      .map((affiliation) => ({ source: "Role" as const, value: affiliation.role ?? "" })),
+    ...searchableAffiliations.map((affiliation) => ({ source: "Organisation" as const, value: affiliation.organisationName })),
+    { source: "Why", value: entry.reason ?? "" },
+    ...sortedContexts.map((context) => ({ source: "Context" as const, value: context.label })),
+    { source: "Notes", value: entry.notes ?? "" }
+  ];
+  return candidates.filter((candidate) => candidate.value.trim() && normalize(candidate.value).includes(query));
 }
 
 function resolveCurrentFollowUp(
@@ -123,8 +147,12 @@ export async function listReachOut(
     const affiliation = selectDisplayAffiliation(personAffiliations);
     const resolved = resolveCurrentFollowUp(entry, followUpsById);
     if (!reachOutMatchesStatusFilters(entry, resolved.followUp, options.localDate, filters)) return [];
-    const matches = searchSources(normalizedQuery, person, entry, personAffiliations, selectedContexts);
+    const matches = searchMatches(normalizedQuery, person, entry, personAffiliations, selectedContexts);
     if (normalizedQuery && matches.length === 0) return [];
+    const searchSources = matches.reduce<ReachOutSearchSource[]>((sources, match) => {
+      if (!sources.includes(match.source)) sources.push(match.source);
+      return sources;
+    }, []);
     return [{
       entry,
       person,
@@ -133,7 +161,8 @@ export async function listReachOut(
       ...(affiliation ? { affiliation } : {}),
       displayState: deriveReachOutDisplayState(entry, resolved.followUp, options.localDate),
       ...(relevantDate(resolved.followUp) ? { relevantDate: relevantDate(resolved.followUp) } : {}),
-      searchSources: matches,
+      searchSources,
+      ...(matches[0] ? { primarySearchMatch: matches[0] } : {}),
       ...(resolved.repairNotice ? { repairNotice: resolved.repairNotice } : {})
     }];
   });
@@ -160,6 +189,21 @@ export async function listReachOut(
       followUp: right.currentFollowUp,
       displayName: right.person.displayName
     }, options.localDate);
+  });
+}
+
+export async function hasReachOutEntries(db: PeopleOsDatabase): Promise<boolean> {
+  const tx = db.transaction(["reachOutEntries", "people"], "readonly");
+  const [entries, people] = await Promise.all([
+    tx.objectStore("reachOutEntries").getAll(),
+    tx.objectStore("people").getAll()
+  ]);
+  await tx.done;
+  const peopleById = new Map(people.map((person) => [person.id, person]));
+  return entries.some((entry) => {
+    if (entry.removedAt) return false;
+    const person = peopleById.get(entry.personId);
+    return Boolean(person && !person.archivedAt && person.identityStatus !== "merged");
   });
 }
 

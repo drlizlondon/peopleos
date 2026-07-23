@@ -49,7 +49,11 @@ describe("V1-03 manual person capture", () => {
     expect(data.people[0]).toMatchObject({ displayName: "Simon", identityStatus: "confirmed" });
     expect(data.contactMethods).toHaveLength(0);
 
-    expect(replace).toHaveBeenCalledWith({ fromPath: "/people" }, "", expect.stringMatching(/^\/people\/person-/));
+    expect(replace).toHaveBeenCalledWith(
+      expect.objectContaining({ fromPath: "/people", navigationOrigin: true }),
+      "",
+      expect.stringMatching(/^\/people\/person-/)
+    );
   });
 
   it("preserves a non-People capture origin through the saved Profile", async () => {
@@ -195,7 +199,7 @@ describe("V1-03 manual person capture", () => {
 
     expect(await screen.findByRole("heading", { name: "Sarah Ahmed" })).toBeInTheDocument();
     expect(screen.getByText("Clinical fellow · NHS England")).toBeInTheDocument();
-    expect(within(screen.getByRole("region", { name: "Context" })).getByText("HealthTech Fellowship")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Recent timeline" })).getByText("HealthTech Fellowship")).toBeInTheDocument();
     const data = await readAllData(await getDatabase());
     expect(data.people).toHaveLength(1);
     expect(data.people[0]).toMatchObject({ tags: ["fellowship", "clinician"], contactCadenceDays: 90 });
@@ -216,7 +220,7 @@ describe("V1-03 manual person capture", () => {
     await user.type(screen.getByLabelText("Name"), "Mina");
     await user.click(screen.getByRole("button", { name: "Save person" }));
     await screen.findByRole("heading", { name: "Mina" });
-    await user.click(screen.getByRole("button", { name: "Manage" }));
+    await user.click(within(screen.getByRole("region", { name: "Contact details" })).getByRole("button", { name: "See all" }));
 
     await user.click(screen.getByRole("button", { name: "Add email" }));
     await user.type(screen.getByLabelText("Email address"), "discard@example.com");
