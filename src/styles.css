@@ -792,6 +792,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 .profile-details dt { color: var(--muted); font-size: 0.84rem; }
 .profile-details dd { margin: 0; overflow-wrap: anywhere; }
+.detail-supporting-copy { display: block; margin-top: 4px; color: var(--muted); font-size: 0.82rem; line-height: 1.45; }
 .muted-copy, .scope-note { color: var(--muted); line-height: 1.5; }
 .scope-note { font-size: 0.84rem; }
 

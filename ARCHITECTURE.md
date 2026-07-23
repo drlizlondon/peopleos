@@ -86,7 +86,7 @@ The Relationship Engine is one domain service, not a collection of calculations 
 ### Input
 
 ```ts
-type RelationshipEngineInput = {
+type RelationshipPersonBundle = {
   person: Person;
   contactMethods: ContactMethod[];
   interactions: Interaction[];
@@ -95,8 +95,13 @@ type RelationshipEngineInput = {
   facts: MemoryFact[];
   affiliations: OrganisationAffiliation[];
   events: Event[];
+  triggeringInteractionId?: string;
+};
+
+type RelationshipClock = {
   now: string;
   timeZone: string;
+  policyVersion: "peopleos-v1";
 };
 ```
 
@@ -139,15 +144,26 @@ type TodayAssessment = {
 };
 
 type RelationshipAssessment = {
+  policyVersion: "peopleos-v1";
+  evaluatedAt: string;
+  timeZone: string;
+  localDate: string;
   personId: string;
+  displayName: string; // factual stable-order metadata, not a score
+  importance: "normal" | "high";
+  active: boolean;
   today?: TodayAssessment;
   relationshipStage: {
     value: "new" | "growing" | "established" | "long_term";
     explanation: Explanation;
   };
   memoryCue?: { text: string; explanation: Explanation };
+  searchContextCue?: { text: string; explanation: Explanation };
   overdueFollowUp?: { followUpId: string; explanation: Explanation };
   suggestedReminder?: { dueDate: string; explanation: Explanation };
+  lastContact?: { interactionId: string; kind: InteractionKind; occurredAt: string; explanation: Explanation };
+  relationshipAge: { startDate: string; elapsedDays: number; estimated: boolean; explanation: Explanation };
+  reachOutStates: ReachOutStateProjection[];
   lastContactAt?: string;
   relationshipStartedAt: string;
 };
@@ -169,6 +185,8 @@ type Explanation = {
 The engine returns facts and a stable template key, not only finished prose. The presentation layer localises/formats the explanation but cannot change its meaning.
 
 The pure engine exposes two operations. `assessRelationship(personBundle, clock)` produces the per-Person projections above. `buildToday(assessments, todaySkips, clock)` filters and globally sorts the complete Today result. The UI may reveal `orderedItems` in groups of five, but it never reorders or recalculates them. Notification delivery consumes `totalCount` or the complete result before visual pagination. For an explicit FollowUp, `primaryFollowUpId` is the earliest effective due FollowUp after the documented stable tie-break; the remaining due FollowUps appear in the same stable order in `additionalDueFollowUpIds`. New and cadence results have no FollowUp IDs.
+
+V1-09 implements this boundary in `relationship-engine/` with one calculate-on-read adapter in `application/relationshipEngineQueries.ts`. The adapter reads one consistent domain snapshot and never passes AppSettings into the engine. That single snapshot prevents mixed datasets; assessment date, timezone, and policy metadata prevent projections from different evaluations from being combined by `buildToday`. Duplicate Person assessments or clock mismatches fail explicitly rather than relying on input order. No result is persisted or cached.
 
 ### Today eligibility and order
 
@@ -240,13 +258,14 @@ Suggestions must map from explicit facts. For example, a pending introduction Fo
 
 Stage uses contact-counting interactions and relationship span. Version 1 thresholds and boundary behavior are fixed in `RELATIONSHIP_ENGINE_SPEC.md`; inactivity does not demote a stage in V1.
 
-Memory cues follow a stable priority: due commitment, explicit communication preference, current seeking/interest fact, introduction fact, location, event met, then current affiliation. The output identifies its source. Each Memory Fact has explicit cue eligibility; Family and Other default off. Free-form notes never become compact V1 cues.
+Memory cues follow a stable priority: due commitment, explicit communication preference, current seeking/interest fact, introduction fact, location, explicitly enabled Family/Other fact, earliest Event-linked Met/Conference interaction, then current affiliation. The output identifies its source. Each Memory Fact has explicit cue eligibility; Family and Other default off. Free-form notes never become compact V1 cues.
 
 ### Testing and versioning
 
 - Every rule has table-driven boundary tests.
 - Engine outputs include or are evaluated under a policy version.
 - The same input, time, timezone, and version produce the same output.
+- V1 uses fixed policy version `peopleos-v1`; unsupported or mixed versions fail explicitly.
 - Rule changes require a decision entry and regression fixtures showing intended changes.
 - Derived results are calculated on read initially. Add a rebuildable versioned cache only after profiling.
 

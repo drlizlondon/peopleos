@@ -315,3 +315,14 @@ Provisional linking blocks dual current Reach Out plans and unsafe lifecycle or 
 The strongest alternative was a generic persisted command log plus a general-purpose merge engine. That would add infrastructure and product behavior beyond Version 1, so prepared commands and the narrow provisional-resolution transaction are preferred.
 
 This decision could become wrong if multi-device sync requires operation-level reconciliation or unrelated dataset mutations make the global preview revision impractically strict. A future implementation could then use dependency-specific revision tokens without changing Reach Out product behavior.
+
+## POS-D041 — V1 Relationship Engine projections are pure and calculated on read
+
+- **Status:** Accepted and implemented
+- **Date:** 2026-07-23
+
+V1 uses fixed policy version `peopleos-v1`. `assessRelationship` accepts one Person bundle plus an injected instant/timezone, and `buildToday` applies TodaySkip suppression and owns the complete global order. The application adapter reads one consistent domain snapshot; no assessment, score, queue, cache, or Settings-controlled rule is persisted. Display name and binary importance travel as factual ordering metadata only.
+
+The accepted readiness corrections close the remaining deterministic gaps. Any FollowUp created after a sole contact suppresses the New-relationship rule regardless of status. Enabled Family and Other facts follow Location before Event/affiliation cue fallbacks, with updated-time and stable-ID ties. The latest contact Interaction drives a general reminder suggestion unless a calling flow explicitly supplies its triggering contact ID. A current Reach Out FollowUp remains in the ordinary explicit-FollowUp band.
+
+The strongest alternative was a persisted versioned projection cache. That adds invalidation and restore complexity without measured need, so V1 calculates on read. This decision could become wrong if profiling on a materially larger local dataset shows unacceptable projection latency; a later cache must remain disposable, versioned, and safe to rebuild without changing the authoritative records.

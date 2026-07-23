@@ -97,7 +97,7 @@ For an explicit item, `relevantDate` is the primary FollowUp's effective date. T
 A person is eligible when the first matching rule below applies:
 
 1. At least one pending FollowUp is due today or earlier and is not snoozed to a future date.
-2. The person has exactly one contact interaction, that interaction occurred at least 7 calendar days ago, and there is no later completed or cancelled first follow-up. This is the New relationship rule.
+2. The person has exactly one contact interaction, that interaction occurred at least 7 calendar days ago, and no FollowUp of any status was created after that contact. This is the New relationship rule. A FollowUp created before the contact does not suppress it.
 3. The person has a cadence, has at least one contact interaction, and calendar days since last contact are greater than or equal to cadence days.
 
 A person skipped for today is ineligible until the next local calendar day. A future pending FollowUp suppresses the New relationship and cadence rules until it becomes due. This prevents the engine recommending contact earlier than the user's explicit plan.
@@ -108,7 +108,7 @@ If several FollowUps for one person are due, the person appears once using the p
 
 - Follow-up: “You planned to {reason} on {date}.”
 - Reach Out Follow-up: the same FollowUp explanation, optionally followed by “You added this person to Reach Out because {reason}.”
-- New relationship: “You met {7+ days} ago and have not recorded a follow-up yet.” If an Event exists: “You met at {event} {days} days ago and have not recorded a follow-up yet.”
+- New relationship: “Your only recorded contact was {7+ days} ago and you have not recorded a later follow-up.” For an Event-linked Met or Conference interaction: “You met at {event} {days} days ago and have not recorded a later follow-up.”
 - Cadence: “You usually reconnect every {cadence} days. Your last recorded contact was {elapsed} days ago.”
 
 Never show only “Recommended,” “High priority,” or a numeric score.
@@ -253,7 +253,7 @@ Choose exactly one cue using this order:
 7. Explicit Event of earliest Met/Conference interaction
 8. Current organisation and role
 
-Within the same fact kind, most recently updated active fact wins. Family and Other facts never surface unless the user explicitly enabled `Show as memory cue`. Free-form notes never become compact cues in V1.
+Within the same fact kind, most recently updated active fact wins, then stable Fact ID. Family and Other facts never surface unless the user explicitly enabled `Show as memory cue`; when enabled they follow Location in that order and remain ahead of Event and affiliation fallbacks. Multiple due commitments use the primary FollowUp order. Multiple current affiliations use latest known start date, latest creation time, then stable affiliation ID. Free-form notes never become compact cues in V1.
 
 ### Explanation
 
@@ -277,7 +277,7 @@ If no eligible source exists, return no cue. Do not invent generic context.
 
 ### Rules
 
-No suggestion is returned when a future pending FollowUp already exists.
+No suggestion is returned when a future pending FollowUp already exists. The triggering interaction is an explicitly supplied contact Interaction when the calling flow has one; otherwise it is the latest contact Interaction by `occurredAt`, then stable Interaction ID.
 
 Otherwise:
 

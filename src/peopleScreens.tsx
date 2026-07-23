@@ -48,9 +48,12 @@ import {
   listPersonMemoryFacts,
   memoryFactKindLabel,
   memoryFactValueLabel,
-  selectCompactProfileFacts,
-  selectMemoryCueFactCandidates
+  selectCompactProfileFacts
 } from "./application/memoryFacts";
+import {
+  createRelationshipClock,
+  getRelationshipAssessment
+} from "./application/relationshipEngineQueries";
 import {
   getNextPlanForPerson,
   type NextPlanProjection
@@ -71,6 +74,11 @@ import type { ContactMethod, FollowUp, Interaction, InteractionKind, MemoryFact,
 import { effectiveFollowUpDate, FOLLOW_UP_ACTION_OPTIONS } from "./domain/followUpPolicy";
 import type { DuplicateMatch } from "./domain/duplicates";
 import { ValidationError } from "./domain/validation";
+import {
+  formatExplanation,
+  relationshipStageLabel,
+  type RelationshipAssessment
+} from "./relationship-engine";
 import {
   ContactValueValidationError,
   formatPhoneNumberForDisplay,
@@ -787,21 +795,40 @@ function displayContact(contact: ContactMethod, phoneRegion: string): string {
 function usePerson(personId: string, refreshVersion = 0) {
   const [summary, setSummary] = useState<PersonSummary | null | undefined>(undefined);
   const [phoneRegion, setPhoneRegion] = useState("GB");
+  const [relationship, setRelationship] = useState<RelationshipAssessment | null | undefined>(undefined);
+  const [relationshipError, setRelationshipError] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
     let active = true;
-    getDatabase().then(async (db) => Promise.all([getPersonSummary(db, personId), getAppSettings(db)]))
-      .then(([record, settings]) => {
+    setSummary((current) => current?.person.id === personId ? current : undefined);
+    setRelationship(undefined);
+    setRelationshipError("");
+    setError("");
+    const clock = createRelationshipClock();
+    getDatabase().then(async (db) => Promise.allSettled([
+      getPersonSummary(db, personId),
+      getAppSettings(db),
+      getRelationshipAssessment(db, personId, clock)
+    ])).then(([summaryResult, settingsResult, relationshipResult]) => {
         if (!active) return;
-        setSummary(record ?? null);
-        setPhoneRegion(settings.defaultPhoneRegion);
+        if (summaryResult.status === "rejected" || settingsResult.status === "rejected") {
+          setError("PeopleOS could not load this person.");
+          return;
+        }
+        setSummary(summaryResult.value ?? null);
+        setPhoneRegion(settingsResult.value.defaultPhoneRegion);
+        if (relationshipResult.status === "fulfilled") {
+          setRelationship(relationshipResult.value ?? null);
+        } else {
+          setRelationshipError("PeopleOS could not calculate this relationship summary.");
+        }
       })
       .catch(() => { if (active) setError("PeopleOS could not load this person."); });
     return () => { active = false; };
   }, [personId, refreshVersion]);
 
-  return { summary, phoneRegion, error };
+  return { summary, phoneRegion, relationship, relationshipError, error };
 }
 
 function currentLocalDate(): string {
@@ -841,7 +868,7 @@ export function PersonProfileScreen({
   onAddToReachOut: (person: Person, opener: HTMLElement) => void;
 }) {
   const [refreshVersion, setRefreshVersion] = useState(0);
-  const { summary, phoneRegion, error } = usePerson(personId, refreshVersion);
+  const { summary, phoneRegion, relationship, relationshipError, error } = usePerson(personId, refreshVersion);
   const [history, setHistory] = useState<PersonHistory | null | undefined>(undefined);
   const [historyError, setHistoryError] = useState("");
   const [memoryFacts, setMemoryFacts] = useState<MemoryFact[] | undefined>(undefined);
@@ -1045,13 +1072,13 @@ export function PersonProfileScreen({
   const backRoute = ["today", "reach-out", "people", "upcoming"].includes(requestedBackRoute.id)
     ? requestedBackRoute
     : routeFromPath("/people");
-  const memoryCue = selectMemoryCueFactCandidates(memoryFacts ?? [])[0];
+  const memoryCue = relationship?.memoryCue;
   const compactFacts = selectCompactProfileFacts(memoryFacts ?? [], {
-    excludeFactId: memoryCue?.id
+    excludeFactId: memoryCue?.source === "memory_fact" ? memoryCue.sourceId : undefined
   });
   const communicationPreference = (memoryFacts ?? [])
-    .filter((fact) => fact.kind === "communication_preference")
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id))[0];
+    .find((fact) => fact.kind === "communication_preference");
+  const relationshipReady = relationship !== undefined || Boolean(relationshipError);
   return (
     <main className="screen person-profile-screen" id="main-content" tabIndex={-1}>
       <button
@@ -1276,8 +1303,8 @@ export function PersonProfileScreen({
             {memoryCue && (
               <div className="memory-cue" aria-label="Memory cue">
                 <span>Memory cue</span>
-                <strong>{memoryFactValueLabel(memoryCue)}</strong>
-                <p>From a memory fact you added on {new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(memoryCue.createdAt))}.</p>
+                <strong>{memoryCue.text}</strong>
+                <p>{formatExplanation(memoryCue.explanation)}</p>
               </div>
             )}
             {compactFacts.length > 0 && (
@@ -1313,19 +1340,47 @@ export function PersonProfileScreen({
           </section>
           <section className="profile-card" aria-labelledby="relationship-summary-heading">
             <h3 id="relationship-summary-heading">Relationship summary</h3>
+            {relationship === undefined && !relationshipError && <p role="status">Calculating relationship summary…</p>}
+            {relationshipError && (
+              <div className="section-error">
+                <p role="alert">{relationshipError}</p>
+                <button type="button" onClick={() => setRefreshVersion((current) => current + 1)}>Retry</button>
+              </div>
+            )}
             <dl className="profile-details">
+              {relationship && (
+                <div>
+                  <dt>Relationship stage</dt>
+                  <dd>
+                    <strong>{relationshipStageLabel(relationship.relationshipStage.value)}</strong>
+                    <span className="detail-supporting-copy">{formatExplanation(relationship.relationshipStage.explanation)}</span>
+                  </dd>
+                </div>
+              )}
               <div>
                 <dt>Last meaningful contact</dt>
-                <dd>{historyError
+                <dd>{historyError || relationshipError
                   ? "Unavailable"
-                  : history === undefined
+                  : relationship === undefined
                     ? "Loading…"
-                  : history === null
+                  : relationship === null
                     ? "Unavailable"
-                    : history.lastContact
-                      ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(history.lastContact.occurredAt))
+                    : relationship.lastContact
+                      ? formatExplanation(relationship.lastContact.explanation)
                       : "No meaningful contact recorded"}</dd>
               </div>
+              {relationship && (
+                <div>
+                  <dt>Relationship age</dt>
+                  <dd>{formatExplanation(relationship.relationshipAge.explanation)}</dd>
+                </div>
+              )}
+              {relationship?.suggestedReminder && (
+                <div>
+                  <dt>Suggested reminder</dt>
+                  <dd>{formatExplanation(relationship.suggestedReminder.explanation)}</dd>
+                </div>
+              )}
               <div>
                 <dt>Added to PeopleOS</dt>
                 <dd>{new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(summary.person.createdAt))}</dd>
@@ -1342,14 +1397,14 @@ export function PersonProfileScreen({
                 See full timeline
               </button>
             </div>
-            {history === undefined && !historyError && <p role="status">Loading recent history…</p>}
+            {(history === undefined || !relationshipReady) && !historyError && <p role="status">Loading recent history…</p>}
             {historyError && (
               <div className="section-error">
                 <p role="alert">{historyError}</p>
                 <button type="button" onClick={() => setRefreshVersion((current) => current + 1)}>Retry</button>
               </div>
             )}
-            {history && history.timeline.every((item) => item.source === "person_created") ? (
+            {relationshipReady && history && history.timeline.every((item) => item.source === "person_created") ? (
               <div className="timeline-empty">
                 <p>No interactions recorded yet.</p>
                 {!summary.person.archivedAt && summary.person.identityStatus !== "merged" && (
@@ -1358,7 +1413,7 @@ export function PersonProfileScreen({
                   </button>
                 )}
               </div>
-            ) : history ? (
+            ) : relationshipReady && history ? (
               <TimelineList
                 items={history.timeline.slice(0, 5)}
                 onOpenInteraction={!summary.person.archivedAt && summary.person.identityStatus !== "merged"

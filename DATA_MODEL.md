@@ -490,13 +490,15 @@ The Relationship Engine derives:
 - last contact from the latest contact-counting Interaction
 - relationship age from the earliest `met` or contact-counting Interaction, falling back to `Person.createdAt` with reduced confidence
 - timeline from Person creation plus Interactions and explicit FollowUp state changes
-- relationship stage from contact interactions, relationship age, and recency
+- relationship stage from contact-counting Interaction count and earliest-to-latest contact span; current inactivity does not demote it
 - event groups from shared Event-linked interactions
-- memory cue from pending commitments, MemoryFacts, and recent context interactions
+- memory cue from due FollowUps, cue-enabled MemoryFacts, the earliest explicit Event-linked Met/Conference interaction, then current affiliation
 - Today eligibility and explanation from pending FollowUps, cadence, interaction history, and rules
 - Reach Out display state from the durable intention state and linked FollowUp
 
 Derived values are not persisted in the authoritative schema. A disposable cache may be introduced only after profiling proves it necessary; cache entries must include the engine version and be safe to rebuild.
+
+V1-09 implements these projections on read under fixed policy `peopleos-v1`. The application reads one consistent domain snapshot, creates one Person bundle per permanent Person ID, and passes only source records plus an injected instant/timezone to the pure engine. Assessment metadata includes display name and `normal`/`high` importance solely for documented stable ordering; it is not a score. No engine result, Today queue, policy preference, or cache is stored.
 
 ## Duplicate candidate evidence
 
