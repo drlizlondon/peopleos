@@ -104,26 +104,6 @@ function contactInteractions(records: readonly Interaction[], personId: string):
     .sort(compareInteractionsAscending);
 }
 
-/**
- * The single most recent contact under `compareInteractionsDescending`.
- *
- * Three call sites previously copied and fully re-sorted the already-ascending
- * contact list just to read its first element. This scan is linear and exactly
- * equivalent — note it must NOT be replaced with `contacts[contacts.length - 1]`:
- * `compareInteractionsDescending` reverses the date comparison but keeps the id
- * tie-break in the same direction, so on equal `occurredAt` the descending sort
- * selects the LOWEST id while the ascending list ends on the highest. Ids are
- * unique, so the comparator is a total order and the scan keeps that ordering
- * exactly.
- */
-function latestContact(contacts: readonly Interaction[]): Interaction | undefined {
-  let latest: Interaction | undefined;
-  for (const contact of contacts) {
-    if (!latest || compareInteractionsDescending(contact, latest) < 0) latest = contact;
-  }
-  return latest;
-}
-
 function buildStage(
   contacts: readonly Interaction[],
   timeZone: string,
@@ -202,7 +182,7 @@ function buildLastContact(
   contacts: readonly Interaction[],
   timeZone: string
 ): LastContactProjection | undefined {
-  const latest = latestContact(contacts);
+  const latest = [...contacts].sort(compareInteractionsDescending)[0];
   if (!latest) return undefined;
   const localDate = localDateForInstant(latest.occurredAt, timeZone);
   return {
@@ -256,19 +236,27 @@ function eventForInteraction(
   return interaction.eventId ? eventsById.get(interaction.eventId) : undefined;
 }
 
-/**
- * The cue used when no due commitment supplies one: memory fact, then event,
- * then current affiliation.
- *
- * Split out because `assessRelationship` needs two cues per Person — the Today
- * cue, which prefers a due commitment, and the search-context cue, which never
- * does. Both fall back to exactly this, so computing it once and sharing it is
- * behaviour-identical and halves the cue work per Person.
- */
-function buildFallbackMemoryCue(
+function buildMemoryCue(
   bundle: RelationshipPersonBundle,
-  timeZone: string
+  timeZone: string,
+  dueFollowUps: readonly FollowUp[],
+  includeDueCommitment: boolean
 ): MemoryCueProjection | undefined {
+  if (includeDueCommitment) {
+    const commitment = dueFollowUps[0];
+    if (commitment) {
+      return {
+        text: commitment.reason,
+        source: "follow_up",
+        sourceId: commitment.id,
+        explanation: explanation("memory_cue.follow_up", "memory_cue.follow_up", [
+          sourceFact("reason", commitment.reason, commitment.id),
+          sourceFact("effectiveDate", effectiveFollowUpDate(commitment), commitment.id)
+        ])
+      };
+    }
+  }
+
   const fact = cueEnabledFacts(bundle.facts, bundle.person.id)[0];
   if (fact) {
     return {
@@ -313,24 +301,6 @@ function buildFallbackMemoryCue(
     explanation: explanation("memory_cue.affiliation", "memory_cue.affiliation", [
       sourceFact("organisation", affiliation.organisationName, affiliation.id),
       ...(affiliation.role ? [sourceFact("role", affiliation.role, affiliation.id)] : [])
-    ])
-  };
-}
-
-/** The Today cue: a due commitment when there is one, otherwise the fallback. */
-function buildMemoryCue(
-  dueFollowUps: readonly FollowUp[],
-  fallback: MemoryCueProjection | undefined
-): MemoryCueProjection | undefined {
-  const commitment = dueFollowUps[0];
-  if (!commitment) return fallback;
-  return {
-    text: commitment.reason,
-    source: "follow_up",
-    sourceId: commitment.id,
-    explanation: explanation("memory_cue.follow_up", "memory_cue.follow_up", [
-      sourceFact("reason", commitment.reason, commitment.id),
-      sourceFact("effectiveDate", effectiveFollowUpDate(commitment), commitment.id)
     ])
   };
 }
@@ -518,7 +488,7 @@ function buildTodayAssessment(
     }
   }
 
-  const lastContact = latestContact(contacts);
+  const lastContact = [...contacts].sort(compareInteractionsDescending)[0];
   const cadence = bundle.person.contactCadenceDays;
   if (lastContact && cadence) {
     const contactDate = localDateForInstant(lastContact.occurredAt, timeZone);
@@ -582,7 +552,7 @@ function buildSuggestedReminder(
   if (hasFuture) return undefined;
   const trigger = bundle.triggeringInteractionId
     ? contacts.find((interaction) => interaction.id === bundle.triggeringInteractionId)
-    : latestContact(contacts);
+    : [...contacts].sort(compareInteractionsDescending)[0];
   if (bundle.triggeringInteractionId && !trigger) {
     throw new RangeError("The triggering interaction must be a contact Interaction for this Person.");
   }
@@ -707,8 +677,8 @@ export function assessRelationship(
   const lastContact = buildLastContact(contacts, clock.timeZone);
   const active = !bundle.person.archivedAt && bundle.person.identityStatus !== "merged";
   const today = buildTodayAssessment(bundle, contacts, localDate, clock.timeZone);
-  const searchContextCue = buildFallbackMemoryCue(bundle, clock.timeZone);
-  const memoryCue = buildMemoryCue(dueFollowUps, searchContextCue);
+  const memoryCue = buildMemoryCue(bundle, clock.timeZone, dueFollowUps, true);
+  const searchContextCue = buildMemoryCue(bundle, clock.timeZone, dueFollowUps, false);
   const overdueFollowUp = active
     ? buildOverdueFollowUp(bundle.followUps, bundle.person.id, localDate)
     : undefined;
