@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import EmptyState from "./EmptyState";
 import { Icon } from "./icons";
 import { getAppSettings } from "./application/peopleQueries";
+// eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { getDatabase } from "./data/client";
 import AlreadyContactedDefaultSheet from "./AlreadyContactedDefaultSheet";
 import type { AppSettings } from "./domain/schema";

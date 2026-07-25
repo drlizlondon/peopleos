@@ -188,7 +188,7 @@ export function findDuplicateMatchesInSnapshot(
     (personId) => snapshot.interactionsByPerson.get(personId) ?? []
   );
   const eventIds = new Set<string>();
-  capture.metInteraction?.eventId && eventIds.add(capture.metInteraction.eventId);
+  if (capture.metInteraction?.eventId) eventIds.add(capture.metInteraction.eventId);
   interactions.forEach((interaction) => interaction.eventId && eventIds.add(interaction.eventId));
   const events = [...eventIds]
     .sort()

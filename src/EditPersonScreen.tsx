@@ -6,7 +6,9 @@ import {
   updatePerson,
   type PersonEditDraft
 } from "./application/personLifecycle";
+// eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { getDatabase } from "./data/client";
+// eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { RecordConflictError, StaleRevisionError } from "./data/repositories";
 import type { Person } from "./domain/schema";
 import { ValidationError } from "./domain/validation";

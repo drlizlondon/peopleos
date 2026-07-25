@@ -22,6 +22,7 @@ import {
   listEvents,
   type PersonPickerOption
 } from "./application/interactionQueries";
+// eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { getDatabase } from "./data/client";
 import {
   interactionCountsAsContact,
@@ -161,7 +162,10 @@ export default function InteractionEditorSheet({
       if (draft.kind === "note_added") summaryRef.current?.focus();
       else firstFieldRef.current?.focus();
     });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // Deliberately mount-only: this focuses the sheet once on open, and must not
+  // re-run when `draft` changes. Kept as a comment rather than an
+  // eslint-disable because react-hooks/exhaustive-deps is not enabled (see
+  // eslint.config.js); restore the directive if that rule is ever turned on.
 
   useEffect(() => {
     const wasInEventMode = previousEventModeRef.current;

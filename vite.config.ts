@@ -38,6 +38,11 @@ export default defineConfig({
     setupFiles: "./src/test/setup.ts",
     css: true,
     // Browser-level tests intentionally exercise the single production DB name.
-    fileParallelism: false
+    fileParallelism: false,
+    // The V1-R performance ratchet reports its measurements on stdout. Without
+    // this, vitest buffers console output and only surfaces it around
+    // failures — hiding the numbers on exactly the green runs where the
+    // evidence of improvement matters.
+    disableConsoleIntercept: true
   }
 });

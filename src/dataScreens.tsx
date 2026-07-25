@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import type { BackupCounts, BackupPreview } from "./domain/schema";
 import { countData, generateBackup, previewBackup, restoreBackup } from "./data/backup";
+// eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { getDatabase } from "./data/client";
 import { DATA_STORE_NAMES } from "./domain/schema";
 import { ValidationError } from "./domain/validation";
+// eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { readAllData } from "./data/database";
 
 type Navigate = (path: string) => void;

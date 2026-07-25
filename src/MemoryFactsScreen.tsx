@@ -9,6 +9,7 @@ import {
 } from "./application/memoryFacts";
 import { getPersonSummary, type PersonSummary } from "./application/peopleQueries";
 import { listActivePersonOptions } from "./application/interactionQueries";
+// eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { getDatabase } from "./data/client";
 import type { MemoryFact, MemoryFactKind } from "./domain/schema";
 import { personProfilePath } from "./navigation";

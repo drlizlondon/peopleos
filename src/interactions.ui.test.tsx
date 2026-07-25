@@ -234,7 +234,7 @@ describe("V1-05 interactions and timeline UI", () => {
 
     let opened = await openProfileInteraction(user);
     await user.click(within(opened.dialog).getByRole("button", { name: "Choose event" }));
-    let selector = await screen.findByRole("dialog", { name: "Choose an event" });
+    const selector = await screen.findByRole("dialog", { name: "Choose an event" });
     await user.click(within(selector).getByRole("button", { name: /AI Fellowship/ }));
     opened.dialog = await screen.findByRole("dialog", { name: "Log interaction" });
     expect(within(opened.dialog).getByText("AI Fellowship")).toBeInTheDocument();
@@ -268,7 +268,7 @@ describe("V1-05 interactions and timeline UI", () => {
     const chooseEvent = within(dialog).getByRole("button", { name: "Choose event" });
 
     await user.click(chooseEvent);
-    let selector = await screen.findByRole("dialog", { name: "Choose an event" });
+    const selector = await screen.findByRole("dialog", { name: "Choose an event" });
     const search = within(selector).getByLabelText("Find or create event");
     await waitFor(() => expect(search).toHaveFocus());
     expect(search).toHaveAttribute("maxlength", "120");

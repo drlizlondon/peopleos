@@ -21,6 +21,7 @@ import {
   type ProvisionalResolutionPreview
 } from "./application/reachOutIdentity";
 import { getReachOutDetail } from "./application/reachOutQueries";
+// eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { getDatabase } from "./data/client";
 import type { LocalDate, Person, ReachOutContext } from "./domain/schema";
 import {

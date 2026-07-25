@@ -6,6 +6,7 @@ import {
   type FormEvent
 } from "react";
 import { updateContactCadence } from "./application/followUps";
+// eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { getDatabase } from "./data/client";
 import { CADENCE_PRESET_OPTIONS } from "./domain/followUpPolicy";
 import type { Person } from "./domain/schema";

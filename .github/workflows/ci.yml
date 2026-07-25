@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit and UI tests
+        run: npm test
+
+      - name: Type check and production build
+        run: npm run build
+
+      # The V1-R performance ratchet, at the 3,000-contact reference size.
+      # Runs last and separately because it is the slowest step and its failure
+      # means something different from a functional failure: PeopleOS still
+      # works, but it got slower at scale. Ceilings are scaled by a measured
+      # machine factor (src/performance/harness.ts), so a slower hosted runner
+      # does not produce a false red.
+      - name: Performance ratchet
+        run: npm run test:perf

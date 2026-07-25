@@ -4,7 +4,9 @@ import {
   type UpdateAlreadyContactedDefaultCommand
 } from "./application/settings";
 import { getAppSettings } from "./application/peopleQueries";
+// eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { getDatabase } from "./data/client";
+// eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { StaleRevisionError } from "./data/repositories";
 import { addDaysToLocalDate, localDateForInstant } from "./domain/followUpPolicy";
 import type { AppSettings } from "./domain/schema";

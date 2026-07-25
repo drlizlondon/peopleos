@@ -16,6 +16,7 @@ import {
   listActivePersonOptions,
   type PersonPickerOption
 } from "./application/interactionQueries";
+// eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { getDatabase } from "./data/client";
 import type { FollowUp, FollowUpActionType } from "./domain/schema";
 import { FOLLOW_UP_ACTION_OPTIONS } from "./domain/followUpPolicy";
