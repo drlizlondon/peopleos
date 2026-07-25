@@ -171,12 +171,52 @@ Nothing else in this plan is safe to verify without it: every later package clai
 
 **Acceptance criteria**
 
-- [ ] `npm run check` runs lint, tests and build, and is green.
-- [ ] CI runs on a pull request and fails when `npm run check` fails (demonstrate with one deliberately broken commit, then revert).
-- [ ] A deliberate import of `relationship-engine/engine` from a `.tsx` file fails lint.
-- [ ] `src/performance/scale.test.ts` passes at current ceilings and fails when a ceiling is lowered by 20% (demonstrate, then revert).
-- [ ] The corpus generator is deterministic: two runs produce identical record IDs and counts.
-- [ ] 514 existing tests still pass; no production behaviour changed.
+- [x] `npm run check` runs lint, tests and build, and is green.
+- [x] CI runs on a pull request and fails when `npm run check` fails (demonstrate with one deliberately broken commit, then revert).
+- [x] A deliberate import of `relationship-engine/engine` from a `.tsx` file fails lint.
+- [x] The ratchet passes at current ceilings and fails when a ceiling is lowered by 20% (demonstrate, then revert).
+- [x] The corpus generator is deterministic: two runs produce identical record IDs and counts.
+- [x] 514 existing tests still pass; no production behaviour changed.
+
+**Delivered 2026-07-25. Deviations from the scope above, and why:**
+
+1. **The ratchet is four files, not `scale.test.ts`.** Written as one file it was
+   unusably flaky: running the mutation measurement before the search
+   measurement in the same process left enough heap pressure to inflate search
+   by ~60% (21.5 s → 32.8 s) with no code change. Each measurement now owns a
+   file, and therefore a worker process, at a cost of one ~2 s corpus seed each.
+2. **The gate asserts the fastest run, not the median.** Timing noise here is
+   one-sided — GC, a busy core or a cold cache can only add time. Across runs of
+   identical code the median moved 1.5–2.4×, while the minimum was stable to
+   0.5–10%. Both statistics are printed so a widening gap stays visible.
+3. **Ceilings are scaled by a measured machine factor**, not fixed milliseconds,
+   so a slower CI runner cannot produce a false red. Each run times a synthetic
+   workload that deliberately calls no application code — a calibration that
+   called the engine would speed up in step with any engine optimisation and the
+   gate would measure nothing.
+4. **The `datasetRevision` and `history.state` boundary rules ship commented
+   out**, as planned, owned by V1-R4 and V1-R5.
+5. **The storage-boundary rule ships enforced with 30 recorded exceptions.**
+   `relationship-engine` internals are clean today, so that rule is a true gate
+   immediately. The data-layer rule had 30 pre-existing violations across 25
+   screens; each is marked at its exact line with an `eslint-disable-next-line`
+   naming V1-R4 as owner. New violations fail; the debt is countable and cannot
+   grow silently. Fixing all 25 screens inside V1-R1 would have been the 25-file
+   refactor V1-R4 and V1-R5 exist to do.
+6. **`npm test` excludes `src/performance/**`**, which runs as `npm run
+   test:perf`. The fast loop stays at ~34 s; `npm run check` and CI run both.
+   The ratchet takes ~3–5 minutes today because the code under test is slow; it
+   shrinks as the ceilings fall.
+7. **`react-hooks/rules-of-hooks` was added** because a pre-existing
+   `eslint-disable` comment referenced a plugin the project never installed.
+   `exhaustive-deps` is deliberately left off — auditing the existing considered
+   suppressions is its own package.
+
+**Recorded baseline** (`src/performance/budgets.ts`, never to be edited): Today
+projection 2,062 ms; Already contacted round trip 4,360 ms; five-keystroke
+search 20,080 ms; single keystroke 4,205 ms. Ceilings sit ~50% above these.
+Evidence that no production behaviour changed: the production bundle hashes
+(`index-sKJZ4_Wo.js`, `index-BKrZaBGw.css`) are byte-identical before and after.
 
 ---
 
