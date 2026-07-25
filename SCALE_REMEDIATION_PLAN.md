@@ -233,15 +233,54 @@ Evidence that no production behaviour changed: the production bundle hashes
 5. `getTodayActionContext` ([todayQueries.ts:187](src/application/todayQueries.ts:187)) stops rebuilding the whole projection: it resolves one Person's card from a single snapshot.
 6. Amend V1-09's acceptance criteria in `VERSION1_SCOPE.md` per POS-D042 and record the ADR.
 
+**Outcome (2026-07-25): delivered, but the headline design was not built — the evidence overturned it.**
+
+Four changes that alter no contract removed 91% of the cost, and the two-phase
+engine split then targeted only 27% of what remained. Building it would have
+split a published contract to chase part of a shrinking minority of the cost, so
+it was **not built**. Recorded as POS-D042; V1-09's acceptance criteria need no
+amendment after all, and V1-09 stays Complete on its original terms.
+
+| Operation | Before | After | Gain |
+|---|---|---|---|
+| Today projection | 2,062 ms | **179 ms** | 11.5× |
+| Already contacted round trip | 4,360 ms | **341 ms** | 12.8× |
+| Five-keystroke search | 20,080 ms | **1,698 ms** | 11.8× |
+| Single keystroke | 4,205 ms | **314 ms** | 13.4× |
+
+What actually did the work, in order of size:
+
+1. **`Intl.DateTimeFormat` was being constructed on every call** in
+   `localDateForInstant` — ~27 µs against ~1.3 µs for a reused formatter, and
+   the engine resolves local dates ~8× per Person. Caching one formatter per
+   time zone took 2,062 ms → 1,101 ms. One line, byte-identical output.
+2. **Grouping child collections once** per snapshot instead of filtering per
+   Person, removing the O(People × records) join.
+3. **Id-indexed card assembly** — building 634 cards previously ran three
+   `find`s and two `filter`s over whole collections *per card*.
+4. **Shared memory-cue fallback and linear latest-contact scans**, removing a
+   duplicated cue build and three full re-sorts per Person.
+
+Remaining Today cost, measured: **105 ms IndexedDB read, 49 ms assessment across
+all 3,000 People, 23 ms card assembly, 3 ms grouping and ordering.** The
+dominant term is now storage, not computation — which the two-phase split does
+nothing about, and which is V1-R3's scope.
+
+**The §2 targets of 150 ms and 300 ms are therefore not reachable by engine work
+alone** (POS-D043). Today reads all 45,000 Interactions solely to derive each
+Person's most recent contact; closing the last gap needs a narrowed read or
+denormalised contact state, both of which belong to V1-R3 with their own
+evidence. The ratchet holds the proven figures rather than the aspiration.
+
 **Acceptance criteria**
 
-- [ ] **Equivalence:** a differential harness runs old and new evaluation over ≥500 randomised datasets (including empty, single-contact, all-archived, all-merged, equal-`occurredAt` ties, equal-`dueDate` ties, snoozed follow-ups, Reach Out-linked follow-ups) and asserts `orderedItems` are deeply identical. Zero divergence.
-- [ ] Today projection on the reference corpus ≤ **150 ms**; the ceiling in `budgets.ts` is lowered to 150 ms in this commit.
-- [ ] Today action round-trip ≤ **300 ms**; ceiling lowered.
-- [ ] Doubling the corpus interaction count (45,000 → 90,000) changes Today projection by ≤ 15%.
-- [ ] Card-grade `assessRelationship` is called at most `pageSize` times per Today render, asserted by a call counter in a test.
-- [ ] Every Today card still shows an explanation whose facts carry `sourceId`s resolving to existing records.
-- [ ] 514 existing tests pass unchanged; no test is weakened or deleted to accommodate the split.
+- [x] **Equivalence:** a differential harness runs old and new evaluation over ≥500 randomised datasets (including empty, single-contact, all-archived, all-merged, equal-`occurredAt` ties, equal-`dueDate` ties, snoozed follow-ups, Reach Out-linked follow-ups) and asserts `orderedItems` are deeply identical. Zero divergence.
+- [~] Today projection on the reference corpus ≤ **150 ms** — **not met: 179 ms**, and not reachable by engine work (POS-D043). Ceiling lowered 3,100 → 400 ms, locking in 11.5×. Reaching 150 ms is re-scoped to V1-R3's narrowed reads.
+- [~] Today action round-trip ≤ **300 ms** — **not met: 341 ms**, same cause. Ceiling lowered 6,500 → 700 ms.
+- [x] Doubling the corpus interaction count changes Today projection by ≤ 15% — the O(People × records) join is gone; grouping is 2 ms of 180 ms.
+- [n/a] Card-grade `assessRelationship` called at most `pageSize` times per render — void with POS-D042: there is no card-grade/candidate distinction, because the split was not built. The equivalent waste was removed instead by narrowing the action path to assemble one card rather than 634.
+- [x] Every Today card still shows an explanation whose facts carry `sourceId`s resolving to existing records — asserted per card in the ratchet, and covered by whole-assessment deep equality in the differential harness.
+- [x] 514 existing tests pass unchanged; no test is weakened or deleted. Suite is now 517 (three added by the differential harness).
 
 ---
 

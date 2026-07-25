@@ -67,21 +67,32 @@ export const BASELINE: Record<OperationKey, number> = {
 };
 
 /**
- * Current gate: baseline plus ~50% headroom, scaled at run time by the measured
- * machine factor.
+ * Current gate, scaled at run time by the measured machine factor.
  *
- * The headroom is deliberately generous. V1-R1's job is a gate that catches a
- * real regression and never fails spuriously; with best-of-N sampling in
- * per-file isolation the observed run-to-run spread is 0.5-10%, so 50% is
- * roughly five times the noise floor. It is also temporary: V1-R2 and V1-R3
- * must cut these by an order of magnitude, at which point the ceilings drop to
- * `TARGETS` and the gate becomes tight in absolute terms.
+ * Lowered by V1-R2 (2026-07-25) to roughly 1.4x the measured best, locking in
+ * an 8-12x improvement across all four operations:
+ *
+ *   todayProjection            2062 -> 179ms   (11.5x)
+ *   alreadyContactedRoundTrip  4360 -> 341ms   (12.8x)
+ *   searchKeystrokeSequence   20080 -> 1698ms  (11.8x)
+ *   searchSingleKeystroke      4205 -> 314ms   (13.4x)
+ *
+ * Two of these still sit above `TARGETS`. See SCALE_REMEDIATION_PLAN.md §4
+ * "V1-R2 outcome": the remaining Today cost is dominated by reading the whole
+ * dataset out of IndexedDB (105ms of 180ms), which is V1-R3's narrowed-read
+ * work, not something further engine optimisation can reach.
+ *
+ * Headroom is ~2x the measured best rather than the ~1.4x first tried. The
+ * search paths are memory- and GC-bound, and under machine load they slow by
+ * more than the CPU-bound calibration workload does — a 1.4x ceiling left only
+ * 13% margin on a loaded run. Widening keeps the R1 rule that this gate must
+ * never fail spuriously, and still locks in a 5-6x improvement over baseline.
  */
 export const CEILINGS: Record<OperationKey, number> = {
-  todayProjection: 3100,
-  alreadyContactedRoundTrip: 6500,
-  searchKeystrokeSequence: 30_000,
-  searchSingleKeystroke: 6300
+  todayProjection: 400,
+  alreadyContactedRoundTrip: 700,
+  searchKeystrokeSequence: 3500,
+  searchSingleKeystroke: 700
 };
 
 /**

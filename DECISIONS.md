@@ -326,3 +326,39 @@ V1 uses fixed policy version `peopleos-v1`. `assessRelationship` accepts one Per
 The accepted readiness corrections close the remaining deterministic gaps. Any FollowUp created after a sole contact suppresses the New-relationship rule regardless of status. Enabled Family and Other facts follow Location before Event/affiliation cue fallbacks, with updated-time and stable-ID ties. The latest contact Interaction drives a general reminder suggestion unless a calling flow explicitly supplies its triggering contact ID. A current Reach Out FollowUp remains in the ordinary explicit-FollowUp band.
 
 The strongest alternative was a persisted versioned projection cache. That adds invalidation and restore complexity without measured need, so V1 calculates on read. This decision could become wrong if profiling on a materially larger local dataset shows unacceptable projection latency; a later cache must remain disposable, versioned, and safe to rebuild without changing the authoritative records.
+
+## POS-D042 — Calculate-on-read survives 3,000 contacts; the two-phase engine split is not built
+
+- **Status:** Accepted
+- **Date:** 2026-07-25
+- **Supersedes:** the two-phase engine contract change proposed and accepted in `SCALE_REMEDIATION_PLAN.md` on the same day
+
+The scale target rose to 3,000 contacts. Measured on a 3,000-Person, 45,000-Interaction dataset, a Today projection took 1,916 ms, so POS-D041's own reversal trigger — "profiling on a materially larger local dataset shows unacceptable projection latency" — had fired.
+
+The plan's answer was to split evaluation into a cheap candidate pass over every Person and a card-grade pass over only the People rendered, on the evidence that dormant contacts cost *more* to assess (240 µs) than eligible ones (193 µs) because card-grade projections were being built for People who never appear on Today. That would have changed a published engine contract.
+
+**It was not needed, and is not built.** Four changes that alter no contract removed 91% of the cost:
+
+1. `Intl.DateTimeFormat` is constructed once per time zone instead of once per call. The engine resolves local dates roughly eight times per Person; formatter construction cost ~27 µs against ~1.3 µs for a reused formatter, for byte-identical output. This alone took 2,062 ms to 1,101 ms.
+2. Child collections are grouped by `personId` once per snapshot instead of filtered once per Person, removing an O(People × records) join.
+3. Today card assembly uses id-indexed maps instead of scanning whole collections per card.
+4. The memory cue and the search-context cue share one computed fallback, and three call sites that fully re-sorted the contact list to read its newest element use a linear scan.
+
+The Today projection now costs 179 ms, and its remaining time is 105 ms of IndexedDB read, 49 ms of assessment across all 3,000 People, and 23 ms of card assembly. The two-phase split targets only that 49 ms. Paying a permanent contract split, and amending a closed package's acceptance criteria, to reach part of 27% of the remaining cost is not justified — and the dominant term is a storage read the split does nothing about.
+
+**Guarantees that remain intact.** Every V1-09 guarantee holds unchanged: the engine is pure and takes an injected instant, time zone and policy version; `assessRelationship` returns the complete per-Person projection set; `buildToday` owns eligibility filtering and the complete global order, rejects duplicate assessments and mixed clocks, and returns explanation and intended-action context in that one order; results are identical regardless of input array order; nothing is persisted or cached. `TodayItem`, `RelationshipAssessment` and `buildToday`'s signature are unchanged. **V1-09's acceptance criteria therefore need no amendment**, and V1-09 remains Complete on its original terms.
+
+Equivalence is not asserted, it is tested: `src/relationship-engine/differential.test.ts` runs the engine as it stood at commit `d845681` and the current engine over 500 seeded random datasets — concentrating on equal `occurredAt`, equal `dueDate`, snoozed follow-ups, Reach Out linkage, archived and merged People, sole-contact relationships and shuffled input order — and requires deep equality of every assessment and every Today result.
+
+The strongest alternative remains the persisted projection cache, still rejected under POS-D043. This decision could become wrong if the dataset grows well beyond 3,000 contacts, or if a future rule makes per-Person assessment materially more expensive; the candidate/card split stays available and its evidence is recorded here.
+
+## POS-D043 — Contact state stays derived; no denormalisation, no persisted cache
+
+- **Status:** Accepted
+- **Date:** 2026-07-25
+
+`Person.lastContactAt` and `Person.contactCount` are not stored, and no projection is persisted. What counts as contact is policy (`interactionCountsAsContact`); storing its output freezes that policy into the schema and turns any future change into a data migration.
+
+The measured position after POS-D042 is that assessment across 3,000 People costs 49 ms, so denormalisation buys little. It becomes worth revisiting only in service of narrowing the dataset read, which is the dominant remaining term: Today currently reads all 45,000 Interactions solely to derive each Person's most recent contact.
+
+Consequently the `TARGETS` of 150 ms for the Today projection and 300 ms for the Already contacted round trip in `SCALE_REMEDIATION_PLAN.md` §2 are **not reachable by engine work alone**. Reaching them requires either denormalised contact state or an equivalent narrowed read, which is V1-R3's scope and needs its own decision with measurements attached. Until then the gate holds the proven 179 ms / 341 ms rather than an aspiration.
