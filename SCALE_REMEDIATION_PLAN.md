@@ -303,7 +303,9 @@ evidence. The ratchet holds the proven figures rather than the aspiration.
 4. Paginate or virtualise the People list at 3,000 rows.
 5. Filter-option derivation (`filterOptions`, stage counts) must not require a full assessment pass.
 
-**Outcome (2026-07-26): partially delivered. The interactive win landed; the per-query target did not.**
+**Outcome (2026-07-26): approved. The interactive win landed; the per-query
+target moved to V1-R6 and two items were formally descoped (see below) rather
+than carried as unmet criteria.**
 
 | Metric | Baseline | After V1-R2 | After V1-R3 |
 |---|---|---|---|
@@ -347,10 +349,76 @@ roughly 470 ms, against 19.6 seconds at baseline.
 
 - [~] Search keystroke → results ≤ **150 ms** — **not met: 266 ms.** Ceiling lowered 700 → 450 ms, locking in 15.8x. The remainder needs its own package; see above.
 - [x] Typing a 5-character query issues at most **2** database reads total, and never more than one in-flight query — the counter asserts 1, and is verified to fail at 5 without the debounce.
-- [ ] People list first paint ≤ **200 ms**; Person profile open ≤ **150 ms** — **not done.** No ratchet entries added; deferred with the ranking work.
-- [ ] `readAllData` appears in production only in `data/backup.ts` and the export/restore screens — **not done.** Still used by search and the Today projection; removing it is the narrowed-read work above.
+- [descoped] People list first paint ≤ **200 ms**; Person profile open ≤ **150 ms** — **moved to V1-R6.** The People list with no query *is* a blank search, so its cost is ranking cost and it belongs with the ranking work rather than sitting here unmet. Person profile open travels with it.
+- [descoped] `readAllData` removal from production — **deferred to the evidence-triggered read package.** It was written as an R3 task before the cost was known. Removing it means either an in-memory snapshot or denormalised contact state, both of which POS-D043 holds behind their own decision with measurements attached. It is not an R3 failure; it was never R3's to do once the constraint was set.
 - [x] All V1-11 search acceptance criteria still pass: every required field type searchable, deterministic ranking, archived excluded unless requested, contextual event results.
 - [x] 390px layout, keyboard focus and Back-restoration behaviour unchanged — 519/519 green, including the full V1-11 search and profile suites.
+
+---
+
+### V1-R6 — Search ranking performance
+
+**Depends on:** V1-R3. **Implements:** POS-D045. **Carries:** the per-query
+target and the People-list/profile budgets descoped from V1-R3.
+
+Search ranking is the last large interactive cost: 101 ms of the 266 ms query,
+and 120 ms of the blank-query People list. It is also the most dangerous code in
+the codebase to optimise. Ranking decides *which* people a user finds and in
+*what order*, from eleven match sources across name, contact identity,
+affiliation, event, memory fact, tag, note and Reach Out — and a change that
+silently reorders or drops a tier produces a product that still looks like it
+works. V1-11's own criterion is "deterministic ranking".
+
+**Therefore: the oracle comes first, and no optimisation lands before it is
+green.** This is not a preference; it is the sequencing that made V1-R2 safe.
+
+**Scope, in order**
+
+1. **Build the executable equivalence oracle, and land it on its own, before
+   touching any ranking code.** Freeze today's `searchPeopleFromData` and
+   `personFilterOptionsFromData` as `src/application/__legacy.personSearch.ts`,
+   and add a differential test that runs both implementations over seeded random
+   datasets. The generator must exercise, deliberately: every one of the eleven
+   `PersonSearchSource` tiers; exact / prefix / token-prefix name collisions;
+   phone and email queries in several formats; equal `matchedAt` values and
+   equal display names, which are where ordering ties are decided; every
+   `PersonSearchFilters` field including all three `archive` modes; merged and
+   archived People; the empty query, which is the People list; and queries
+   matching nothing. Assert deep equality of the full `PersonSearchResult[]`
+   **including order**, and of `PersonFilterOptions`.
+2. **Prove the oracle can fail** by reintroducing a plausible ranking bug — for
+   example swapping two adjacent tiers, or dropping the `matchedAt` tie-break —
+   and confirming it is caught. An oracle nobody has seen fail is decoration.
+3. Only then optimise. Known suspects, in measured order:
+   - `validCurrentContactMethods` runs `resolveContactNowTargets` — libphonenumber
+     parsing — for **every Person**, solely to compute `missingContactDetails`.
+   - `highestMatch` builds all nine candidate arrays for every Person, then sorts
+     and takes the first, rather than stopping once no better tier is reachable.
+   - `noteMatches` normalises every Interaction summary of every Person on every
+     query: ~45,000 `normalize("NFKD")` calls at reference scale.
+   - `groupedByPerson` runs six times here and again inside the assessment pass.
+4. Add `peopleListFirstPaint` and `personProfileOpen` ratchet entries.
+5. **Retire both executable oracles.** With ranking work complete, convert the
+   engine oracle (`src/relationship-engine/__legacy.engine.ts`) and this
+   package's search oracle to golden fixtures, and delete both duplicate
+   modules. This is the standing pattern, now named: **an executable oracle for
+   the duration of the work that needs it, golden fixtures as the permanent
+   regression net.** A frozen duplicate is worth its cost while you are changing
+   the thing it mirrors, and only then.
+
+**Acceptance criteria**
+
+- [ ] The oracle lands in its own commit, before any ranking change, and is demonstrated failing on a deliberately reintroduced ranking bug (then reverted).
+- [ ] Differential equivalence over ≥500 randomised datasets: full `PersonSearchResult[]` deeply equal **including order**, and `PersonFilterOptions` deeply equal. Zero divergence, and the generator is asserted to have produced at least one match from every one of the eleven sources.
+- [ ] Single query ≤ **150 ms** on the reference corpus; `searchSingleKeystroke` ceiling lowered in the same commit.
+- [ ] Blank-query People list ≤ **200 ms**; new `peopleListFirstPaint` ratchet entry.
+- [ ] Person profile open ≤ **150 ms**; new `personProfileOpen` ratchet entry.
+- [ ] All V1-11 search acceptance criteria still pass unchanged.
+- [ ] Both executable oracles replaced by golden fixtures and the duplicate modules deleted; the fixtures fail if regenerated from changed behaviour.
+- [ ] Existing suite passes unchanged; no test weakened or deleted.
+
+**Out of scope:** any in-memory or persisted snapshot cache (POS-D043), and any
+change to what search *finds* — this package changes only what it costs.
 
 ---
 
