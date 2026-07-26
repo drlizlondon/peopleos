@@ -408,9 +408,29 @@ function compareSearchResults(left: PersonSearchResult, right: PersonSearchResul
     || left.person.id.localeCompare(right.person.id);
 }
 
+/**
+ * Assessments indexed by Person, computed once.
+ *
+ * Search needs exactly two things from a RelationshipAssessment — the
+ * relationship stage, for filtering and filter options, and the search-context
+ * cue, for display. Both the result list and the filter options used to build
+ * their own complete pass over every Person, so a single query assessed all
+ * 3,000 People twice. Callers that need both now compute this once and share it.
+ */
+export type PersonSearchAssessments = ReadonlyMap<string, RelationshipAssessment>;
+
+export function assessmentsForSearch(
+  data: PeopleOsData,
+  clock: RelationshipClock
+): PersonSearchAssessments {
+  return new Map(assessRelationshipsFromData(data, clock)
+    .map((assessment) => [assessment.personId, assessment]));
+}
+
 export function searchPeopleFromData(
   data: PeopleOsData,
-  options: PersonSearchOptions
+  options: PersonSearchOptions,
+  precomputedAssessments?: PersonSearchAssessments
 ): PersonSearchResult[] {
   const rawQuery = options.query ?? "";
   if (rawQuery.length > MAX_PERSON_SEARCH_QUERY_LENGTH) {
@@ -420,8 +440,7 @@ export function searchPeopleFromData(
   const settings = data.appSettings.find((record) => record.id === "app");
   if (!settings) throw new Error("PeopleOS settings are missing");
   const localDate = localDateForInstant(options.clock.now, options.clock.timeZone);
-  const assessments = new Map(assessRelationshipsFromData(data, options.clock)
-    .map((assessment) => [assessment.personId, assessment]));
+  const assessments = precomputedAssessments ?? assessmentsForSearch(data, options.clock);
   const contacts = groupedByPerson(data.contactMethods);
   const affiliations = groupedByPerson(data.affiliations);
   const interactions = groupedByPerson(data.interactions);
@@ -452,12 +471,11 @@ export function searchPeopleFromData(
     const match = query ? highestMatch(bundle, rawQuery, query) : undefined;
     if (query && !match) return [];
     const validContacts = validCurrentContactMethods(bundle);
+    const displayAffiliation = selectDisplayAffiliation(bundle.affiliations);
     return [{
       person,
       assessment,
-      ...(selectDisplayAffiliation(bundle.affiliations)
-        ? { currentAffiliation: selectDisplayAffiliation(bundle.affiliations) }
-        : {}),
+      ...(displayAffiliation ? { currentAffiliation: displayAffiliation } : {}),
       ...(assessment.searchContextCue ? { recognitionCue: assessment.searchContextCue } : {}),
       ...(match ? { match } : {}),
       hasDueFollowUp: hasDueFollowUp(bundle.followUps, localDate),
@@ -468,14 +486,16 @@ export function searchPeopleFromData(
 
 export function personFilterOptionsFromData(
   data: PeopleOsData,
-  clock: RelationshipClock
+  clock: RelationshipClock,
+  precomputedAssessments?: PersonSearchAssessments
 ): PersonFilterOptions {
   const visiblePeople = data.people.filter((person) => person.identityStatus !== "merged");
   const personIds = new Set(visiblePeople.map((person) => person.id));
   const eventIds = new Set(data.interactions
     .filter((interaction) => personIds.has(interaction.personId) && interaction.eventId)
     .map((interaction) => interaction.eventId!));
-  const stages = new Set(assessRelationshipsFromData(data, clock)
+  const assessments = precomputedAssessments ?? assessmentsForSearch(data, clock);
+  const stages = new Set([...assessments.values()]
     .filter((assessment) => personIds.has(assessment.personId))
     .map((assessment) => assessment.relationshipStage.value));
   return {
@@ -507,9 +527,10 @@ export async function getPersonSearchView(
   options: PersonSearchOptions
 ): Promise<PersonSearchView> {
   const data = await readAllData(db);
+  const assessments = assessmentsForSearch(data, options.clock);
   return {
-    results: searchPeopleFromData(data, options),
-    filterOptions: personFilterOptionsFromData(data, options.clock),
+    results: searchPeopleFromData(data, options, assessments),
+    filterOptions: personFilterOptionsFromData(data, options.clock, assessments),
     totalPersonCount: data.people.filter((person) => person.identityStatus !== "merged").length
   };
 }

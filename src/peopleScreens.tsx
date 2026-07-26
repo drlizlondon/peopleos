@@ -49,6 +49,7 @@ import {
   type PersonSearchMatch,
   type PersonSearchResult
 } from "./application/personSearch";
+import { SEARCH_DEBOUNCE_MS, useDebouncedValue } from "./useDebouncedValue";
 import { restorePerson } from "./application/personLifecycle";
 import {
   getPersonHistory,
@@ -247,9 +248,13 @@ export function PeopleScreen({
     return () => window.removeEventListener("scroll", onScroll);
   }, [filters, query]);
 
+  // The query is debounced but the filters are not: filters change on a
+  // deliberate click, where a delay would only feel like lag.
+  const debouncedQuery = useDebouncedValue(query, SEARCH_DEBOUNCE_MS);
+
   useEffect(() => {
     let active = true;
-    if (query.length > MAX_PERSON_SEARCH_QUERY_LENGTH) {
+    if (debouncedQuery.length > MAX_PERSON_SEARCH_QUERY_LENGTH) {
       setQueryError(`Search is limited to ${MAX_PERSON_SEARCH_QUERY_LENGTH} characters.`);
       setResults([]);
       setFallbackPeople([]);
@@ -261,7 +266,7 @@ export function PeopleScreen({
     setError("");
     getDatabase().then(async (db) => getPersonSearchView(db, {
       clock: createRelationshipClock(),
-      query,
+      query: debouncedQuery,
       filters
     })).then((view) => {
       if (!active) return;
@@ -281,7 +286,7 @@ export function PeopleScreen({
       try {
         const people = await listPeopleSummaries(await getDatabase());
         if (active) setFallbackPeople(people.filter((summary) => {
-          const normalizedQuery = query.trim().toLocaleLowerCase("en-US");
+          const normalizedQuery = debouncedQuery.trim().toLocaleLowerCase("en-US");
           return !normalizedQuery || summary.person.displayName.toLocaleLowerCase("en-US").includes(normalizedQuery);
         }));
       } catch {
@@ -289,7 +294,7 @@ export function PeopleScreen({
       }
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [filters, query, retryVersion]);
+  }, [filters, debouncedQuery, retryVersion]);
 
   useEffect(() => {
     if (loading || restoredScrollRef.current) return;

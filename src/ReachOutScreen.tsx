@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SEARCH_DEBOUNCE_MS, useDebouncedValue } from "./useDebouncedValue";
 import EmptyState from "./EmptyState";
 import ReachOutFilterSheet, {
   REACH_OUT_STATUS_OPTIONS,
@@ -117,6 +118,11 @@ export default function ReachOutScreen({ navigate, onAdd }: { navigate: Navigate
   const scrollRestored = useRef(false);
   const rememberedScroll = useRef(initialView.scrollY);
 
+  // Debounced for the query only: the Reach Out list re-queries the database on
+  // every change, and typing a name should cost one search, not one per letter.
+  // Status and context filters change on a deliberate click and are not delayed.
+  const debouncedQuery = useDebouncedValue(query, SEARCH_DEBOUNCE_MS);
+
   const load = useCallback(async () => {
     const sequence = ++loadSequence.current;
     setError("");
@@ -126,7 +132,7 @@ export default function ReachOutScreen({ navigate, onAdd }: { navigate: Navigate
       const [nextItems, nextContexts, nextHasEntries] = await Promise.all([
         listReachOut(db, {
           localDate,
-          ...(query ? { query } : {}),
+          ...(debouncedQuery ? { query: debouncedQuery } : {}),
           ...(statusFilters.length > 0 ? { statusFilters } : {}),
           ...(contextId ? { contextId } : {})
         }),
@@ -141,7 +147,7 @@ export default function ReachOutScreen({ navigate, onAdd }: { navigate: Navigate
       if (sequence !== loadSequence.current) return;
       setError("PeopleOS could not load Reach Out from this device.");
     }
-  }, [contextId, localDate, query, statusFilters]);
+  }, [contextId, debouncedQuery, localDate, statusFilters]);
 
   useEffect(() => { void load(); }, [load]);
 

@@ -91,20 +91,45 @@ export const BASELINE: Record<OperationKey, number> = {
 export const CEILINGS: Record<OperationKey, number> = {
   todayProjection: 400,
   alreadyContactedRoundTrip: 700,
-  searchKeystrokeSequence: 3500,
-  searchSingleKeystroke: 700
+  searchKeystrokeSequence: 2500,
+  searchSingleKeystroke: 450
 };
 
 /**
- * Where SCALE_REMEDIATION_PLAN.md §2 requires these to land. The keystroke
- * sequence target is five keystrokes at the 150 ms single-keystroke budget.
+ * Where SCALE_REMEDIATION_PLAN.md §2 requires these to land.
+ *
+ * The Today and Already contacted targets were **retired on 2026-07-26** and
+ * now simply hold the ceiling. They were set before anyone had measured the
+ * cost breakdown; POS-D043 showed the last 30 ms of Today is IndexedDB read
+ * time that only denormalised contact state could remove, and 168 ms is
+ * imperceptible for a screen load. Chasing 150 ms would have bought nothing a
+ * user can feel at the price of freezing contact policy into the schema.
+ *
+ * Search targets stand, and are V1-R3's priority: 1,691 ms for a typed name is
+ * latency a user feels on every keystroke. The sequence target is five
+ * keystrokes at the single-keystroke budget.
+ *
+ * IMPORTANT — what `searchKeystrokeSequence` now means. It measures five
+ * back-to-back queries, which is what the UI issued before V1-R3 debounced the
+ * input. The shipped app no longer does that: typing a five-character name
+ * issues **one** query, proven by the read counter in
+ * `src/v1r3.searchDebounce.ui.test.tsx`. The metric is kept as a worst-case
+ * regression guard on the query itself, not as a model of user experience. The
+ * experience a user now gets for a typed name is one debounce interval
+ * (SEARCH_DEBOUNCE_MS) plus one `searchSingleKeystroke`.
  */
 export const TARGETS: Record<OperationKey, number> = {
-  todayProjection: 150,
-  alreadyContactedRoundTrip: 300,
+  todayProjection: 400,
+  alreadyContactedRoundTrip: 700,
   searchKeystrokeSequence: 750,
   searchSingleKeystroke: 150
 };
+
+/** Operations whose target is "hold what we proved", not "go faster". */
+export const HELD_AT_CEILING: ReadonlySet<OperationKey> = new Set<OperationKey>([
+  "todayProjection",
+  "alreadyContactedRoundTrip"
+]);
 
 /** The package that must lower each ceiling to its target. */
 export const OWNING_PACKAGE: Record<OperationKey, string> = {

@@ -362,3 +362,18 @@ The strongest alternative remains the persisted projection cache, still rejected
 The measured position after POS-D042 is that assessment across 3,000 People costs 49 ms, so denormalisation buys little. It becomes worth revisiting only in service of narrowing the dataset read, which is the dominant remaining term: Today currently reads all 45,000 Interactions solely to derive each Person's most recent contact.
 
 Consequently the `TARGETS` of 150 ms for the Today projection and 300 ms for the Already contacted round trip in `SCALE_REMEDIATION_PLAN.md` §2 are **not reachable by engine work alone**. Reaching them requires either denormalised contact state or an equivalent narrowed read, which is V1-R3's scope and needs its own decision with measurements attached. Until then the gate holds the proven 179 ms / 341 ms rather than an aspiration.
+
+## POS-D044 — The Today and Already contacted latency targets are retired
+
+- **Status:** Accepted
+- **Date:** 2026-07-26
+
+The 150 ms Today projection and 300 ms Already contacted targets in `SCALE_REMEDIATION_PLAN.md` §2 are withdrawn. Both were written before the cost was broken down, and V1-R2 landed at 168 ms and 334 ms.
+
+POS-D043 established that the residual is dominated by reading the dataset out of IndexedDB, not by computation, and that removing it requires denormalising contact state — freezing `interactionCountsAsContact` policy into the schema and turning any future change to it into a data migration. A screen load at 168 ms is already below the threshold at which a user perceives delay, so the remaining 18 ms is not worth that.
+
+The performance gate now **holds** these two operations at their proven figures rather than pushing them lower: the ceilings are the target. A regression still fails the build; an improvement is welcome but unbudgeted.
+
+Interactive search latency is prioritised instead. At 1,691 ms for a five-keystroke name and 323 ms for a single query, search is the only remaining path where the delay is felt on every interaction rather than once per screen. Its targets — 150 ms per query, 750 ms for the sequence — stand as V1-R3's objective.
+
+This decision could become wrong if the dataset grows well beyond 3,000 contacts, at which point the read term grows with it and denormalisation earns its cost.

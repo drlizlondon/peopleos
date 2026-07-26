@@ -86,13 +86,20 @@ At 3,000 contacts that is a 10.8 MB read plus ~3.8 s of projection **per keystro
 
 All budgets are on the reference corpus, main thread, and are enforced by a committed test (see V1-R1), not by a paragraph:
 
-| Operation | Budget | Current |
-|---|---|---|
-| Today projection (cold) | **≤ 150 ms** | 1,916 ms |
-| Today action round-trip (prepare + refresh) | **≤ 300 ms** | ~3,800 ms |
-| Search keystroke → results (after debounce) | **≤ 150 ms** | ~3,800 ms |
-| Person profile open | **≤ 150 ms** | not measured |
-| People list first paint | **≤ 200 ms** | not measured |
+| Operation | Budget | At planning | After V1-R2 |
+|---|---|---|---|
+| Today projection (cold) | ~~≤ 150 ms~~ **hold ≤ 400 ms** | 1,916 ms | **168 ms** |
+| Today action round-trip (prepare + refresh) | ~~≤ 300 ms~~ **hold ≤ 700 ms** | ~3,800 ms | **334 ms** |
+| Search keystroke → results | **≤ 150 ms** | ~3,800 ms | 323 ms |
+| Five-keystroke search sequence | **≤ 750 ms** | ~19,600 ms | 1,691 ms |
+| Person profile open | **≤ 150 ms** | not measured | not measured |
+| People list first paint | **≤ 200 ms** | not measured | not measured |
+
+The first two budgets were **retired on 2026-07-26** (POS-D044) and now hold at
+their proven figures rather than pushing lower: the residual is IndexedDB read
+time that only denormalised contact state could remove, and 168 ms is already
+imperceptible for a screen load. Interactive search latency is V1-R3's priority
+instead — it is the only remaining path a user feels on every keystroke.
 
 Budgets are ceilings expressed as a **ratchet**: V1-R1 lands the harness with today's measured numbers as the ceiling so nothing can regress; V1-R2 and V1-R3 tighten it to the values above. A package is not complete until its ceiling is lowered in the committed test.
 
@@ -296,14 +303,54 @@ evidence. The ratchet holds the proven figures rather than the aspiration.
 4. Paginate or virtualise the People list at 3,000 rows.
 5. Filter-option derivation (`filterOptions`, stage counts) must not require a full assessment pass.
 
+**Outcome (2026-07-26): partially delivered. The interactive win landed; the per-query target did not.**
+
+| Metric | Baseline | After V1-R2 | After V1-R3 |
+|---|---|---|---|
+| Queries issued per 5-character name | 5 | 5 | **1** |
+| Single query | 4,205 ms | 323 ms | **266 ms** |
+| Five raw queries | 20,080 ms | 1,691 ms | **1,482 ms** |
+
+What landed:
+
+1. **The search input is debounced** (200 ms) in People and Reach Out, so typing
+   a name costs one query instead of one per keystroke. This is the change a
+   user feels, and it is asserted mechanically by a read counter in
+   `src/v1r3.searchDebounce.ui.test.tsx` — verified to report five searches when
+   the debounce is removed and one when it is present.
+2. **The double assessment pass is gone.** `getPersonSearchView` assessed all
+   3,000 People twice per query, once for results and once for filter options;
+   it now computes them once and shares them.
+3. Duplicated per-result affiliation selection removed.
+
+**The 150 ms per-query target was not met (266 ms), and is not close.** Measured
+breakdown of one query: **105 ms `readAllData`, 101 ms ranking, 50 ms
+assessment, 2 ms filter options.** Neither large term is reachable without
+something this package deliberately excludes:
+
+- The 105 ms read is the whole dataset, and search genuinely touches almost
+  every store. Avoiding it per query means an in-memory snapshot keyed by
+  `datasetRevision` — cache logic, which the accepted constraint keeps out of
+  R2/R3.
+- The 101 ms ranking is per-Person work inside `highestMatch` and result
+  construction: phone parsing via `resolveContactNowTargets` for every Person,
+  and text normalisation of every note, affiliation, fact and tag. Reducing it
+  means changing ranking internals, which have **no differential harness** — and
+  ranking is precisely where a silent behaviour change is easy to introduce and
+  hard to notice. That needs its own package with an equivalence oracle first,
+  as V1-R2 had.
+
+Perceived latency for a typed name is now one debounce interval plus one query,
+roughly 470 ms, against 19.6 seconds at baseline.
+
 **Acceptance criteria**
 
-- [ ] Search keystroke → results ≤ **150 ms** on the reference corpus after debounce; ceiling lowered in `budgets.ts`.
-- [ ] Typing a 5-character query issues at most **2** database reads total (asserted with a read counter), and never more than one in-flight query.
-- [ ] People list first paint ≤ **200 ms**; Person profile open ≤ **150 ms**; ceilings added.
-- [ ] `readAllData` appears in production code only in `data/backup.ts` and the export/restore screens (lint rule or test asserts this).
-- [ ] All V1-11 search acceptance criteria still pass: every required field type searchable, deterministic ranking, archived excluded unless requested, contextual event results.
-- [ ] 390px layout, keyboard focus and Back-restoration behaviour unchanged.
+- [~] Search keystroke → results ≤ **150 ms** — **not met: 266 ms.** Ceiling lowered 700 → 450 ms, locking in 15.8x. The remainder needs its own package; see above.
+- [x] Typing a 5-character query issues at most **2** database reads total, and never more than one in-flight query — the counter asserts 1, and is verified to fail at 5 without the debounce.
+- [ ] People list first paint ≤ **200 ms**; Person profile open ≤ **150 ms** — **not done.** No ratchet entries added; deferred with the ranking work.
+- [ ] `readAllData` appears in production only in `data/backup.ts` and the export/restore screens — **not done.** Still used by search and the Today projection; removing it is the narrowed-read work above.
+- [x] All V1-11 search acceptance criteria still pass: every required field type searchable, deterministic ranking, archived excluded unless requested, contextual event results.
+- [x] 390px layout, keyboard focus and Back-restoration behaviour unchanged — 519/519 green, including the full V1-11 search and profile suites.
 
 ---
 

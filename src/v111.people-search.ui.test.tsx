@@ -157,6 +157,9 @@ describe("V1-11 People search and filters UI", () => {
     expect(search).toHaveAttribute("placeholder", "Name, organisation, event or memory");
 
     await user.type(search, "HealthTech Fell");
+    // Search is debounced, so wait for the matched result itself: the results
+    // list element already exists from the unfiltered view.
+    await screen.findByText("Matched: Event · HealthTech Fellowship");
     const eventResults = await screen.findByRole("list", { name: "People search results" });
     expect(within(eventResults).getByText("Aaron Clarke")).toBeInTheDocument();
     expect(within(eventResults).getByText("Programme lead · NHS England")).toBeInTheDocument();
@@ -166,6 +169,7 @@ describe("V1-11 People search and filters UI", () => {
 
     await user.clear(search);
     await user.type(search, "pilot sit");
+    await screen.findByText("Matched: Seeking · Looking for pilot sites");
     const factResults = await screen.findByRole("list", { name: "People search results" });
     expect(within(factResults).getByText("Priya Shah")).toBeInTheDocument();
     expect(within(factResults).getByText("Matched: Seeking · Looking for pilot sites")).toBeInTheDocument();
