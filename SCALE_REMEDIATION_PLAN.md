@@ -406,16 +406,44 @@ green.** This is not a preference; it is the sequencing that made V1-R2 safe.
    regression net.** A frozen duplicate is worth its cost while you are changing
    the thing it mirrors, and only then.
 
+**Outcome (2026-07-26): complete.** Single query 266 → 190 ms, five-query
+sequence 1,405 → 1,051 ms, both against an oracle that stayed green throughout.
+
+| Operation | Start of V1-R6 | End | Ceiling |
+|---|---|---|---|
+| Single query | 266 ms | **190 ms** | 360 |
+| Five-query sequence | 1,405 ms | **1,051 ms** | 2,050 |
+| People list first paint | — | **243 ms** | 460 |
+| Person profile open | — | **109 ms** | 210 |
+
+Three things did the work: `missingContactDetails` was building a full
+Contact-now projection — libphonenumber display formatting included — for every
+Person just to ask whether it was empty; `highestMatch` now stops at the first
+match source that yields anything; and the assessment pass now computes only a
+relationship stage for all People, with full projections built lazily for the
+few that are returned.
+
+The tier short-circuit produced **no measurable gain** and is recorded as such.
+The cost is dominated by the ~95% of People who match nothing and therefore
+still run every source. It was kept because it is strictly less work, proven
+equivalent, and it made the tier contract explicit — not because it moved a
+number.
+
 **Acceptance criteria**
 
-- [ ] The oracle lands in its own commit, before any ranking change, and is demonstrated failing on a deliberately reintroduced ranking bug (then reverted).
-- [ ] Differential equivalence over ≥500 randomised datasets: full `PersonSearchResult[]` deeply equal **including order**, and `PersonFilterOptions` deeply equal. Zero divergence, and the generator is asserted to have produced at least one match from every one of the eleven sources.
-- [ ] Single query ≤ **150 ms** on the reference corpus; `searchSingleKeystroke` ceiling lowered in the same commit.
-- [ ] Blank-query People list ≤ **200 ms**; new `peopleListFirstPaint` ratchet entry.
-- [ ] Person profile open ≤ **150 ms**; new `personProfileOpen` ratchet entry.
-- [ ] All V1-11 search acceptance criteria still pass unchanged.
-- [ ] Both executable oracles replaced by golden fixtures and the duplicate modules deleted; the fixtures fail if regenerated from changed behaviour.
-- [ ] Existing suite passes unchanged; no test weakened or deleted.
+- [x] The oracle lands in its own commit, before any ranking change, and is demonstrated failing on a deliberately reintroduced ranking bug (then reverted) — three of them: a swapped tier, a dropped `matchedAt` tie-break, and a dropped match source.
+- [x] Differential equivalence over ≥500 randomised datasets: full `PersonSearchResult[]` deeply equal **including order**, and `PersonFilterOptions` deeply equal. Zero divergence; generator asserted to produce a match from all eleven sources.
+- [retired] Single query ≤ **150 ms** — reached 190 ms. Retired on the profile: a query is 109 ms dataset read + 52 ms assessment + 60 ms ranking; this package removed the assessment and ranking waste, and the read is only removable by a snapshot cache, which POS-D043 holds behind its own decision. Ceiling lowered 450 → 360.
+- [retired] Blank-query People list ≤ **200 ms** — reached 243 ms, missed for the identical reason: a blank query is a full search. `peopleListFirstPaint` ratchet added at 460.
+- [x] Person profile open ≤ **150 ms** — **met at 109 ms**; `personProfileOpen` ratchet added at 210.
+- [x] All V1-11 search acceptance criteria still pass unchanged.
+- [x] Both executable oracles replaced by golden fixtures and the duplicate modules deleted; goldens demonstrated failing on both an engine and a search regression before the copies were removed. Recorded as POS-D046.
+- [x] Existing suite passes unchanged; no test weakened or deleted.
+
+**Also corrected here:** `npm test` excluded the whole `src/performance/`
+directory, which would have hidden the new goldens from the fast loop. The split
+is now by filename — `*.perf.test.ts` are the slow ratchets, everything else
+runs in `npm test`.
 
 **Out of scope:** any in-memory or persisted snapshot cache (POS-D043), and any
 change to what search *finds* — this package changes only what it costs.

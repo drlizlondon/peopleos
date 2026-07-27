@@ -8,9 +8,9 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "eslint src --max-warnings 0",
-    "test": "vitest run --exclude 'src/performance/**'",
-    "test:watch": "vitest --exclude 'src/performance/**'",
-    "test:perf": "vitest run src/performance",
+    "test": "vitest run --exclude '**/node_modules/**' --exclude '**/*.perf.test.ts'",
+    "test:watch": "vitest --exclude '**/node_modules/**' --exclude '**/*.perf.test.ts'",
+    "test:perf": "vitest run perf.test.ts",
     "check": "npm run lint && npm run test && npm run test:perf && npm run build"
   },
   "dependencies": {

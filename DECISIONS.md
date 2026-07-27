@@ -377,3 +377,22 @@ The performance gate now **holds** these two operations at their proven figures 
 Interactive search latency is prioritised instead. At 1,691 ms for a five-keystroke name and 323 ms for a single query, search is the only remaining path where the delay is felt on every interaction rather than once per screen. Its targets — 150 ms per query, 750 ms for the sequence — stand as V1-R3's objective.
 
 This decision could become wrong if the dataset grows well beyond 3,000 contacts, at which point the read term grows with it and denormalisation earns its cost.
+
+## POS-D046 — Executable oracle during the work, golden fixtures afterwards
+
+- **Status:** Accepted
+- **Date:** 2026-07-26
+
+When a package changes how an existing subsystem computes something, without intending to change the result, it first freezes a copy of the current implementation and diffs the two over hundreds of seeded random datasets. When the package ends, the frozen copy is replaced by its recorded outputs and deleted.
+
+Both halves are load-bearing, for different reasons.
+
+A frozen implementation can be run against *any* input, including inputs nobody has thought of, so it keeps paying while the subsystem is in motion and the next optimisation is still unwritten. V1-R2's engine oracle caught a latest-contact tie-break that looked obviously equivalent — `compareInteractionsDescending` reverses the date comparison but keeps the id tie-break in the same direction, so on equal timestamps the sort selects the lowest id while the ascending list ends on the highest. V1-R6's search oracle caught a swapped tier, a dropped `matchedAt` tie-break and a dropped match source. None of those would have failed the existing test suite.
+
+Once the work is done the same duplicate turns into a liability: it imports domain modules that keep moving, and a second copy of ranking logic is exactly the parallel concept this codebase tries not to accumulate. Its value is fully captured by its outputs, so `src/performance/goldens/` records them and the copy goes.
+
+Goldens are stored two ways on purpose: a digest for all 500 seeds, so nothing is unguarded, plus full readable rows for the first 25, so a failure produces a diff a person can assess instead of a changed hash. Regenerating requires `PEOPLEOS_UPDATE_GOLDENS=1`, and the diff is the specification of what was changed for every user — a regenerated golden committed without a reviewed diff removes the only thing protecting that behaviour.
+
+The strongest alternative was keeping the executable copies permanently. Rejected because an unmaintained duplicate rots and eventually gets "fixed" to match the code it is supposed to be checking, at which point it certifies whatever it is handed.
+
+An oracle nobody has seen fail is decoration, so both halves of this are demonstrated failing before they are trusted: the oracles against deliberately reintroduced bugs, and the goldens against the same bugs after the switch.

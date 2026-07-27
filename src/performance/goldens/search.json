@@ -1,0 +1,2036 @@
+{
+  "seeds": 500,
+  "sampleSeeds": 25,
+  "digests": {
+    "1": "f0a93fbe62f3c69e",
+    "2": "f0a17a9782fb17c7",
+    "3": "e673ee48f53ca857",
+    "4": "bfcb25f495941efc",
+    "5": "dce0f13a656eb064",
+    "6": "a624db7b35f3cac5",
+    "7": "c965499d70e3cb71",
+    "8": "7d29bf05c716e00d",
+    "9": "2a1fd93a7db5d29e",
+    "10": "7d5257b4bac3f4c3",
+    "11": "449904269f0262d2",
+    "12": "5c78f437d46f1d6a",
+    "13": "c343aaf19e47a297",
+    "14": "7135edb4aa879330",
+    "15": "747426f1a12da580",
+    "16": "e36a516148b01e15",
+    "17": "63423f8feef22ad5",
+    "18": "42f7311d1d16074f",
+    "19": "f2a320b12bba79a4",
+    "20": "f92469a459899759",
+    "21": "1f73582fcc4e0b23",
+    "22": "4b36837b988b349a",
+    "23": "004d3555e5d6cc07",
+    "24": "cde579fa368cbae2",
+    "25": "38b072e93dadb1ba",
+    "26": "d9c413f4a55541de",
+    "27": "0ba0cf68846bc36d",
+    "28": "0d84e162a1bb4d93",
+    "29": "388f13b689225433",
+    "30": "0bf2b99164baf7d9",
+    "31": "1a2733b1e8378796",
+    "32": "de72a2247eb1682f",
+    "33": "512da69e0e100e48",
+    "34": "04aee9463f0fa8c0",
+    "35": "8cded9776af666a8",
+    "36": "fbffe9b2bc3d998e",
+    "37": "ea18b4d9956ccf52",
+    "38": "91a700102b54d98c",
+    "39": "179b5f380865510e",
+    "40": "d5eab534547efe0e",
+    "41": "85e0431ca6e3457f",
+    "42": "9cbc418fadc44881",
+    "43": "dc240da5d4e18c53",
+    "44": "6dcd422cf5d63e02",
+    "45": "5421ca917419519b",
+    "46": "29edf389c44707cf",
+    "47": "3f8569c2ae81e153",
+    "48": "59639e2755eab60d",
+    "49": "19c818a8eff4f822",
+    "50": "2d869be0f467a861",
+    "51": "66b6a5dfc186cc35",
+    "52": "d04a2d3b6232ba6c",
+    "53": "aca69c76296a17fe",
+    "54": "d6a5caa409cc1575",
+    "55": "0084f13fec117262",
+    "56": "1493403f3916faf8",
+    "57": "859e0644612ba52a",
+    "58": "9aaef8f06629d241",
+    "59": "27248eb20fa9436a",
+    "60": "344e528adfde8bf0",
+    "61": "588b6bb338ddd80a",
+    "62": "bf147e3f0afb3cc6",
+    "63": "1027feab157a28dd",
+    "64": "7ed3020e88eb0e11",
+    "65": "cabf9583bcf52e4f",
+    "66": "dcc60d2633482bea",
+    "67": "217e786bbf425bd1",
+    "68": "9d3c0a0eae5efb81",
+    "69": "61257371c737b2fc",
+    "70": "24dd0e3fff6c6f63",
+    "71": "516990f20fc87e32",
+    "72": "2471bd4f8581e320",
+    "73": "9b25a733305e6874",
+    "74": "10b6f4333b78c6b0",
+    "75": "c6c70b0cd2642873",
+    "76": "98e27deb24c3881b",
+    "77": "b26df6a26b8a2566",
+    "78": "179a07573c3ce010",
+    "79": "f4edd47bad5076e5",
+    "80": "fd143b5694f518f8",
+    "81": "c47339d454665979",
+    "82": "e8132dbef7b1ae83",
+    "83": "e82977edaf75264f",
+    "84": "aea9113157249d38",
+    "85": "130225e4bfa2b336",
+    "86": "6924f341485da281",
+    "87": "08bd7c927a6b8c52",
+    "88": "a1e7a85448cde477",
+    "89": "096a5a345957eecf",
+    "90": "f32ad79e5538797d",
+    "91": "95a1a37a97454344",
+    "92": "e44a7206b553e3f0",
+    "93": "e9abfdf4556a60af",
+    "94": "99dee9375c4394ae",
+    "95": "99a3afc776d612a3",
+    "96": "3c900caba3de58e9",
+    "97": "52d5158447688769",
+    "98": "d6fbe1d3a792ee8d",
+    "99": "e1d36aeee496040a",
+    "100": "3baff96ae506c277",
+    "101": "0b12e0e07a9fea20",
+    "102": "06b0ccee8433b06e",
+    "103": "9b7ffcc060d58cc4",
+    "104": "46085f62dde3ee6a",
+    "105": "ade3ead12bc7add1",
+    "106": "622964afd73deac5",
+    "107": "331bd2baf3646ca5",
+    "108": "630b52cae643f1cc",
+    "109": "3e2ac8e5f559b4f3",
+    "110": "960f765159fff8bc",
+    "111": "e175a604ac2f7c8e",
+    "112": "a41d2d2b5f7902b1",
+    "113": "a8daa0bf5d4b2a3a",
+    "114": "e1b2f6c2d180b5fc",
+    "115": "e1eeecd994b4b1eb",
+    "116": "e5b08f13c73306c8",
+    "117": "ff81b82a488e557b",
+    "118": "8629ab958843287a",
+    "119": "a37f8e9237e517ad",
+    "120": "882d41a0ffffd025",
+    "121": "24c167a783d11145",
+    "122": "1b69ec9626ff655d",
+    "123": "78e7e3d41ac1a9ab",
+    "124": "bc17f1f27c92b85a",
+    "125": "2f78d1885e49efac",
+    "126": "85223ecfa0d65b65",
+    "127": "4b8a2488f67814cb",
+    "128": "4ccc31d4cd1a919f",
+    "129": "e309cf3dcbf78fb8",
+    "130": "9480eb81c7ba72b0",
+    "131": "0fbc30f9d9cebfb2",
+    "132": "772f372a184c3834",
+    "133": "13d0449aab001e6e",
+    "134": "0bf8f30de8734da8",
+    "135": "995b7f8f10dd2dbd",
+    "136": "506e38891d3478c9",
+    "137": "4a6615ef7fff8ab4",
+    "138": "181ae0b10d1c5ca8",
+    "139": "0817dd6dde1e0c05",
+    "140": "c21aa803a415f2c6",
+    "141": "4ff20893294f4780",
+    "142": "b5d8f861d9ec78a8",
+    "143": "2bca2364b67eb1dd",
+    "144": "b60699e48b0e44a2",
+    "145": "b7fd0224f885cb98",
+    "146": "de70c675e2d403f9",
+    "147": "85b4e78563509a19",
+    "148": "5fa1e6efed9229f9",
+    "149": "1b6e0177041f680d",
+    "150": "6f7645ac67b3d2f3",
+    "151": "059fda788be72eb4",
+    "152": "f797a6972c52baaa",
+    "153": "17c74accf3b102d9",
+    "154": "39f2c828e1dfe023",
+    "155": "f87a3d65d62717f6",
+    "156": "1ee089582d494145",
+    "157": "3870e9608b1e6169",
+    "158": "8e7700758df8f8c1",
+    "159": "98bb94b7b32a4498",
+    "160": "bdd64ef3b75c6e10",
+    "161": "491af2bfc8001a13",
+    "162": "228c4adc659ec5f9",
+    "163": "302dbb902bc6ee99",
+    "164": "de02c32810435d0c",
+    "165": "3b7b568718e9f0ce",
+    "166": "58362065880559fa",
+    "167": "d89f1816bbae03bf",
+    "168": "43839fd137f8cc24",
+    "169": "ae5509f638a7e84b",
+    "170": "d34890c7827240eb",
+    "171": "03cd535c244a29c2",
+    "172": "221ffd50024e2147",
+    "173": "730eaa919ab8d1cf",
+    "174": "de0ac4ceff0c5406",
+    "175": "ce824a187dcd148b",
+    "176": "8d55884d506ab769",
+    "177": "70e044d4402376e4",
+    "178": "4fef5310251e9bac",
+    "179": "a8f9eb1a92974516",
+    "180": "7e9a612f2f7da6da",
+    "181": "771e9232122e2d5b",
+    "182": "90c623d3a8e39a98",
+    "183": "021f75084d2d515a",
+    "184": "2aa12d96af447ee9",
+    "185": "7aeeb38ffe59d5a8",
+    "186": "e02658f4561ca04d",
+    "187": "bd08855a793dd54a",
+    "188": "c04e56d0b352b85b",
+    "189": "e395a7d239c74c6e",
+    "190": "c21f24c7b56933da",
+    "191": "ea9eff466c3c88c3",
+    "192": "5314a69c853792bd",
+    "193": "83206170cbbfb7ff",
+    "194": "e687a9595d1df778",
+    "195": "132e9fe8b5ce9ced",
+    "196": "7137f99de11a8160",
+    "197": "49924fba511f4393",
+    "198": "0f50cac1cb9fc7dd",
+    "199": "954c3a446fdb2b7c",
+    "200": "61b4d9954a9651ba",
+    "201": "1aede4f06fd98082",
+    "202": "f2a0d2773d82634e",
+    "203": "62d6f4c77290299f",
+    "204": "afff72220531561f",
+    "205": "a369a93dd8704a60",
+    "206": "313bc20c17a3b252",
+    "207": "0f160cd71e88ec82",
+    "208": "caa31c002c6c16b1",
+    "209": "800a373c2f310031",
+    "210": "baa999539af27194",
+    "211": "e3d3a85854ccac88",
+    "212": "0ee6f183c452b2f9",
+    "213": "2be8dd6d0a9f55d0",
+    "214": "edc8ba5e8a022d74",
+    "215": "1c3a2c48ce9bc4e0",
+    "216": "5e510349b7d42a72",
+    "217": "ccfa8fbca8392afd",
+    "218": "f469210736e82f93",
+    "219": "e32cf0028c386f16",
+    "220": "4b8c8ce910a8975d",
+    "221": "700e7da9cbdd9dc0",
+    "222": "77eea28322cf149f",
+    "223": "24ed66eb26b63055",
+    "224": "0b3f875e31e9377f",
+    "225": "cd7255b6628abb12",
+    "226": "04888342bef09e1e",
+    "227": "64bcab3278519aec",
+    "228": "8fcad3d7be7c1450",
+    "229": "b4c01f3e84c1eba8",
+    "230": "a16d11a67fc84f71",
+    "231": "37aaa1cbd97ccf3b",
+    "232": "1c3b996c00815ff2",
+    "233": "ecc93edcd361c7b2",
+    "234": "58f1b87301bb2be5",
+    "235": "3eb001151473b705",
+    "236": "bd89ca4a1b7d8bc9",
+    "237": "89406d5dfeb11b29",
+    "238": "64d1835792791c62",
+    "239": "ce1204e01ffade96",
+    "240": "d735a34e7994a1b2",
+    "241": "b7de6bd78fa05984",
+    "242": "b8d6d8f4a2b9ae1c",
+    "243": "0b74fdce26dff2b7",
+    "244": "975992b0027036cb",
+    "245": "f66b62ac5a62a040",
+    "246": "5e2876c5285a828c",
+    "247": "1ffa855a3e8fc2d5",
+    "248": "4ef642387858efc9",
+    "249": "28e0ad61da10b3bd",
+    "250": "11243d276d193600",
+    "251": "2d4aa70c2c017cca",
+    "252": "32e6e3d27008c23a",
+    "253": "5f5110be7c0b7711",
+    "254": "7ed2f4d1c46cf900",
+    "255": "d054cab29306c401",
+    "256": "dd7a05afaa5c4a8c",
+    "257": "dcf401530be5a9a2",
+    "258": "d7f360409d09c59c",
+    "259": "cdad89b4b5b9849a",
+    "260": "c892a2ea0e86aec6",
+    "261": "d0aeb28f1d78ff26",
+    "262": "a3c542971b02acf8",
+    "263": "2f9e00424792c31f",
+    "264": "23a14133b783d5d1",
+    "265": "b3fd0222cfc71d48",
+    "266": "53daba473c680620",
+    "267": "8b6ecb70b5896154",
+    "268": "6d308613326fbe52",
+    "269": "ab5356ce6be3b5e7",
+    "270": "71314e0c0ad3f20b",
+    "271": "1d17da9cb9fd9070",
+    "272": "1dc05766c06b434f",
+    "273": "f98da31166adb4a0",
+    "274": "19936650c87e59dd",
+    "275": "41bb43ef7b7617ee",
+    "276": "bc3b569e0b606092",
+    "277": "fd139e1c25396044",
+    "278": "dc50c5a2ab4e3005",
+    "279": "1f8175c8b41c1fb6",
+    "280": "5023f780419a0412",
+    "281": "32e8e04714bf3ff8",
+    "282": "52a3df73b312fc58",
+    "283": "e7b55a8f47d37aaa",
+    "284": "f08f0a63b20a7b00",
+    "285": "1fafcfca38449403",
+    "286": "148903052474ac7d",
+    "287": "4304a16542e046d0",
+    "288": "4480a10a1c570423",
+    "289": "159c5f0edbeffd8d",
+    "290": "8366354a74656c2f",
+    "291": "a4aac06b43a4aec1",
+    "292": "f4700e6f53af8c24",
+    "293": "918e1b29b0f61d55",
+    "294": "211a4e4546a1f942",
+    "295": "a875a4ccec6ef922",
+    "296": "1c7cde1cb749ee81",
+    "297": "ee768a39d092f255",
+    "298": "fe2d4d22dc14371b",
+    "299": "1e594c948850426f",
+    "300": "eeffcda1e388c011",
+    "301": "be0d58686b38b2a9",
+    "302": "8c23086cfc874ffc",
+    "303": "696c8a3323358f5d",
+    "304": "879bfd3c7f97e1c6",
+    "305": "d4578de0e873e6c5",
+    "306": "0c1f17414238efdf",
+    "307": "e85a04700f57dc98",
+    "308": "327d483aa56858a9",
+    "309": "821d1de8e2cba147",
+    "310": "cc152a33882c49ee",
+    "311": "cb3d0a7d81bef70c",
+    "312": "4752a60cc556d1ab",
+    "313": "1cca3c4ae6edfde5",
+    "314": "7b504743213d383b",
+    "315": "14410f5bb954544a",
+    "316": "148c8892e16c9e98",
+    "317": "16c4ba519ad3a0bd",
+    "318": "f85098b354272907",
+    "319": "82550794cca2d669",
+    "320": "2d54cbbef22fe005",
+    "321": "4492a8acb53e46db",
+    "322": "fbc027cd245a6864",
+    "323": "b7a2c4f5bf0a085d",
+    "324": "c37b6eb5d1940624",
+    "325": "ea3f5547061b5eb9",
+    "326": "25d3f17d0e50ce32",
+    "327": "209fd2c38a1cd549",
+    "328": "03da906d6881c33e",
+    "329": "a1d7d22d24f0d391",
+    "330": "01e58c33fe70506c",
+    "331": "08eae2b8c94cd247",
+    "332": "f9527b2fb34a7169",
+    "333": "944a13c3f14f013a",
+    "334": "adbd4f2615bb6cc0",
+    "335": "e14f4e41d6e3ea95",
+    "336": "73a935187ab173e9",
+    "337": "afd9faea6f4c584c",
+    "338": "c299e1d7f9e9d943",
+    "339": "0c98bd14b2fc8556",
+    "340": "f3d89431dfa30e57",
+    "341": "c15c9b4ef1df054f",
+    "342": "0dea9f790aaf5512",
+    "343": "7e82c01a3f32a045",
+    "344": "31f165a39e70bf66",
+    "345": "a1004b3f97ceb38f",
+    "346": "8e6a90e1c4cf82b4",
+    "347": "d009c9bf2a0eddbf",
+    "348": "9d946c9f85490df6",
+    "349": "335868b94ce9c5f5",
+    "350": "935fe8c7d4e1a134",
+    "351": "cf833fc3904f260e",
+    "352": "f4e4ee6888050a27",
+    "353": "0458597f5e25048d",
+    "354": "b791f0ccc18d4e29",
+    "355": "f36d2813cc172247",
+    "356": "1c5f1f6db39ef8e1",
+    "357": "7845f97610b958d5",
+    "358": "eb81fc8978884d76",
+    "359": "ca919241a12803da",
+    "360": "b73b9f8ca23d9ae2",
+    "361": "64d0da78183ff1cc",
+    "362": "8fa4404ed908a77a",
+    "363": "65f236e9bce23e76",
+    "364": "3d6ef14f6456a977",
+    "365": "fcf4b6c2aa190e7e",
+    "366": "44cef40b3b178d0d",
+    "367": "ed41a2b61071311e",
+    "368": "6f5a665cd9307c46",
+    "369": "24f262654ef3fd30",
+    "370": "bac3f1e3d5b70681",
+    "371": "d672866594372aa5",
+    "372": "6e30929a8903d430",
+    "373": "deda4f52bae6a209",
+    "374": "2c72d43ed386a0c8",
+    "375": "e7366cd6dae1d0f7",
+    "376": "b5d3b0dec96a7863",
+    "377": "5d2a6cf7420c6694",
+    "378": "28d9cb2c075cf863",
+    "379": "84ac8a57fb1b9e2b",
+    "380": "88f4190cff2c33af",
+    "381": "9310d33d465ee917",
+    "382": "26b92b042ab802a6",
+    "383": "18739b8920329757",
+    "384": "735112ec9a7fae34",
+    "385": "b596a2db8d202cda",
+    "386": "079cb0c7b4846065",
+    "387": "9b790d9d9dde2ab5",
+    "388": "c130966e718d23eb",
+    "389": "6206a5b0c3c624f5",
+    "390": "2da22a9fdc11fd5d",
+    "391": "1b35ce245bcf8504",
+    "392": "917c5deee94e0ef2",
+    "393": "5a02747738897ec7",
+    "394": "f35de5ad3d97119e",
+    "395": "917da264d6a2e4d8",
+    "396": "e2345842b53baf7f",
+    "397": "1ae286bd58933299",
+    "398": "9dd45613407decf8",
+    "399": "f4bf3dccc825d099",
+    "400": "1e2300718194e503",
+    "401": "237ed5679fd6d764",
+    "402": "f7f6f9168ba907c1",
+    "403": "85ce2b1f54891326",
+    "404": "da5786db8f701fc2",
+    "405": "d8d3b2804fba0784",
+    "406": "f4e6fa2f9fff673b",
+    "407": "10a0456e38220bb0",
+    "408": "7e6ff757ba7f34d5",
+    "409": "f1c67e4925e34098",
+    "410": "da38d55426dc5b72",
+    "411": "90e27d31b70e130f",
+    "412": "439dd19af7b32c6d",
+    "413": "55ed1ce16aa45787",
+    "414": "aa6ef1261b4d67cb",
+    "415": "4c120106b125887c",
+    "416": "bed155d54a14134f",
+    "417": "106392a7314ed447",
+    "418": "ae36d6467394e094",
+    "419": "dcfd9dd920f065e7",
+    "420": "6f8c780e18351574",
+    "421": "0897f52849839533",
+    "422": "90206511daa2dd09",
+    "423": "78c92b1b574a2266",
+    "424": "1a92003ef7bbe8b3",
+    "425": "feda342b97b249b3",
+    "426": "2d03c267b6a68032",
+    "427": "cb809b238d3d7390",
+    "428": "0a085b9fa2a68280",
+    "429": "53b476ea2dc4e1f8",
+    "430": "367345bc830d9968",
+    "431": "e253bff0624a48ad",
+    "432": "fd3e55786ff06678",
+    "433": "6b201095583d276c",
+    "434": "07aa05fbb39ba1fa",
+    "435": "1d2f8f9a536258ce",
+    "436": "599d372f7b3a1c55",
+    "437": "b58c4be84ed47d81",
+    "438": "91730d0624aa7798",
+    "439": "c1238a12c0f6d3a6",
+    "440": "205410a7cd89adeb",
+    "441": "873ef9da42835825",
+    "442": "856f977fd150e5ec",
+    "443": "8d4d0ed4cd910ea9",
+    "444": "a2fc34cbc002868b",
+    "445": "dc7961ae7c865963",
+    "446": "31f5a1712efad187",
+    "447": "c834e4ad0bbcf147",
+    "448": "d23e1cf2332be4ad",
+    "449": "ffb0d9d1287b9eae",
+    "450": "c49da5a9de390e79",
+    "451": "dc0dd7c6cfe1b101",
+    "452": "f84d11d3af4aa9ae",
+    "453": "28c3e01fd9029b2d",
+    "454": "8b3beedeec9ad47d",
+    "455": "67bb5e9a95c08da0",
+    "456": "3faca5b4b166d94b",
+    "457": "d58c7868d8545ccf",
+    "458": "0c5faa0610b68166",
+    "459": "3bab5c2b146c3545",
+    "460": "efd4879043da04d5",
+    "461": "840d1ee206765457",
+    "462": "4948c9772ed76b22",
+    "463": "e237858c153c1397",
+    "464": "f555c94752406060",
+    "465": "d32d387e8d50f681",
+    "466": "46293f54fc0ff0dd",
+    "467": "4ed0a010e1f91c8b",
+    "468": "7783482459f0f6fd",
+    "469": "22b4180d34905f31",
+    "470": "8888d158a49ef9e7",
+    "471": "57efe3f4f19ebd3d",
+    "472": "b9f4fda29646e3b5",
+    "473": "a1c515d21dac8f46",
+    "474": "b9b563249365b555",
+    "475": "8dd649ef81160f11",
+    "476": "d4993f79fe9d94bc",
+    "477": "b26f9c96872f1b6d",
+    "478": "0cbb3322833ab233",
+    "479": "75f5b884c6f66377",
+    "480": "90be50a76db8a1b7",
+    "481": "c4d8f7fca1cfa29e",
+    "482": "a0b8b12df1dfae41",
+    "483": "fc8dbec49f83471d",
+    "484": "b5f5916a5b3d38bb",
+    "485": "d7f66bc7c5349c69",
+    "486": "7983f21096f52803",
+    "487": "224b6e7c664dd00a",
+    "488": "f57cbdf39bcbfb29",
+    "489": "25208d2a6f1c143a",
+    "490": "8e638b127925d3db",
+    "491": "4fd059e3d5cfa321",
+    "492": "d778912617148ba4",
+    "493": "feece69ede94b356",
+    "494": "2534653cc9e63fc8",
+    "495": "e17285c6086d886e",
+    "496": "2cd6a0a9ccdf632e",
+    "497": "f0a93f8ecc4389b8",
+    "498": "dda5a94facde7fb5",
+    "499": "31998a010754afcf",
+    "500": "17b6ecaf37e4f0f4"
+  },
+  "samples": {
+    "1": {
+      "seed": 1,
+      "combinations": [
+        {
+          "query": "SARAH",
+          "filters": {
+            "archive": "active"
+          },
+          "results": [
+            "person-2 ~ display_name_prefix#2 ~ Name ~ Sarah Ahmed ~  ~  ~ - ~ -",
+            "person-5 ~ display_name_prefix#2 ~ Name ~ Sarah Ahmed ~ event:Met at acme 1 ~  ~ due ~ -",
+            "person-7 ~ current_affiliation#5 ~ Current affiliation ~ Sarah's deputy · NHS ~ memory_fact:Looking for pilot sites ~ NHS ~ due ~ -",
+            "person-4 ~ memory_fact#7 ~ Communication preference ~ sarah ~ memory_fact:sarah ~  ~ - ~ no-contact"
+          ]
+        },
+        {
+          "query": "fellowship",
+          "filters": {
+            "archive": "archived"
+          },
+          "results": []
+        },
+        {
+          "query": "nhs",
+          "filters": {
+            "archive": "all"
+          },
+          "results": [
+            "person-1 ~ display_name_prefix#2 ~ Name ~ NHS Sam ~ memory_fact:email ~  ~ - ~ -",
+            "person-3 ~ display_name_prefix#2 ~ Name ~ NHS Sam ~ affiliation:Fellowship Trust ~ Fellowship Trust ~ - ~ -",
+            "person-6 ~ display_name_prefix#2 ~ Name ~ NHS Sam ~ memory_fact:london ~ Acme ~ - ~ no-contact",
+            "person-7 ~ current_affiliation#5 ~ Current affiliation ~ Sarah's deputy · NHS ~ memory_fact:Looking for pilot sites ~ NHS ~ due ~ -",
+            "person-0 ~ past_affiliation#10 ~ Past affiliation ~ NHS ~ memory_fact:fellowship ~  ~ - ~ -"
+          ]
+        },
+        {
+          "query": "pilot",
+          "filters": {
+            "tags": [
+              "fellowship"
+            ]
+          },
+          "results": []
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "fellowship",
+          "pilot",
+          "sam"
+        ],
+        "currentOrganisations": [
+          "Acme",
+          "Fellowship Trust",
+          "NHS"
+        ],
+        "events": [
+          "acme 1",
+          "sarah 0"
+        ],
+        "relationshipStages": [
+          "new",
+          "growing"
+        ]
+      }
+    },
+    "2": {
+      "seed": 2,
+      "combinations": [
+        {
+          "query": "london",
+          "filters": {
+            "archive": "archived"
+          },
+          "results": []
+        },
+        {
+          "query": "acme",
+          "filters": {
+            "archive": "all"
+          },
+          "results": [
+            "person-4 ~ current_affiliation#5 ~ Current affiliation ~ Acme ~ affiliation:Acme ~ Acme ~ - ~ -",
+            "person-3 ~ current_affiliation#5 ~ Current affiliation ~ Acme ~ memory_fact:nhs ~ Acme ~ - ~ -",
+            "person-0 ~ memory_fact#7 ~ Family ~ acme ~  ~  ~ due ~ -",
+            "person-2 ~ tag#8 ~ Tag ~ acme ~ memory_fact:sam ~  ~ due ~ -",
+            "person-10 ~ reach_out#11 ~ Reach Out reason ~ Reconnect about acme ~ affiliation:Fellow at Fellowship Trust ~ Fellowship Trust ~ - ~ -"
+          ]
+        },
+        {
+          "query": "sarah ahmed",
+          "filters": {
+            "tags": [
+              "fellowship"
+            ]
+          },
+          "results": [
+            "person-7 ~ display_name_exact#1 ~ Name ~ sarah ahmed ~  ~  ~ - ~ no-contact"
+          ]
+        },
+        {
+          "query": "ahm",
+          "filters": {
+            "currentOrganisations": [
+              "Acme"
+            ]
+          },
+          "results": []
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "acme",
+          "fellowship",
+          "london",
+          "pilot",
+          "sam",
+          "sarah"
+        ],
+        "currentOrganisations": [
+          "Acme",
+          "Fellowship Trust",
+          "NHS"
+        ],
+        "events": [
+          "fellowship 0",
+          "nhs 1"
+        ],
+        "relationshipStages": [
+          "new",
+          "growing"
+        ]
+      }
+    },
+    "3": {
+      "seed": 3,
+      "combinations": [
+        {
+          "query": "+447900123456",
+          "filters": {
+            "archive": "all"
+          },
+          "results": [
+            "person-3 ~ contact_identity#4 ~ Phone ~ 07900 123456 ~ memory_fact:Email ~  ~ - ~ -",
+            "person-0 ~ contact_identity#4 ~ Phone ~ 07900 123456 ~ memory_fact:pilot ~  ~ - ~ -",
+            "person-8 ~ contact_identity#4 ~ Phone ~ 07900 123456 ~ event:Met at nhs 2 ~  ~ due ~ -",
+            "person-5 ~ contact_identity#4 ~ Phone ~ 07900 123456 ~ memory_fact:nhs ~  ~ - ~ -",
+            "person-9 ~ contact_identity#4 ~ Phone ~ 07900 123456 ~ event:Met at sarah 1 ~  ~ due ~ -"
+          ]
+        },
+        {
+          "query": "07900 123456",
+          "filters": {
+            "tags": [
+              "fellowship"
+            ]
+          },
+          "results": [
+            "person-3 ~ contact_identity#4 ~ Phone ~ 07900 123456 ~ memory_fact:Email ~  ~ - ~ -"
+          ]
+        },
+        {
+          "query": "07900123456",
+          "filters": {
+            "currentOrganisations": [
+              "Acme"
+            ]
+          },
+          "results": []
+        },
+        {
+          "query": "person3@example.org",
+          "filters": {
+            "relationshipStages": [
+              "new"
+            ]
+          },
+          "results": [
+            "person-3 ~ contact_identity#4 ~ Email ~ person3@example.org ~ memory_fact:Email ~  ~ - ~ -"
+          ]
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "fellowship",
+          "london",
+          "sarah"
+        ],
+        "currentOrganisations": [],
+        "events": [
+          "nhs 2",
+          "sarah 0",
+          "sarah 1"
+        ],
+        "relationshipStages": [
+          "new",
+          "growing"
+        ]
+      }
+    },
+    "4": {
+      "seed": 4,
+      "combinations": [
+        {
+          "query": "PERSON3@EXAMPLE.ORG",
+          "filters": {
+            "tags": [
+              "fellowship"
+            ]
+          },
+          "results": []
+        },
+        {
+          "query": "zzzz no match",
+          "filters": {
+            "currentOrganisations": [
+              "Acme"
+            ]
+          },
+          "results": []
+        },
+        {
+          "query": "a",
+          "filters": {
+            "relationshipStages": [
+              "new"
+            ]
+          },
+          "results": [
+            "person-5 ~ current_affiliation#5 ~ Current affiliation ~ Acme ~ affiliation:Acme ~ Acme ~ - ~ no-contact",
+            "person-6 ~ memory_fact#7 ~ Other ~ acme ~ memory_fact:acme ~  ~ - ~ -",
+            "person-0 ~ reach_out#11 ~ Reach Out context ~ acme context 2 ~ memory_fact:whatsapp ~  ~ - ~ -"
+          ]
+        },
+        {
+          "query": "",
+          "filters": {
+            "relationshipStages": [
+              "growing",
+              "established"
+            ]
+          },
+          "results": [
+            "person-4 ~ - ~  ~  ~ memory_fact:nhs ~  ~ - ~ -"
+          ]
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "nhs",
+          "sarah"
+        ],
+        "currentOrganisations": [
+          "Acme",
+          "NHS"
+        ],
+        "events": [
+          "fellowship 0",
+          "nhs 2",
+          "sarah 1"
+        ],
+        "relationshipStages": [
+          "new",
+          "growing"
+        ]
+      }
+    },
+    "5": {
+      "seed": 5,
+      "combinations": [
+        {
+          "query": "sarah",
+          "filters": {
+            "currentOrganisations": [
+              "Acme"
+            ]
+          },
+          "results": []
+        },
+        {
+          "query": "sam",
+          "filters": {
+            "relationshipStages": [
+              "new"
+            ]
+          },
+          "results": [
+            "person-2 ~ display_name_prefix#2 ~ Name ~ Sam Okonkwo ~ memory_fact:sam ~  ~ due ~ no-contact",
+            "person-7 ~ display_name_prefix#2 ~ Name ~ Sam Okonkwo ~ memory_fact:fellowship ~  ~ - ~ -"
+          ]
+        },
+        {
+          "query": "sára",
+          "filters": {
+            "relationshipStages": [
+              "growing",
+              "established"
+            ]
+          },
+          "results": [
+            "person-1 ~ display_name_prefix#2 ~ Name ~ Sarah Ahmed ~ memory_fact:sam ~  ~ - ~ -"
+          ]
+        },
+        {
+          "query": "SARAH",
+          "filters": {
+            "hasDueFollowUp": true
+          },
+          "results": [
+            "person-8 ~ name_token_prefix#3 ~ Name ~ Pilot Sarah ~  ~  ~ due ~ no-contact"
+          ]
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "acme",
+          "fellowship",
+          "sarah"
+        ],
+        "currentOrganisations": [
+          "Fellowship Trust"
+        ],
+        "events": [
+          "pilot 1",
+          "pilot 2"
+        ],
+        "relationshipStages": [
+          "new",
+          "growing"
+        ]
+      }
+    },
+    "6": {
+      "seed": 6,
+      "combinations": [
+        {
+          "query": "fellowship",
+          "filters": {
+            "relationshipStages": [
+              "new"
+            ]
+          },
+          "results": [
+            "person-6 ~ current_affiliation#5 ~ Current affiliation ~ Fellowship Trust ~ affiliation:Fellowship Trust ~ Fellowship Trust ~ - ~ -",
+            "person-11 ~ memory_fact#7 ~ Communication preference ~ fellowship ~ memory_fact:acme ~  ~ - ~ -"
+          ]
+        },
+        {
+          "query": "nhs",
+          "filters": {
+            "relationshipStages": [
+              "growing",
+              "established"
+            ]
+          },
+          "results": []
+        },
+        {
+          "query": "pilot",
+          "filters": {
+            "hasDueFollowUp": true
+          },
+          "results": []
+        },
+        {
+          "query": "london",
+          "filters": {
+            "missingContactDetails": true
+          },
+          "results": [
+            "person-7 ~ reach_out#11 ~ Reach Out reason ~ Reconnect about london ~  ~  ~ - ~ no-contact"
+          ]
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "acme",
+          "sam",
+          "sarah"
+        ],
+        "currentOrganisations": [
+          "Acme",
+          "Fellowship Trust"
+        ],
+        "events": [
+          "sam 1",
+          "sarah 0"
+        ],
+        "relationshipStages": [
+          "new",
+          "growing"
+        ]
+      }
+    },
+    "7": {
+      "seed": 7,
+      "combinations": [
+        {
+          "query": "acme",
+          "filters": {
+            "relationshipStages": [
+              "growing",
+              "established"
+            ]
+          },
+          "results": []
+        },
+        {
+          "query": "sarah ahmed",
+          "filters": {
+            "hasDueFollowUp": true
+          },
+          "results": []
+        },
+        {
+          "query": "ahm",
+          "filters": {
+            "missingContactDetails": true
+          },
+          "results": []
+        },
+        {
+          "query": "+447900123456",
+          "filters": {
+            "archive": "all",
+            "tags": [
+              "nhs"
+            ],
+            "hasDueFollowUp": false
+          },
+          "results": []
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "acme",
+          "fellowship",
+          "london",
+          "sarah"
+        ],
+        "currentOrganisations": [
+          "Acme",
+          "NHS"
+        ],
+        "events": [
+          "sarah 0"
+        ],
+        "relationshipStages": [
+          "new",
+          "growing"
+        ]
+      }
+    },
+    "8": {
+      "seed": 8,
+      "combinations": [
+        {
+          "query": "07900 123456",
+          "filters": {
+            "hasDueFollowUp": true
+          },
+          "results": [
+            "person-3 ~ contact_identity#4 ~ Phone ~ 07900 123456 ~  ~  ~ due ~ -"
+          ]
+        },
+        {
+          "query": "07900123456",
+          "filters": {
+            "missingContactDetails": true
+          },
+          "results": []
+        },
+        {
+          "query": "person3@example.org",
+          "filters": {
+            "archive": "all",
+            "tags": [
+              "nhs"
+            ],
+            "hasDueFollowUp": false
+          },
+          "results": []
+        },
+        {
+          "query": "PERSON3@EXAMPLE.ORG",
+          "filters": {},
+          "results": []
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "pilot"
+        ],
+        "currentOrganisations": [
+          "Acme",
+          "Fellowship Trust",
+          "NHS"
+        ],
+        "events": [
+          "pilot 0"
+        ],
+        "relationshipStages": [
+          "new",
+          "growing"
+        ]
+      }
+    },
+    "9": {
+      "seed": 9,
+      "combinations": [
+        {
+          "query": "zzzz no match",
+          "filters": {
+            "missingContactDetails": true
+          },
+          "results": []
+        },
+        {
+          "query": "a",
+          "filters": {
+            "archive": "all",
+            "tags": [
+              "nhs"
+            ],
+            "hasDueFollowUp": false
+          },
+          "results": []
+        },
+        {
+          "query": "",
+          "filters": {},
+          "results": [
+            "person-5 ~ - ~  ~  ~  ~  ~ - ~ -",
+            "person-6 ~ - ~  ~  ~ memory_fact:acme ~  ~ due ~ no-contact",
+            "person-0 ~ - ~  ~  ~ memory_fact:sam ~  ~ - ~ no-contact"
+          ]
+        },
+        {
+          "query": "sarah",
+          "filters": {
+            "archive": "active"
+          },
+          "results": [
+            "person-0 ~ display_name_prefix#2 ~ Name ~ sarah ahmed ~ memory_fact:sam ~  ~ - ~ no-contact",
+            "person-6 ~ display_name_prefix#2 ~ Name ~ Sarah Ahmed ~ memory_fact:acme ~  ~ due ~ no-contact"
+          ]
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "fellowship",
+          "london"
+        ],
+        "currentOrganisations": [
+          "Acme",
+          "Fellowship Trust",
+          "NHS"
+        ],
+        "events": [
+          "london 0"
+        ],
+        "relationshipStages": [
+          "new",
+          "growing"
+        ]
+      }
+    },
+    "10": {
+      "seed": 10,
+      "combinations": [
+        {
+          "query": "sam",
+          "filters": {
+            "archive": "all",
+            "tags": [
+              "nhs"
+            ],
+            "hasDueFollowUp": false
+          },
+          "results": []
+        },
+        {
+          "query": "sára",
+          "filters": {},
+          "results": [
+            "person-1 ~ display_name_prefix#2 ~ Name ~ Sára Novak ~  ~  ~ - ~ -",
+            "person-4 ~ display_name_prefix#2 ~ Name ~ Sára Novak ~ memory_fact:pilot ~  ~ due ~ -",
+            "person-3 ~ display_name_prefix#2 ~ Name ~ sarah ahmed ~  ~  ~ due ~ -",
+            "person-2 ~ display_name_prefix#2 ~ Name ~ Sarah Ahmed ~ memory_fact:Email ~ Acme ~ - ~ no-contact"
+          ]
+        },
+        {
+          "query": "SARAH",
+          "filters": {
+            "archive": "active"
+          },
+          "results": [
+            "person-3 ~ display_name_prefix#2 ~ Name ~ sarah ahmed ~  ~  ~ due ~ -",
+            "person-2 ~ display_name_prefix#2 ~ Name ~ Sarah Ahmed ~ memory_fact:Email ~ Acme ~ - ~ no-contact"
+          ]
+        },
+        {
+          "query": "fellowship",
+          "filters": {
+            "archive": "archived"
+          },
+          "results": []
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "acme",
+          "fellowship"
+        ],
+        "currentOrganisations": [
+          "Acme",
+          "NHS"
+        ],
+        "events": [],
+        "relationshipStages": [
+          "new"
+        ]
+      }
+    },
+    "11": {
+      "seed": 11,
+      "combinations": [
+        {
+          "query": "nhs",
+          "filters": {},
+          "results": [
+            "person-3 ~ display_name_prefix#2 ~ Name ~ NHS Sam ~ memory_fact:sarah ~  ~ due ~ -"
+          ]
+        },
+        {
+          "query": "pilot",
+          "filters": {
+            "archive": "active"
+          },
+          "results": [
+            "person-0 ~ event#6 ~ Event ~ pilot 1 ~ affiliation:Fellowship Trust ~ Fellowship Trust ~ - ~ no-contact",
+            "person-3 ~ past_affiliation#10 ~ Past affiliation ~ Pilot lead · Acme ~ memory_fact:sarah ~  ~ due ~ -"
+          ]
+        },
+        {
+          "query": "london",
+          "filters": {
+            "archive": "archived"
+          },
+          "results": []
+        },
+        {
+          "query": "acme",
+          "filters": {
+            "archive": "all"
+          },
+          "results": [
+            "person-1 ~ current_affiliation#5 ~ Current affiliation ~ Acme ~ affiliation:Acme ~ Acme ~ - ~ -",
+            "person-3 ~ memory_fact#7 ~ Interest ~ acme ~ memory_fact:sarah ~  ~ due ~ -"
+          ]
+        }
+      ],
+      "filterOptions": {
+        "tags": [],
+        "currentOrganisations": [
+          "Acme",
+          "Fellowship Trust"
+        ],
+        "events": [
+          "pilot 1"
+        ],
+        "relationshipStages": [
+          "new"
+        ]
+      }
+    },
+    "12": {
+      "seed": 12,
+      "combinations": [
+        {
+          "query": "sarah ahmed",
+          "filters": {
+            "archive": "active"
+          },
+          "results": [
+            "person-0 ~ display_name_exact#1 ~ Name ~ sarah ahmed ~ memory_fact:fellowship ~ NHS ~ - ~ -",
+            "person-1 ~ display_name_exact#1 ~ Name ~ Sarah Ahmed ~ affiliation:Pilot lead at Fellowship Trust ~ Fellowship Trust ~ due ~ -"
+          ]
+        },
+        {
+          "query": "ahm",
+          "filters": {
+            "archive": "archived"
+          },
+          "results": []
+        },
+        {
+          "query": "+447900123456",
+          "filters": {
+            "archive": "all"
+          },
+          "results": [
+            "person-5 ~ contact_identity#4 ~ Phone ~ 07900 123456 ~ memory_fact:sarah ~ Fellowship Trust ~ - ~ -",
+            "person-1 ~ contact_identity#4 ~ Phone ~ 07900 123456 ~ affiliation:Pilot lead at Fellowship Trust ~ Fellowship Trust ~ due ~ -"
+          ]
+        },
+        {
+          "query": "07900 123456",
+          "filters": {
+            "tags": [
+              "fellowship"
+            ]
+          },
+          "results": []
+        }
+      ],
+      "filterOptions": {
+        "tags": [],
+        "currentOrganisations": [
+          "Fellowship Trust",
+          "NHS"
+        ],
+        "events": [
+          "sarah 0"
+        ],
+        "relationshipStages": [
+          "new",
+          "growing"
+        ]
+      }
+    },
+    "13": {
+      "seed": 13,
+      "combinations": [
+        {
+          "query": "07900123456",
+          "filters": {
+            "archive": "archived"
+          },
+          "results": [
+            "person-2 ~ contact_identity#4 ~ Phone ~ 07900 123456 ~ memory_fact:sam ~ Fellowship Trust ~ - ~ -"
+          ]
+        },
+        {
+          "query": "person3@example.org",
+          "filters": {
+            "archive": "all"
+          },
+          "results": []
+        },
+        {
+          "query": "PERSON3@EXAMPLE.ORG",
+          "filters": {
+            "tags": [
+              "fellowship"
+            ]
+          },
+          "results": []
+        },
+        {
+          "query": "zzzz no match",
+          "filters": {
+            "currentOrganisations": [
+              "Acme"
+            ]
+          },
+          "results": []
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "sam"
+        ],
+        "currentOrganisations": [
+          "Acme",
+          "Fellowship Trust",
+          "NHS"
+        ],
+        "events": [
+          "sarah 1"
+        ],
+        "relationshipStages": [
+          "new"
+        ]
+      }
+    },
+    "14": {
+      "seed": 14,
+      "combinations": [
+        {
+          "query": "a",
+          "filters": {
+            "archive": "all"
+          },
+          "results": [
+            "person-2 ~ name_token_prefix#3 ~ Name ~ Sarah Ahmed ~ affiliation:Fellow at Fellowship Trust ~ Fellowship Trust ~ - ~ no-contact",
+            "person-5 ~ note#9 ~ Note ~ Talked about london ~ affiliation:Fellow at NHS ~ NHS ~ due ~ no-contact"
+          ]
+        },
+        {
+          "query": "",
+          "filters": {
+            "tags": [
+              "fellowship"
+            ]
+          },
+          "results": []
+        },
+        {
+          "query": "sarah",
+          "filters": {
+            "currentOrganisations": [
+              "Acme"
+            ]
+          },
+          "results": []
+        },
+        {
+          "query": "sam",
+          "filters": {
+            "relationshipStages": [
+              "new"
+            ]
+          },
+          "results": [
+            "person-5 ~ display_name_prefix#2 ~ Name ~ Sam Okonkwo ~ affiliation:Fellow at NHS ~ NHS ~ due ~ no-contact",
+            "person-7 ~ tag#8 ~ Tag ~ sam ~ memory_fact:Looking for pilot sites ~  ~ due ~ -"
+          ]
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "london",
+          "sam"
+        ],
+        "currentOrganisations": [
+          "Fellowship Trust",
+          "NHS"
+        ],
+        "events": [
+          "fellowship 1"
+        ],
+        "relationshipStages": [
+          "new"
+        ]
+      }
+    },
+    "15": {
+      "seed": 15,
+      "combinations": [
+        {
+          "query": "sára",
+          "filters": {
+            "tags": [
+              "fellowship"
+            ]
+          },
+          "results": []
+        },
+        {
+          "query": "SARAH",
+          "filters": {
+            "currentOrganisations": [
+              "Acme"
+            ]
+          },
+          "results": [
+            "person-7 ~ current_affiliation#5 ~ Current affiliation ~ Sarah's deputy · NHS ~ memory_fact:pilot ~ Acme ~ - ~ -"
+          ]
+        },
+        {
+          "query": "fellowship",
+          "filters": {
+            "relationshipStages": [
+              "new"
+            ]
+          },
+          "results": [
+            "person-7 ~ event#6 ~ Event ~ fellowship 0 ~ memory_fact:pilot ~ Acme ~ - ~ -",
+            "person-4 ~ event#6 ~ Event ~ fellowship 0 ~  ~  ~ due ~ no-contact",
+            "person-3 ~ event#6 ~ Event ~ fellowship 0 ~ memory_fact:Looking for pilot sites ~  ~ - ~ -"
+          ]
+        },
+        {
+          "query": "nhs",
+          "filters": {
+            "relationshipStages": [
+              "growing",
+              "established"
+            ]
+          },
+          "results": []
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "london",
+          "sam",
+          "sarah"
+        ],
+        "currentOrganisations": [
+          "Acme",
+          "NHS"
+        ],
+        "events": [
+          "fellowship 0"
+        ],
+        "relationshipStages": [
+          "new",
+          "growing"
+        ]
+      }
+    },
+    "16": {
+      "seed": 16,
+      "combinations": [
+        {
+          "query": "pilot",
+          "filters": {
+            "currentOrganisations": [
+              "Acme"
+            ]
+          },
+          "results": []
+        },
+        {
+          "query": "london",
+          "filters": {
+            "relationshipStages": [
+              "new"
+            ]
+          },
+          "results": []
+        },
+        {
+          "query": "acme",
+          "filters": {
+            "relationshipStages": [
+              "growing",
+              "established"
+            ]
+          },
+          "results": [
+            "person-5 ~ current_affiliation#5 ~ Current affiliation ~ Fellow · Acme ~ memory_fact:nhs ~ Acme ~ due ~ -"
+          ]
+        },
+        {
+          "query": "sarah ahmed",
+          "filters": {
+            "hasDueFollowUp": true
+          },
+          "results": [
+            "person-1 ~ display_name_exact#1 ~ Name ~ sarah ahmed ~ event:Met at fellowship 1 ~  ~ due ~ -",
+            "person-5 ~ display_name_exact#1 ~ Name ~ sarah ahmed ~ memory_fact:nhs ~ Acme ~ due ~ -"
+          ]
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "acme",
+          "fellowship",
+          "sam",
+          "sarah"
+        ],
+        "currentOrganisations": [
+          "Acme",
+          "Fellowship Trust"
+        ],
+        "events": [
+          "fellowship 1",
+          "sam 0"
+        ],
+        "relationshipStages": [
+          "new",
+          "growing"
+        ]
+      }
+    },
+    "17": {
+      "seed": 17,
+      "combinations": [
+        {
+          "query": "ahm",
+          "filters": {
+            "relationshipStages": [
+              "new"
+            ]
+          },
+          "results": [
+            "person-1 ~ name_token_prefix#3 ~ Name ~ sarah ahmed ~ affiliation:Fellow at Fellowship Trust ~ Fellowship Trust ~ - ~ no-contact",
+            "person-4 ~ name_token_prefix#3 ~ Name ~ Sarah Ahmed ~ memory_fact:Looking for pilot sites ~ NHS ~ - ~ -"
+          ]
+        },
+        {
+          "query": "+447900123456",
+          "filters": {
+            "relationshipStages": [
+              "growing",
+              "established"
+            ]
+          },
+          "results": [
+            "person-0 ~ contact_identity#4 ~ Phone ~ 07900 123456 ~ event:Met at sam 0 ~ Acme ~ - ~ -"
+          ]
+        },
+        {
+          "query": "07900 123456",
+          "filters": {
+            "hasDueFollowUp": true
+          },
+          "results": []
+        },
+        {
+          "query": "07900123456",
+          "filters": {
+            "missingContactDetails": true
+          },
+          "results": []
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "london",
+          "nhs"
+        ],
+        "currentOrganisations": [
+          "Acme",
+          "Fellowship Trust",
+          "NHS"
+        ],
+        "events": [
+          "london 2",
+          "sam 0",
+          "sam 1"
+        ],
+        "relationshipStages": [
+          "new",
+          "growing"
+        ]
+      }
+    },
+    "18": {
+      "seed": 18,
+      "combinations": [
+        {
+          "query": "person3@example.org",
+          "filters": {
+            "relationshipStages": [
+              "growing",
+              "established"
+            ]
+          },
+          "results": []
+        },
+        {
+          "query": "PERSON3@EXAMPLE.ORG",
+          "filters": {
+            "hasDueFollowUp": true
+          },
+          "results": []
+        },
+        {
+          "query": "zzzz no match",
+          "filters": {
+            "missingContactDetails": true
+          },
+          "results": []
+        },
+        {
+          "query": "a",
+          "filters": {
+            "archive": "all",
+            "tags": [
+              "nhs"
+            ],
+            "hasDueFollowUp": false
+          },
+          "results": []
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "acme",
+          "pilot",
+          "sam"
+        ],
+        "currentOrganisations": [
+          "Acme",
+          "Fellowship Trust"
+        ],
+        "events": [
+          "pilot 0",
+          "sam 1"
+        ],
+        "relationshipStages": [
+          "new"
+        ]
+      }
+    },
+    "19": {
+      "seed": 19,
+      "combinations": [
+        {
+          "query": "",
+          "filters": {
+            "hasDueFollowUp": true
+          },
+          "results": []
+        },
+        {
+          "query": "sarah",
+          "filters": {
+            "missingContactDetails": true
+          },
+          "results": [
+            "person-1 ~ display_name_prefix#2 ~ Name ~ sarah ahmed ~ affiliation:Fellow at Fellowship Trust ~ Fellowship Trust ~ - ~ no-contact"
+          ]
+        },
+        {
+          "query": "sam",
+          "filters": {
+            "archive": "all",
+            "tags": [
+              "nhs"
+            ],
+            "hasDueFollowUp": false
+          },
+          "results": [
+            "person-5 ~ display_name_prefix#2 ~ Name ~ Sam Okonkwo ~  ~  ~ - ~ -"
+          ]
+        },
+        {
+          "query": "sára",
+          "filters": {},
+          "results": [
+            "person-0 ~ display_name_prefix#2 ~ Name ~ Sára Novak ~  ~  ~ - ~ -",
+            "person-1 ~ display_name_prefix#2 ~ Name ~ sarah ahmed ~ affiliation:Fellow at Fellowship Trust ~ Fellowship Trust ~ - ~ no-contact",
+            "person-4 ~ display_name_prefix#2 ~ Name ~ Sarah Ahmed ~ memory_fact:whatsapp ~  ~ - ~ -"
+          ]
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "acme",
+          "fellowship",
+          "london",
+          "nhs",
+          "pilot"
+        ],
+        "currentOrganisations": [
+          "Acme",
+          "Fellowship Trust",
+          "NHS"
+        ],
+        "events": [
+          "fellowship 0"
+        ],
+        "relationshipStages": [
+          "new",
+          "growing"
+        ]
+      }
+    },
+    "20": {
+      "seed": 20,
+      "combinations": [
+        {
+          "query": "SARAH",
+          "filters": {
+            "missingContactDetails": true
+          },
+          "results": [
+            "person-3 ~ name_token_prefix#3 ~ Name ~ Pilot Sarah ~ memory_fact:sam ~  ~ due ~ no-contact",
+            "person-0 ~ reach_out#11 ~ Reach Out reason ~ Reconnect about sarah ~  ~  ~ due ~ no-contact"
+          ]
+        },
+        {
+          "query": "fellowship",
+          "filters": {
+            "archive": "all",
+            "tags": [
+              "nhs"
+            ],
+            "hasDueFollowUp": false
+          },
+          "results": []
+        },
+        {
+          "query": "nhs",
+          "filters": {},
+          "results": [
+            "person-0 ~ display_name_prefix#2 ~ Name ~ NHS Sam ~  ~  ~ due ~ no-contact",
+            "person-7 ~ current_affiliation#5 ~ Current affiliation ~ NHS ~ memory_fact:pilot ~ NHS ~ due ~ -",
+            "person-3 ~ memory_fact#7 ~ Other ~ nhs ~ memory_fact:sam ~  ~ due ~ no-contact"
+          ]
+        },
+        {
+          "query": "pilot",
+          "filters": {
+            "archive": "active"
+          },
+          "results": [
+            "person-3 ~ display_name_prefix#2 ~ Name ~ Pilot Sarah ~ memory_fact:sam ~  ~ due ~ no-contact",
+            "person-7 ~ memory_fact#7 ~ Interest ~ pilot ~ memory_fact:pilot ~ NHS ~ due ~ -",
+            "person-6 ~ tag#8 ~ Tag ~ pilot ~ event:Met at sam 2 ~  ~ - ~ -"
+          ]
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "fellowship",
+          "nhs",
+          "pilot",
+          "sarah"
+        ],
+        "currentOrganisations": [
+          "Acme",
+          "Fellowship Trust",
+          "NHS"
+        ],
+        "events": [
+          "fellowship 0",
+          "sam 2"
+        ],
+        "relationshipStages": [
+          "new",
+          "growing"
+        ]
+      }
+    },
+    "21": {
+      "seed": 21,
+      "combinations": [
+        {
+          "query": "london",
+          "filters": {
+            "archive": "all",
+            "tags": [
+              "nhs"
+            ],
+            "hasDueFollowUp": false
+          },
+          "results": []
+        },
+        {
+          "query": "acme",
+          "filters": {},
+          "results": [
+            "person-4 ~ tag#8 ~ Tag ~ acme ~ affiliation:Fellow at NHS ~ NHS ~ - ~ -"
+          ]
+        },
+        {
+          "query": "sarah ahmed",
+          "filters": {
+            "archive": "active"
+          },
+          "results": []
+        },
+        {
+          "query": "ahm",
+          "filters": {
+            "archive": "archived"
+          },
+          "results": [
+            "person-0 ~ name_token_prefix#3 ~ Name ~ Sarah Ahmed ~ memory_fact:fellowship ~ NHS ~ - ~ no-contact"
+          ]
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "acme",
+          "nhs"
+        ],
+        "currentOrganisations": [
+          "NHS"
+        ],
+        "events": [
+          "fellowship 1",
+          "nhs 0"
+        ],
+        "relationshipStages": [
+          "new",
+          "growing"
+        ]
+      }
+    },
+    "22": {
+      "seed": 22,
+      "combinations": [
+        {
+          "query": "+447900123456",
+          "filters": {},
+          "results": [
+            "person-5 ~ contact_identity#4 ~ Phone ~ 07900 123456 ~ affiliation:Fellow at Acme ~ Acme ~ due ~ -",
+            "person-2 ~ contact_identity#4 ~ Phone ~ 07900 123456 ~ event:Met at sam 0 ~ Acme ~ - ~ -",
+            "person-0 ~ contact_identity#4 ~ Phone ~ 07900 123456 ~ memory_fact:sarah ~ NHS ~ due ~ -",
+            "person-4 ~ contact_identity#4 ~ Phone ~ 07900 123456 ~ memory_fact:sam ~  ~ - ~ -"
+          ]
+        },
+        {
+          "query": "07900 123456",
+          "filters": {
+            "archive": "active"
+          },
+          "results": [
+            "person-5 ~ contact_identity#4 ~ Phone ~ 07900 123456 ~ affiliation:Fellow at Acme ~ Acme ~ due ~ -",
+            "person-2 ~ contact_identity#4 ~ Phone ~ 07900 123456 ~ event:Met at sam 0 ~ Acme ~ - ~ -",
+            "person-0 ~ contact_identity#4 ~ Phone ~ 07900 123456 ~ memory_fact:sarah ~ NHS ~ due ~ -",
+            "person-4 ~ contact_identity#4 ~ Phone ~ 07900 123456 ~ memory_fact:sam ~  ~ - ~ -"
+          ]
+        },
+        {
+          "query": "07900123456",
+          "filters": {
+            "archive": "archived"
+          },
+          "results": [
+            "person-1 ~ contact_identity#4 ~ Phone ~ 07900 123456 ~ memory_fact:nhs ~ NHS ~ due ~ -"
+          ]
+        },
+        {
+          "query": "person3@example.org",
+          "filters": {
+            "archive": "all"
+          },
+          "results": []
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "london",
+          "nhs",
+          "pilot"
+        ],
+        "currentOrganisations": [
+          "Acme",
+          "NHS"
+        ],
+        "events": [
+          "sam 0"
+        ],
+        "relationshipStages": [
+          "new",
+          "growing"
+        ]
+      }
+    },
+    "23": {
+      "seed": 23,
+      "combinations": [
+        {
+          "query": "PERSON3@EXAMPLE.ORG",
+          "filters": {
+            "archive": "active"
+          },
+          "results": []
+        },
+        {
+          "query": "zzzz no match",
+          "filters": {
+            "archive": "archived"
+          },
+          "results": []
+        },
+        {
+          "query": "a",
+          "filters": {
+            "archive": "all"
+          },
+          "results": [
+            "person-2 ~ name_token_prefix#3 ~ Name ~ Sarah Ahmed ~ event:Met at sarah 0 ~  ~ - ~ -",
+            "person-0 ~ note#9 ~ Note ~ Talked about fellowship ~ memory_fact:sam ~  ~ - ~ no-contact"
+          ]
+        },
+        {
+          "query": "",
+          "filters": {
+            "tags": [
+              "fellowship"
+            ]
+          },
+          "results": []
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "london",
+          "pilot",
+          "sam"
+        ],
+        "currentOrganisations": [],
+        "events": [
+          "sarah 0"
+        ],
+        "relationshipStages": [
+          "new",
+          "growing"
+        ]
+      }
+    },
+    "24": {
+      "seed": 24,
+      "combinations": [
+        {
+          "query": "sarah",
+          "filters": {
+            "archive": "archived"
+          },
+          "results": [
+            "person-5 ~ display_name_prefix#2 ~ Name ~ sarah ahmed ~ memory_fact:nhs ~  ~ - ~ -"
+          ]
+        },
+        {
+          "query": "sam",
+          "filters": {
+            "archive": "all"
+          },
+          "results": [
+            "person-1 ~ display_name_prefix#2 ~ Name ~ Sam Okonkwo ~ memory_fact:fellowship ~ Fellowship Trust ~ due ~ no-contact",
+            "person-2 ~ display_name_prefix#2 ~ Name ~ Sam Okonkwo ~  ~  ~ - ~ -",
+            "person-4 ~ name_token_prefix#3 ~ Name ~ NHS Sam ~ memory_fact:sarah ~ Fellowship Trust ~ due ~ -",
+            "person-0 ~ name_token_prefix#3 ~ Name ~ NHS Sam ~ memory_fact:Looking for pilot sites ~  ~ - ~ -"
+          ]
+        },
+        {
+          "query": "sára",
+          "filters": {
+            "tags": [
+              "fellowship"
+            ]
+          },
+          "results": []
+        },
+        {
+          "query": "SARAH",
+          "filters": {
+            "currentOrganisations": [
+              "Acme"
+            ]
+          },
+          "results": [
+            "person-6 ~ display_name_prefix#2 ~ Name ~ sarah ahmed ~ memory_fact:email ~ Acme ~ - ~ no-contact"
+          ]
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "acme",
+          "london",
+          "pilot"
+        ],
+        "currentOrganisations": [
+          "Acme",
+          "Fellowship Trust",
+          "NHS"
+        ],
+        "events": [
+          "acme 0"
+        ],
+        "relationshipStages": [
+          "new",
+          "growing"
+        ]
+      }
+    },
+    "25": {
+      "seed": 25,
+      "combinations": [
+        {
+          "query": "fellowship",
+          "filters": {
+            "archive": "all"
+          },
+          "results": [
+            "person-0 ~ current_affiliation#5 ~ Current affiliation ~ Fellowship Trust ~ memory_fact:pilot ~ Fellowship Trust ~ - ~ -"
+          ]
+        },
+        {
+          "query": "nhs",
+          "filters": {
+            "tags": [
+              "fellowship"
+            ]
+          },
+          "results": []
+        },
+        {
+          "query": "pilot",
+          "filters": {
+            "currentOrganisations": [
+              "Acme"
+            ]
+          },
+          "results": [
+            "person-6 ~ current_affiliation#5 ~ Current affiliation ~ Pilot lead · Acme ~ memory_fact:whatsapp ~ Acme ~ - ~ no-contact"
+          ]
+        },
+        {
+          "query": "london",
+          "filters": {
+            "relationshipStages": [
+              "new"
+            ]
+          },
+          "results": [
+            "person-3 ~ event#6 ~ Event ~ london 1 ~ memory_fact:Looking for pilot sites ~  ~ - ~ -",
+            "person-2 ~ event#6 ~ Event ~ london 1 ~  ~  ~ - ~ -",
+            "person-0 ~ event#6 ~ Event ~ london 0 ~ memory_fact:pilot ~ Fellowship Trust ~ - ~ -"
+          ]
+        }
+      ],
+      "filterOptions": {
+        "tags": [
+          "london"
+        ],
+        "currentOrganisations": [
+          "Acme",
+          "Fellowship Trust"
+        ],
+        "events": [
+          "london 0",
+          "london 1"
+        ],
+        "relationshipStages": [
+          "new"
+        ]
+      }
+    }
+  }
+}
