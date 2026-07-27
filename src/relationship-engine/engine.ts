@@ -687,6 +687,31 @@ function buildReachOutStates(
     .sort((left, right) => compareText(left.reachOutEntryId, right.reachOutEntryId));
 }
 
+/**
+ * Just the relationship stage for one Person.
+ *
+ * Search needs a stage for every Person — the stage filter and the filter-option
+ * list both depend on it — but needs the rest of the assessment only for the
+ * handful of People it actually returns. Running the full projection over 3,000
+ * People to read one enum was 52ms of every query.
+ *
+ * This is additive: it changes no existing contract, and it shares
+ * `contactInteractions` and `buildStage` with `assessRelationship`, so the stage
+ * it reports is the same value by construction rather than by coincidence.
+ */
+export function assessRelationshipStage(
+  bundle: RelationshipPersonBundle,
+  clock: RelationshipClock
+): RelationshipStageProjection {
+  assertClock(clock);
+  return buildStage(
+    contactInteractions(bundle.interactions, bundle.person.id),
+    clock.timeZone,
+    bundle.person.createdAt,
+    bundle.person.id
+  );
+}
+
 export function assessRelationship(
   bundle: RelationshipPersonBundle,
   clock: RelationshipClock

@@ -1,5 +1,6 @@
 export {
   assessRelationship,
+  assessRelationshipStage,
   buildToday,
   calendarDaysBetween
 } from "./engine";

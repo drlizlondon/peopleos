@@ -12,11 +12,13 @@ import type {
   ReachOutEntry,
   RelationshipEvent
 } from "../domain/schema";
-import type {
-  MemoryCueProjection,
-  RelationshipAssessment,
-  RelationshipClock,
-  RelationshipStageValue
+import {
+  assessRelationship,
+  assessRelationshipStage,
+  type MemoryCueProjection,
+  type RelationshipAssessment,
+  type RelationshipClock,
+  type RelationshipStageValue
 } from "../relationship-engine";
 import { normalizeEmailAddress, normalizePhoneNumber } from "../integrations/contactValues";
 import {
@@ -25,7 +27,11 @@ import {
   sortPastAffiliations
 } from "./affiliations";
 import { memoryFactKindLabel, memoryFactValueLabel, normalizeMemorySearchText } from "./memoryFacts";
-import { assessRelationshipsFromData } from "./relationshipEngineQueries";
+import {
+  assessRelationshipsFromData,
+  groupRelationshipData,
+  relationshipBundleFromGroups
+} from "./relationshipEngineQueries";
 import { isValidCurrentMethod, resolveContactNowTargets } from "./contactNow";
 
 export const MAX_PERSON_SEARCH_QUERY_LENGTH = 200;
@@ -104,7 +110,11 @@ type MatchCandidate = PersonSearchMatch;
 
 type PersonSearchBundle = {
   person: Person;
-  assessment: RelationshipAssessment;
+  /**
+   * Only the relationship stage, because filtering is all the bundle is used
+   * for. The full assessment is built later, and only for People that survive.
+   */
+  relationshipStage: RelationshipStageValue;
   contacts: ContactMethod[];
   affiliations: OrganisationAffiliation[];
   interactions: Interaction[];
@@ -400,7 +410,7 @@ function matchesFilters(bundle: PersonSearchBundle, filters: PersonSearchFilters
     && eventIds.has(interaction.eventId))) return false;
 
   const stages = new Set(filters.relationshipStages ?? []);
-  if (stages.size > 0 && !stages.has(bundle.assessment.relationshipStage.value)) return false;
+  if (stages.size > 0 && !stages.has(bundle.relationshipStage)) return false;
 
   const due = hasDueFollowUp(bundle.followUps, bundle.localDate);
   if (filters.hasDueFollowUp !== undefined && due !== filters.hasDueFollowUp) return false;
@@ -458,10 +468,60 @@ export function assessmentsForSearch(
     .map((assessment) => [assessment.personId, assessment]));
 }
 
+/**
+ * Relationship stage for every Person, and nothing else.
+ *
+ * Search needs a stage for all People — the stage filter and the filter-option
+ * list both depend on it — but needs the rest of the assessment only for the
+ * few People it returns. Building the full projection for everyone cost 52ms of
+ * every query at 3,000 contacts, almost all of it discarded.
+ */
+export type PersonSearchStages = ReadonlyMap<string, RelationshipStageValue>;
+
+export function searchStagesFor(
+  data: PeopleOsData,
+  clock: RelationshipClock
+): PersonSearchStages {
+  const grouped = groupRelationshipData(data);
+  return new Map(data.people.map((person) => [
+    person.id,
+    assessRelationshipStage(relationshipBundleFromGroups(grouped, person), clock).value
+  ]));
+}
+
+/**
+ * Full assessments, built lazily and at most once per Person.
+ *
+ * `PersonSearchResult.assessment` is part of the public result shape, so a
+ * returned Person still carries exactly the assessment it always did — this
+ * only stops building them for the ~95% of People a query discards.
+ */
+function lazyAssessments(
+  data: PeopleOsData,
+  clock: RelationshipClock,
+  precomputed?: PersonSearchAssessments
+): (person: Person) => RelationshipAssessment {
+  if (precomputed) return (person) => {
+    const assessment = precomputed.get(person.id);
+    if (!assessment) throw new Error(`No assessment for Person ${person.id}`);
+    return assessment;
+  };
+  const grouped = groupRelationshipData(data);
+  const cache = new Map<string, RelationshipAssessment>();
+  return (person) => {
+    const existing = cache.get(person.id);
+    if (existing) return existing;
+    const assessment = assessRelationship(relationshipBundleFromGroups(grouped, person), clock);
+    cache.set(person.id, assessment);
+    return assessment;
+  };
+}
+
 export function searchPeopleFromData(
   data: PeopleOsData,
   options: PersonSearchOptions,
-  precomputedAssessments?: PersonSearchAssessments
+  precomputedAssessments?: PersonSearchAssessments,
+  precomputedStages?: PersonSearchStages
 ): PersonSearchResult[] {
   const rawQuery = options.query ?? "";
   if (rawQuery.length > MAX_PERSON_SEARCH_QUERY_LENGTH) {
@@ -471,7 +531,8 @@ export function searchPeopleFromData(
   const settings = data.appSettings.find((record) => record.id === "app");
   if (!settings) throw new Error("PeopleOS settings are missing");
   const localDate = localDateForInstant(options.clock.now, options.clock.timeZone);
-  const assessments = precomputedAssessments ?? assessmentsForSearch(data, options.clock);
+  const stages = precomputedStages ?? searchStagesFor(data, options.clock);
+  const fullAssessment = lazyAssessments(data, options.clock, precomputedAssessments);
   const contacts = groupedByPerson(data.contactMethods);
   const affiliations = groupedByPerson(data.affiliations);
   const interactions = groupedByPerson(data.interactions);
@@ -481,12 +542,12 @@ export function searchPeopleFromData(
 
   return data.people.flatMap((person): PersonSearchResult[] => {
     if (person.identityStatus === "merged") return [];
-    const assessment = assessments.get(person.id);
-    if (!assessment) return [];
+    const relationshipStage = stages.get(person.id);
+    if (relationshipStage === undefined) return [];
     const personInteractions = interactions.get(person.id) ?? [];
     const bundle: PersonSearchBundle = {
       person,
-      assessment,
+      relationshipStage,
       contacts: contacts.get(person.id) ?? [],
       affiliations: affiliations.get(person.id) ?? [],
       interactions: personInteractions,
@@ -501,6 +562,10 @@ export function searchPeopleFromData(
     if (!matchesFilters(bundle, options.filters ?? {})) return [];
     const match = query ? highestMatch(bundle, rawQuery, query) : undefined;
     if (query && !match) return [];
+    // Only now, having survived filtering and matching, is the full projection
+    // worth building — it is what supplies the recognition cue and the
+    // assessment carried on the result.
+    const assessment = fullAssessment(person);
     const displayAffiliation = selectDisplayAffiliation(bundle.affiliations);
     return [{
       person,
@@ -517,17 +582,22 @@ export function searchPeopleFromData(
 export function personFilterOptionsFromData(
   data: PeopleOsData,
   clock: RelationshipClock,
-  precomputedAssessments?: PersonSearchAssessments
+  precomputedAssessments?: PersonSearchAssessments,
+  precomputedStages?: PersonSearchStages
 ): PersonFilterOptions {
   const visiblePeople = data.people.filter((person) => person.identityStatus !== "merged");
   const personIds = new Set(visiblePeople.map((person) => person.id));
   const eventIds = new Set(data.interactions
     .filter((interaction) => personIds.has(interaction.personId) && interaction.eventId)
     .map((interaction) => interaction.eventId!));
-  const assessments = precomputedAssessments ?? assessmentsForSearch(data, clock);
-  const stages = new Set([...assessments.values()]
-    .filter((assessment) => personIds.has(assessment.personId))
-    .map((assessment) => assessment.relationshipStage.value));
+  const stageByPerson = precomputedStages
+    ?? (precomputedAssessments
+      ? new Map([...precomputedAssessments.values()]
+        .map((assessment) => [assessment.personId, assessment.relationshipStage.value]))
+      : searchStagesFor(data, clock));
+  const stages = new Set([...stageByPerson]
+    .filter(([personId]) => personIds.has(personId))
+    .map(([, stage]) => stage));
   return {
     tags: [...new Set(visiblePeople.flatMap((person) => person.tags).map((tag) => tag.trim()).filter(Boolean))]
       .sort(compareText),
@@ -557,10 +627,10 @@ export async function getPersonSearchView(
   options: PersonSearchOptions
 ): Promise<PersonSearchView> {
   const data = await readAllData(db);
-  const assessments = assessmentsForSearch(data, options.clock);
+  const stages = searchStagesFor(data, options.clock);
   return {
-    results: searchPeopleFromData(data, options, assessments),
-    filterOptions: personFilterOptionsFromData(data, options.clock, assessments),
+    results: searchPeopleFromData(data, options, undefined, stages),
+    filterOptions: personFilterOptionsFromData(data, options.clock, undefined, stages),
     totalPersonCount: data.people.filter((person) => person.identityStatus !== "merged").length
   };
 }
