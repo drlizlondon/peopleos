@@ -26,7 +26,7 @@ import {
 } from "./affiliations";
 import { memoryFactKindLabel, memoryFactValueLabel, normalizeMemorySearchText } from "./memoryFacts";
 import { assessRelationshipsFromData } from "./relationshipEngineQueries";
-import { resolveContactNowTargets } from "./contactNow";
+import { isValidCurrentMethod, resolveContactNowTargets } from "./contactNow";
 
 export const MAX_PERSON_SEARCH_QUERY_LENGTH = 200;
 
@@ -309,20 +309,43 @@ function reachOutMatches(bundle: PersonSearchBundle, query: string): MatchCandid
   });
 }
 
+/**
+ * Match sources in tier order. Each source owns a disjoint, fixed tier — name
+ * 1-3, contact identity 4, current affiliation 5, event 6, memory fact 7, tag 8,
+ * note 9, past affiliation 10, Reach Out 11 — and `compareSourceCandidate` sorts
+ * by tier before anything else.
+ *
+ * That makes the first source to yield anything the outright winner, so the
+ * later sources need never run. This matters because they are the expensive
+ * ones: `noteMatches` normalises every Interaction summary a Person has, which
+ * at reference scale was tens of thousands of NFKD normalisations per query,
+ * discarded whenever a name matched.
+ *
+ * INVARIANT: this ordering is only correct while each source's tier is fixed and
+ * strictly greater than every earlier source's. `personSearch.tiers.test.ts`
+ * asserts that, so adding a source at the wrong tier fails loudly rather than
+ * silently reordering results.
+ */
 function highestMatch(bundle: PersonSearchBundle, rawQuery: string, normalizedQuery: string): MatchCandidate | undefined {
-  const directNameMatch = nameMatch(bundle.person, normalizedQuery);
-  const candidates: MatchCandidate[] = [
-    ...(directNameMatch ? [directNameMatch] : []),
-    ...contactMatch(bundle, rawQuery),
-    ...affiliationMatches(bundle.affiliations, normalizedQuery, true),
-    ...eventMatches(bundle, normalizedQuery),
-    ...factMatches(bundle.facts, normalizedQuery),
-    ...tagMatches(bundle.person, normalizedQuery),
-    ...noteMatches(bundle.interactions, normalizedQuery),
-    ...affiliationMatches(bundle.affiliations, normalizedQuery, false),
-    ...reachOutMatches(bundle, normalizedQuery)
+  const sourcesInTierOrder: ReadonlyArray<() => MatchCandidate[]> = [
+    () => {
+      const directNameMatch = nameMatch(bundle.person, normalizedQuery);
+      return directNameMatch ? [directNameMatch] : [];
+    },
+    () => contactMatch(bundle, rawQuery),
+    () => affiliationMatches(bundle.affiliations, normalizedQuery, true),
+    () => eventMatches(bundle, normalizedQuery),
+    () => factMatches(bundle.facts, normalizedQuery),
+    () => tagMatches(bundle.person, normalizedQuery),
+    () => noteMatches(bundle.interactions, normalizedQuery),
+    () => affiliationMatches(bundle.affiliations, normalizedQuery, false),
+    () => reachOutMatches(bundle, normalizedQuery)
   ];
-  return candidates.sort(compareSourceCandidate)[0];
+  for (const source of sourcesInTierOrder) {
+    const candidates = source();
+    if (candidates.length > 0) return candidates.sort(compareSourceCandidate)[0];
+  }
+  return undefined;
 }
 
 function groupedByPerson<T extends { personId: string }>(records: readonly T[]): Map<string, T[]> {
@@ -335,10 +358,18 @@ function groupedByPerson<T extends { personId: string }>(records: readonly T[]):
   return result;
 }
 
-function validCurrentContactMethods(bundle: PersonSearchBundle): ContactMethod[] {
-  const ids = new Set(resolveContactNowTargets(bundle.contacts, bundle.defaultPhoneRegion).targets
-    .map((target) => target.contactMethodId));
-  return bundle.contacts.filter((contact) => ids.has(contact.id));
+/**
+ * Whether this Person has any usable contact method.
+ *
+ * This used to build the complete Contact-now projection — sorting the methods
+ * and running libphonenumber display formatting over each one — purely to ask
+ * whether the resulting list was empty, for every Person on every query. The
+ * predicate is the same one the projection filters on, so the answer is
+ * identical; it now short-circuits on the first usable method and formats
+ * nothing.
+ */
+function hasValidCurrentContactMethod(bundle: PersonSearchBundle): boolean {
+  return bundle.contacts.some((contact) => isValidCurrentMethod(contact, bundle.defaultPhoneRegion));
 }
 
 function hasDueFollowUp(followUps: readonly FollowUp[], localDate: string): boolean {
@@ -374,7 +405,7 @@ function matchesFilters(bundle: PersonSearchBundle, filters: PersonSearchFilters
   const due = hasDueFollowUp(bundle.followUps, bundle.localDate);
   if (filters.hasDueFollowUp !== undefined && due !== filters.hasDueFollowUp) return false;
 
-  const missing = validCurrentContactMethods(bundle).length === 0;
+  const missing = !hasValidCurrentContactMethod(bundle);
   if (filters.missingContactDetails !== undefined && missing !== filters.missingContactDetails) return false;
   return true;
 }
@@ -470,7 +501,6 @@ export function searchPeopleFromData(
     if (!matchesFilters(bundle, options.filters ?? {})) return [];
     const match = query ? highestMatch(bundle, rawQuery, query) : undefined;
     if (query && !match) return [];
-    const validContacts = validCurrentContactMethods(bundle);
     const displayAffiliation = selectDisplayAffiliation(bundle.affiliations);
     return [{
       person,
@@ -479,7 +509,7 @@ export function searchPeopleFromData(
       ...(assessment.searchContextCue ? { recognitionCue: assessment.searchContextCue } : {}),
       ...(match ? { match } : {}),
       hasDueFollowUp: hasDueFollowUp(bundle.followUps, localDate),
-      missingContactDetails: validContacts.length === 0
+      missingContactDetails: !hasValidCurrentContactMethod(bundle)
     }];
   }).sort(query ? compareSearchResults : compareDefaultResults);
 }

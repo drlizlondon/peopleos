@@ -24,7 +24,12 @@ export type ContactNowProjection = {
   hasActivePhone: boolean;
 };
 
-function isValidCurrentMethod(method: ContactMethod, displayRegion: string): boolean {
+/**
+ * Exported for search, which needs only to know whether a Person has any usable
+ * contact method. Sharing this predicate rather than reimplementing it keeps
+ * "missing contact details" defined in exactly one place.
+ */
+export function isValidCurrentMethod(method: ContactMethod, displayRegion: string): boolean {
   if (method.archivedAt) return false;
   try {
     if (method.kind === "phone") {

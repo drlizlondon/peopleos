@@ -82,7 +82,10 @@ export const BASELINE: Record<OperationKey, number> = {
  * dataset out of IndexedDB (105ms of 180ms), which is V1-R3's narrowed-read
  * work, not something further engine optimisation can reach.
  *
- * Headroom is ~2x the measured best rather than the ~1.4x first tried. The
+ * Lowered again by V1-R6 (2026-07-26) after ranking work: single query
+ * 266 -> 219ms, five-query sequence 1,405 -> 1,164ms.
+ *
+ * Headroom is ~1.7x the measured best rather than the ~1.4x first tried. The
  * search paths are memory- and GC-bound, and under machine load they slow by
  * more than the CPU-bound calibration workload does — a 1.4x ceiling left only
  * 13% margin on a loaded run. Widening keeps the R1 rule that this gate must
@@ -91,8 +94,8 @@ export const BASELINE: Record<OperationKey, number> = {
 export const CEILINGS: Record<OperationKey, number> = {
   todayProjection: 400,
   alreadyContactedRoundTrip: 700,
-  searchKeystrokeSequence: 2500,
-  searchSingleKeystroke: 450
+  searchKeystrokeSequence: 2200,
+  searchSingleKeystroke: 380
 };
 
 /**
@@ -135,6 +138,6 @@ export const HELD_AT_CEILING: ReadonlySet<OperationKey> = new Set<OperationKey>(
 export const OWNING_PACKAGE: Record<OperationKey, string> = {
   todayProjection: "V1-R2",
   alreadyContactedRoundTrip: "V1-R2",
-  searchKeystrokeSequence: "V1-R3",
-  searchSingleKeystroke: "V1-R3"
+  searchKeystrokeSequence: "V1-R6",
+  searchSingleKeystroke: "V1-R6"
 };
