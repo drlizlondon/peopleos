@@ -13,6 +13,7 @@ import { listActivePersonOptions } from "./application/interactionQueries";
 import { getDatabase } from "./data/client";
 import type { MemoryFact, MemoryFactKind } from "./domain/schema";
 import { personProfilePath } from "./navigation";
+import { readActiveRelationshipMode } from "./relationshipModePreference";
 
 type Navigate = (path: string, options?: { replace?: boolean }) => void;
 
@@ -61,7 +62,7 @@ export default function MemoryFactsScreen({
       const [summary, storedFacts, people] = await Promise.all([
         getPersonSummary(db, personId),
         listPersonMemoryFacts(db, personId),
-        listActivePersonOptions(db, personId)
+        listActivePersonOptions(db, personId, readActiveRelationshipMode())
       ]);
       setPerson(summary ?? null);
       setFacts([...storedFacts.active, ...storedFacts.archived]);

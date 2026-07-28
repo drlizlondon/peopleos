@@ -34,6 +34,8 @@ import type {
   ReachOutEntry
 } from "./domain/schema";
 import { ValidationError } from "./domain/validation";
+import type { ActiveRelationshipMode } from "./domain/relationshipMode";
+import { readActiveRelationshipMode } from "./relationshipModePreference";
 
 type ReachOutEditorProps = {
   mode: "create" | "edit";
@@ -44,6 +46,7 @@ type ReachOutEditorProps = {
   onClose: () => void;
   onSaved: (entry: ReachOutEntry) => void;
   onOpenExisting: (entryId: string) => void;
+  activeMode?: ActiveRelationshipMode;
 };
 
 type FieldErrors = {
@@ -82,7 +85,8 @@ export default function ReachOutEditorSheet({
   selectedContexts = [],
   onClose,
   onSaved,
-  onOpenExisting
+  onOpenExisting,
+  activeMode = readActiveRelationshipMode()
 }: ReachOutEditorProps) {
   const modalId = useId();
   const fieldId = useId();
@@ -124,7 +128,7 @@ export default function ReachOutEditorSheet({
   useEffect(() => {
     let active = true;
     if (mode === "edit") {
-      getDatabase().then((db) => listReachOutContexts(db)).then((contextOptions) => {
+      getDatabase().then((db) => listReachOutContexts(db, activeMode)).then((contextOptions) => {
         if (!active) return;
         setContexts(contextOptions);
         setLoading(false);
@@ -136,8 +140,8 @@ export default function ReachOutEditorSheet({
       return () => { active = false; };
     }
     getDatabase().then(async (db) => Promise.all([
-      listActivePersonOptions(db),
-      listReachOutContexts(db),
+      listActivePersonOptions(db, undefined, activeMode),
+      listReachOutContexts(db, activeMode),
       getAppSettings(db)
     ])).then(([personOptions, contextOptions, settings]) => {
       if (!active) return;
@@ -151,7 +155,7 @@ export default function ReachOutEditorSheet({
       setLoading(false);
     });
     return () => { active = false; };
-  }, [currentFollowUp, mode, today]);
+  }, [activeMode, currentFollowUp, mode, today]);
 
   useEffect(() => {
     const id = `reach-out-editor-${modalId}`;

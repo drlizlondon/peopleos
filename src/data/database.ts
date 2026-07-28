@@ -7,6 +7,7 @@ import {
   type AppMetadata,
   type AppSettings,
   type ContactMethod,
+  type ExternalIdentity,
   type FollowUp,
   type FollowUpEvent,
   type Interaction,
@@ -20,10 +21,12 @@ import {
   type RelationshipEvent,
   type TodaySkip
 } from "../domain/schema";
+import type { SyncOutboxOperation, SyncRecordMetadata, SyncState, SyncTombstone } from "../sync/types";
 
 export interface PeopleOsDb extends DBSchema {
   people: { key: string; value: Person; indexes: { "by-updated": string } };
   contactMethods: { key: string; value: ContactMethod; indexes: { "by-person": string; "by-canonical": string } };
+  externalIdentities: { key: string; value: ExternalIdentity; indexes: { "by-person": string; "by-provider": string } };
   affiliations: { key: string; value: OrganisationAffiliation; indexes: { "by-person": string; "by-organisation": string } };
   interactions: { key: string; value: Interaction; indexes: { "by-person": string; "by-event": string; "by-occurred": string } };
   events: { key: string; value: RelationshipEvent; indexes: { "by-name": string } };
@@ -36,6 +39,10 @@ export interface PeopleOsDb extends DBSchema {
   reachOutContexts: { key: string; value: ReachOutContext; indexes: { "by-kind": string; "by-label": string } };
   appSettings: { key: "app"; value: AppSettings };
   metadata: { key: "app"; value: AppMetadata };
+  syncRecords: { key: string; value: SyncRecordMetadata; indexes: { "by-status": string } };
+  syncOutbox: { key: string; value: SyncOutboxOperation; indexes: { "by-next-attempt": string } };
+  syncTombstones: { key: string; value: SyncTombstone; indexes: { "by-retain-until": string } };
+  syncState: { key: "app"; value: SyncState };
 }
 
 export type PeopleOsDatabase = IDBPDatabase<PeopleOsDb>;
@@ -74,12 +81,24 @@ export function createDefaultMetadata(now = new Date().toISOString()): AppMetada
   return { id: "app", datasetRevision: 1, createdAt: now, updatedAt: now };
 }
 
+export function createDefaultSyncState(): SyncState {
+  return {
+    id: "app",
+    enabled: false,
+    installationId: globalThis.crypto?.randomUUID?.() ?? `installation-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    initialMigrationPhase: "notStarted",
+    lastScannedDatasetRevision: 0,
+    retryCount: 0,
+    accountStatus: "unknown"
+  };
+}
+
 export async function openPeopleOsDatabase(
   databaseName = DATABASE_NAME,
   now = new Date().toISOString()
 ): Promise<PeopleOsDatabase> {
   const db = await openDB<PeopleOsDb>(databaseName, DATABASE_VERSION, {
-    upgrade(database, oldVersion) {
+    upgrade(database, oldVersion, _newVersion, transaction) {
       if (oldVersion < 1) {
         const people = database.createObjectStore("people", { keyPath: "id" });
         people.createIndex("by-updated", "updatedAt");
@@ -135,12 +154,33 @@ export async function openPeopleOsDatabase(
         database.createObjectStore("appSettings", { keyPath: "id" });
         database.createObjectStore("metadata", { keyPath: "id" });
       }
+      if (oldVersion < 2) {
+        const identities = database.createObjectStore("externalIdentities", { keyPath: "id" });
+        identities.createIndex("by-person", "personId");
+        identities.createIndex("by-provider", "provider");
+
+        const syncRecords = database.createObjectStore("syncRecords", { keyPath: "key" });
+        syncRecords.createIndex("by-status", "status");
+        database.createObjectStore("syncOutbox", { keyPath: "id" }).createIndex("by-next-attempt", "nextAttemptAt");
+        database.createObjectStore("syncTombstones", { keyPath: "key" }).createIndex("by-retain-until", "retainUntil");
+        database.createObjectStore("syncState", { keyPath: "id" });
+      }
+      if (oldVersion < 3) {
+        const people = transaction.objectStore("people");
+        void people.openCursor().then(function migrate(cursor): Promise<void> | void {
+          if (!cursor) return;
+          const person = cursor.value;
+          const next = person.relationshipMode ? person : { ...person, relationshipMode: "personal" as const };
+          return cursor.update(next).then(() => cursor.continue()).then(migrate);
+        });
+      }
     }
   });
 
-  const tx = db.transaction(["appSettings", "metadata"], "readwrite");
+  const tx = db.transaction(["appSettings", "metadata", "syncState"], "readwrite");
   const settings = await tx.objectStore("appSettings").get("app");
   const metadata = await tx.objectStore("metadata").get("app");
+  const syncState = await tx.objectStore("syncState").get("app");
   if (!settings) {
     await tx.objectStore("appSettings").add(createDefaultSettings(now));
   } else {
@@ -148,6 +188,7 @@ export async function openPeopleOsDatabase(
     if (migratedSettings !== settings) await tx.objectStore("appSettings").put(migratedSettings);
   }
   if (!metadata) await tx.objectStore("metadata").add(createDefaultMetadata(now));
+  if (!syncState) await tx.objectStore("syncState").add(createDefaultSyncState());
   await tx.done;
   return db;
 }

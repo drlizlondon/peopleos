@@ -9,6 +9,7 @@ export function completeData(): PeopleOsData {
       revision: 1,
       displayName: "Sarah Ahmed",
       identityStatus: "confirmed",
+      relationshipMode: "personal",
       importance: "high",
       tags: ["fellowship"],
       contactCadenceDays: 90,
@@ -27,6 +28,7 @@ export function completeData(): PeopleOsData {
       createdAt: fixedNow,
       updatedAt: fixedNow
     }],
+    externalIdentities: [],
     affiliations: [{
       id: "affiliation-sarah",
       revision: 1,

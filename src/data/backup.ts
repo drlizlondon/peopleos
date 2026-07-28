@@ -25,6 +25,20 @@ type SchemaOneBackupEnvelope = {
   data?: unknown;
 };
 
+type SchemaTwoBackupEnvelope = {
+  product: "peopleos";
+  schemaVersion: 2;
+  exportedAt: string;
+  data?: unknown;
+};
+
+type SchemaThreeBackupEnvelope = {
+  product: "peopleos";
+  schemaVersion: 3;
+  exportedAt: string;
+  data?: unknown;
+};
+
 export type GeneratedBackup = {
   envelope: BackupEnvelope;
   json: string;
@@ -58,6 +72,18 @@ function migrateAlreadyContactedDefault(data: unknown): unknown {
   };
 }
 
+function addRelationshipModes(data: unknown): unknown {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return data;
+  const record = data as Record<string, unknown>;
+  if (!Array.isArray(record.people)) return data;
+  return {
+    ...record,
+    people: record.people.map((person) => typeof person === "object" && person !== null && !Array.isArray(person)
+      ? { relationshipMode: "personal", ...person }
+      : person)
+  };
+}
+
 function migrateLegacyBackup(value: LegacyBackupEnvelope): BackupPreview {
   if (!isIsoInstant(value.exportedAt)) throw new ValidationError(["legacy backup exportedAt is invalid"]);
   const defaults = emptyPeopleOsData(createDefaultSettings(value.exportedAt));
@@ -67,7 +93,7 @@ function migrateLegacyBackup(value: LegacyBackupEnvelope): BackupPreview {
     product: "peopleos",
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: value.exportedAt,
-    data: validatePeopleOsData(migrateAlreadyContactedDefault(migrated))
+    data: validatePeopleOsData(addRelationshipModes(migrateAlreadyContactedDefault(migrated)))
   };
   return { envelope, counts: countData(envelope.data), migratedFromVersion: 0 };
 }
@@ -78,9 +104,37 @@ function migrateSchemaOneBackup(value: SchemaOneBackupEnvelope): BackupPreview {
     product: "peopleos",
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: value.exportedAt,
-    data: validatePeopleOsData(migrateAlreadyContactedDefault(value.data))
+    data: validatePeopleOsData(addRelationshipModes(addExternalIdentities(migrateAlreadyContactedDefault(value.data))))
   };
   return { envelope, counts: countData(envelope.data), migratedFromVersion: 1 };
+}
+
+function addExternalIdentities(data: unknown): unknown {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return data;
+  const record = data as Record<string, unknown>;
+  return record.externalIdentities === undefined ? { ...record, externalIdentities: [] } : data;
+}
+
+function migrateSchemaTwoBackup(value: SchemaTwoBackupEnvelope): BackupPreview {
+  if (!isIsoInstant(value.exportedAt)) throw new ValidationError(["backup exportedAt is invalid"]);
+  const envelope: BackupEnvelope = {
+    product: "peopleos",
+    schemaVersion: BACKUP_SCHEMA_VERSION,
+    exportedAt: value.exportedAt,
+    data: validatePeopleOsData(addRelationshipModes(addExternalIdentities(value.data)))
+  };
+  return { envelope, counts: countData(envelope.data), migratedFromVersion: 2 };
+}
+
+function migrateSchemaThreeBackup(value: SchemaThreeBackupEnvelope): BackupPreview {
+  if (!isIsoInstant(value.exportedAt)) throw new ValidationError(["backup exportedAt is invalid"]);
+  const envelope: BackupEnvelope = {
+    product: "peopleos",
+    schemaVersion: BACKUP_SCHEMA_VERSION,
+    exportedAt: value.exportedAt,
+    data: validatePeopleOsData(addRelationshipModes(value.data))
+  };
+  return { envelope, counts: countData(envelope.data), migratedFromVersion: 3 };
 }
 
 export function previewBackup(input: string | unknown): BackupPreview {
@@ -99,6 +153,8 @@ export function previewBackup(input: string | unknown): BackupPreview {
   if (candidate.schemaVersion > BACKUP_SCHEMA_VERSION) throw new ValidationError(["backup was created by a newer unsupported PeopleOS version"]);
   if (candidate.schemaVersion === 0) return migrateLegacyBackup(value as LegacyBackupEnvelope);
   if (candidate.schemaVersion === 1) return migrateSchemaOneBackup(value as SchemaOneBackupEnvelope);
+  if (candidate.schemaVersion === 2) return migrateSchemaTwoBackup(value as SchemaTwoBackupEnvelope);
+  if (candidate.schemaVersion === 3) return migrateSchemaThreeBackup(value as SchemaThreeBackupEnvelope);
   const envelope = validateBackupEnvelope(value);
   return { envelope, counts: countData(envelope.data) };
 }

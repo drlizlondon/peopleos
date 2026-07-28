@@ -86,6 +86,7 @@ function validatePerson(value: unknown): value is Person {
   if (!object(value) || !mutable(value)) return false;
   const status = value.identityStatus;
   return nonEmpty(value.displayName)
+    && (value.relationshipMode === undefined || ["personal", "professional", "both"].includes(String(value.relationshipMode)))
     && ["provisional", "confirmed", "merged"].includes(String(status))
     && ["normal", "high"].includes(String(value.importance))
     && strings(value.tags)
@@ -198,6 +199,13 @@ function validateReachOutEntry(value: unknown): value is ReachOutEntry {
       : value.currentFollowUpId === undefined);
 }
 
+function validateExternalIdentity(value: unknown): value is import("./schema").ExternalIdentity {
+  return object(value) && mutable(value) && nonEmpty(value.personId)
+    && nonEmpty(value.provider) && nonEmpty(value.externalId)
+    && optionalString(value.profileUrl) && isIsoInstant(value.linkedAt)
+    && optionalInstant(value.lastSyncedAt) && optionalInstant(value.archivedAt);
+}
+
 function validateReachOutContext(value: unknown): value is ReachOutContext {
   return object(value) && mutable(value) && ["project", "organisation", "event", "fellowship", "other"].includes(String(value.kind))
     && nonEmpty(value.label) && value.label === String(value.label).trim() && String(value.label).length <= 120
@@ -236,6 +244,7 @@ export function validateAppSettings(value: unknown): value is AppSettings {
 const storeValidators: Record<DataStoreName, (value: unknown) => boolean> = {
   people: validatePerson,
   contactMethods: validateContact,
+  externalIdentities: validateExternalIdentity,
   affiliations: validateAffiliation,
   interactions: validateInteraction,
   events: validateEvent,
@@ -287,6 +296,8 @@ export function validatePeopleOsData(value: unknown): PeopleOsData {
   const followUpIds = ids(data.followUps);
   const reachOutIds = ids(data.reachOutEntries);
   const contextIds = ids(data.reachOutContexts);
+
+  data.externalIdentities.forEach((identity, index) => requireReference(issues, personIds.has(identity.personId), `externalIdentities[${index}].personId`));
 
   data.people.forEach((person) => {
     if (person.identityStatus === "merged") requireReference(issues, person.mergedIntoPersonId !== person.id && personIds.has(person.mergedIntoPersonId!), `people.${person.id}.mergedIntoPersonId`);

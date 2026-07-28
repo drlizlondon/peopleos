@@ -23,6 +23,7 @@ import {
 import { getReachOutDetail } from "./application/reachOutQueries";
 // eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { getDatabase } from "./data/client";
+import { readActiveRelationshipMode } from "./relationshipModePreference";
 import type { LocalDate, Person, ReachOutContext } from "./domain/schema";
 import {
   ContactValueValidationError,
@@ -141,7 +142,7 @@ export default function ResolveProvisionalPersonScreen({
       if (current?.person.identityStatus === "provisional") {
         setName(current.person.displayName);
         affiliationDraftRef.current ??= createAffiliationDraft(current.person.id);
-        setPeople((await listActivePersonOptions(db, current.person.id)).filter((option) => option.person.identityStatus === "confirmed"));
+        setPeople((await listActivePersonOptions(db, current.person.id, readActiveRelationshipMode())).filter((option) => option.person.identityStatus === "confirmed"));
       }
     } catch {
       setError("PeopleOS could not load identity resolution.");

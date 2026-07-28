@@ -349,6 +349,7 @@ export function buildReferenceCorpus(seed = 20260725): PeopleOsData {
   return {
     people,
     contactMethods,
+    externalIdentities: [],
     affiliations,
     interactions,
     events,

@@ -12,6 +12,7 @@ import type {
   ReachOutEntry,
   RelationshipEvent
 } from "../domain/schema";
+import { personMatchesActiveMode, type ActiveRelationshipMode } from "../domain/relationshipMode";
 import {
   assessRelationship,
   assessRelationshipStage,
@@ -82,6 +83,7 @@ export type PersonSearchResult = {
 
 export type PersonSearchOptions = {
   clock: RelationshipClock;
+  activeMode?: ActiveRelationshipMode;
   query?: string;
   filters?: PersonSearchFilters;
 };
@@ -542,6 +544,7 @@ export function searchPeopleFromData(
 
   return data.people.flatMap((person): PersonSearchResult[] => {
     if (person.identityStatus === "merged") return [];
+    if (!personMatchesActiveMode(person, options.activeMode ?? "personal")) return [];
     const relationshipStage = stages.get(person.id);
     if (relationshipStage === undefined) return [];
     const personInteractions = interactions.get(person.id) ?? [];
@@ -583,9 +586,10 @@ export function personFilterOptionsFromData(
   data: PeopleOsData,
   clock: RelationshipClock,
   precomputedAssessments?: PersonSearchAssessments,
-  precomputedStages?: PersonSearchStages
+  precomputedStages?: PersonSearchStages,
+  activeMode: ActiveRelationshipMode = "personal"
 ): PersonFilterOptions {
-  const visiblePeople = data.people.filter((person) => person.identityStatus !== "merged");
+  const visiblePeople = data.people.filter((person) => person.identityStatus !== "merged" && personMatchesActiveMode(person, activeMode));
   const personIds = new Set(visiblePeople.map((person) => person.id));
   const eventIds = new Set(data.interactions
     .filter((interaction) => personIds.has(interaction.personId) && interaction.eventId)
@@ -630,7 +634,7 @@ export async function getPersonSearchView(
   const stages = searchStagesFor(data, options.clock);
   return {
     results: searchPeopleFromData(data, options, undefined, stages),
-    filterOptions: personFilterOptionsFromData(data, options.clock, undefined, stages),
-    totalPersonCount: data.people.filter((person) => person.identityStatus !== "merged").length
+    filterOptions: personFilterOptionsFromData(data, options.clock, undefined, stages, options.activeMode),
+    totalPersonCount: data.people.filter((person) => person.identityStatus !== "merged" && personMatchesActiveMode(person, options.activeMode ?? "personal")).length
   };
 }

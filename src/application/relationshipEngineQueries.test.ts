@@ -140,7 +140,7 @@ describe("Relationship Engine application queries", () => {
 
   it("produces stable per-Person assessments and Today order from shuffled snapshots", () => {
     const empty = (): PeopleOsData => ({
-      people: [], contactMethods: [], affiliations: [], interactions: [], events: [], memoryFacts: [],
+      people: [], contactMethods: [], externalIdentities: [], affiliations: [], interactions: [], events: [], memoryFacts: [],
       followUps: [], followUpEvents: [], todaySkips: [], reachOutEntries: [], reachOutEvents: [],
       reachOutContexts: [], appSettings: []
     });

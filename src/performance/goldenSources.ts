@@ -246,6 +246,7 @@ export function engineDataset(seed: number): PeopleOsData {
   return {
     people,
     contactMethods,
+    externalIdentities: [],
     affiliations,
     interactions,
     events,
@@ -472,6 +473,7 @@ export function searchDataset(seed: number): PeopleOsData {
   return {
     people,
     contactMethods,
+    externalIdentities: [],
     affiliations,
     interactions,
     events,

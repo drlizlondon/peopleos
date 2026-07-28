@@ -93,6 +93,8 @@ import { getDatabase } from "./data/client";
 // eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { StaleRevisionError } from "./data/repositories";
 import type { ContactMethod, FollowUp, Interaction, InteractionKind, MemoryFact, Person, ReachOutEntry } from "./domain/schema";
+import type { ActiveRelationshipMode } from "./domain/relationshipMode";
+import { RELATIONSHIP_MODE_OPTIONS } from "./domain/relationshipMode";
 import { effectiveFollowUpDate, FOLLOW_UP_ACTION_OPTIONS } from "./domain/followUpPolicy";
 import type { DuplicateMatch } from "./domain/duplicates";
 import { ValidationError } from "./domain/validation";
@@ -206,10 +208,12 @@ function preferredProfileContacts(summary: PersonSummary, phoneRegion: string): 
 
 export function PeopleScreen({
   navigate,
+  activeMode,
   importedPersonIds = null,
   onClearImportedFilter
 }: {
   navigate: Navigate;
+  activeMode: ActiveRelationshipMode;
   importedPersonIds?: string[] | null;
   onClearImportedFilter?: () => void;
 }) {
@@ -266,6 +270,7 @@ export function PeopleScreen({
     setError("");
     getDatabase().then(async (db) => getPersonSearchView(db, {
       clock: createRelationshipClock(),
+      activeMode,
       query: debouncedQuery,
       filters
     })).then((view) => {
@@ -284,7 +289,7 @@ export function PeopleScreen({
       setError("Context search is unavailable. Showing the name-only directory.");
       setResults(undefined);
       try {
-        const people = await listPeopleSummaries(await getDatabase());
+        const people = await listPeopleSummaries(await getDatabase(), activeMode);
         if (active) setFallbackPeople(people.filter((summary) => {
           const normalizedQuery = debouncedQuery.trim().toLocaleLowerCase("en-US");
           return !normalizedQuery || summary.person.displayName.toLocaleLowerCase("en-US").includes(normalizedQuery);
@@ -294,7 +299,7 @@ export function PeopleScreen({
       }
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [filters, debouncedQuery, retryVersion]);
+  }, [activeMode, filters, debouncedQuery, retryVersion]);
 
   useEffect(() => {
     if (loading || restoredScrollRef.current) return;
@@ -324,6 +329,14 @@ export function PeopleScreen({
 
   function clearFilters() {
     setFilters({ archive: "active" });
+  }
+
+  if (loading && results === undefined && storedPersonCount === undefined) {
+    return (
+      <main className="screen people-screen people-screen-loading" id="main-content" tabIndex={-1} aria-busy="true">
+        <p className="screen-status" role="status">Loading people…</p>
+      </main>
+    );
   }
 
   if (noStoredPeople) {
@@ -399,7 +412,7 @@ export function PeopleScreen({
           <button className="clear-filter-chip" type="button" onClick={clearFilters}>Clear all</button>
         </div>
       )}
-      {loading && <p className="screen-status" role="status">Loading people…</p>}
+      {loading && <p className="screen-status" role="status">Updating people…</p>}
       {error && (
         <div className="form-alert" role="alert">
           <p>{error}</p>
@@ -781,6 +794,16 @@ export function AddPersonScreen({
       </header>
 
       <form className="person-form" onSubmit={save} noValidate>
+        <fieldset className="choice-fieldset relationship-mode-fieldset">
+          <legend>Relationship</legend>
+          <div className="segmented-control three-way" role="group" aria-label="Relationship">
+            {RELATIONSHIP_MODE_OPTIONS.map((option) => (
+              <button key={option.value} type="button" aria-pressed={draft.relationshipMode === option.value} onClick={() => changed((current) => ({ ...current, relationshipMode: option.value }))}>
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </fieldset>
         <div className="form-field">
           <label htmlFor="person-display-name">{identityLabel}</label>
           <input

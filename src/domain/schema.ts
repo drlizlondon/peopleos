@@ -1,6 +1,6 @@
 export const DATABASE_NAME = "peopleos-v1";
-export const DATABASE_VERSION = 1;
-export const BACKUP_SCHEMA_VERSION = 2;
+export const DATABASE_VERSION = 3;
+export const BACKUP_SCHEMA_VERSION = 4;
 export const DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS = 14;
 
 export type EntityId = string;
@@ -16,6 +16,7 @@ export type MutableRecord = {
 
 export type Person = MutableRecord & {
   displayName: string;
+  relationshipMode?: "personal" | "professional" | "both";
   identityStatus: "provisional" | "confirmed" | "merged";
   mergedIntoPersonId?: EntityId;
   mergeCommandFingerprint?: string;
@@ -218,6 +219,7 @@ export type AppMetadata = {
 export type PeopleOsData = {
   people: Person[];
   contactMethods: ContactMethod[];
+  externalIdentities: ExternalIdentity[];
   affiliations: OrganisationAffiliation[];
   interactions: Interaction[];
   events: RelationshipEvent[];
@@ -249,6 +251,7 @@ export type BackupPreview = {
 export const DATA_STORE_NAMES = [
   "people",
   "contactMethods",
+  "externalIdentities",
   "affiliations",
   "interactions",
   "events",
@@ -268,6 +271,7 @@ export function emptyPeopleOsData(settings: AppSettings): PeopleOsData {
   return {
     people: [],
     contactMethods: [],
+    externalIdentities: [],
     affiliations: [],
     interactions: [],
     events: [],

@@ -11,6 +11,7 @@ import { getDatabase } from "./data/client";
 // eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { RecordConflictError, StaleRevisionError } from "./data/repositories";
 import type { Person } from "./domain/schema";
+import { RELATIONSHIP_MODE_OPTIONS, relationshipModeOf } from "./domain/relationshipMode";
 import { ValidationError } from "./domain/validation";
 import { affiliationsPath, contactMethodsPath } from "./navigation";
 
@@ -48,7 +49,7 @@ export default function EditPersonScreen({
   const prefix = useId();
   const [person, setPerson] = useState<Person | null | undefined>(undefined);
   const [loadVersion, setLoadVersion] = useState(0);
-  const [draft, setDraft] = useState<PersonEditDraft>({ displayName: "", importance: "normal", tags: [] });
+  const [draft, setDraft] = useState<PersonEditDraft>({ displayName: "", relationshipMode: "personal", importance: "normal", tags: [] });
   const [tagsText, setTagsText] = useState("");
   const [cadenceText, setCadenceText] = useState("");
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -75,6 +76,7 @@ export default function EditPersonScreen({
       if (record) {
         setDraft({
           displayName: record.displayName,
+          relationshipMode: relationshipModeOf(record),
           importance: record.importance,
           tags: record.tags,
           ...(record.contactCadenceDays ? { contactCadenceDays: record.contactCadenceDays } : {})
@@ -147,6 +149,7 @@ export default function EditPersonScreen({
     }
     return {
       displayName,
+      relationshipMode: draft.relationshipMode,
       importance: draft.importance,
       tags,
       ...(cadence === undefined ? {} : { contactCadenceDays: cadence })
@@ -286,6 +289,16 @@ export default function EditPersonScreen({
             </section>
           ) : (
             <form className="person-edit-form" onSubmit={save} noValidate>
+              <fieldset className="choice-fieldset relationship-mode-fieldset">
+                <legend>Relationship</legend>
+                <div className="segmented-control three-way" role="group" aria-label="Relationship">
+                  {RELATIONSHIP_MODE_OPTIONS.map((option) => (
+                    <button key={option.value} type="button" aria-pressed={draft.relationshipMode === option.value} onClick={() => changed({ relationshipMode: option.value })}>
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
               <div className="form-field">
                 <label htmlFor={`${prefix}-name`}>{person.identityStatus === "provisional" ? "Temporary description" : "Display name"} <span>Required</span></label>
                 <input

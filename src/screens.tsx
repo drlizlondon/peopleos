@@ -6,6 +6,8 @@ import { getAppSettings } from "./application/peopleQueries";
 import { getDatabase } from "./data/client";
 import AlreadyContactedDefaultSheet from "./AlreadyContactedDefaultSheet";
 import type { AppSettings } from "./domain/schema";
+import { enableCloudSync, isCloudSyncSupported, subscribeToSync, syncNow } from "./sync/service";
+import type { SyncState } from "./sync/types";
 
 function PlannedAction({ children }: { children: string }) {
   return (
@@ -82,6 +84,10 @@ export function SettingsScreen({ navigate }: { navigate: (path: string) => void 
   const [reachOutDefault, setReachOutDefault] = useState("Loading…");
   const [editingAlreadyContacted, setEditingAlreadyContacted] = useState(false);
   const alreadyContactedOpenerRef = useRef<HTMLButtonElement>(null);
+  const [syncState, setSyncState] = useState<SyncState>();
+  const [syncRunning, setSyncRunning] = useState(false);
+  const [syncActionError, setSyncActionError] = useState("");
+  const cloudSupported = isCloudSyncSupported();
   useEffect(() => {
     let active = true;
     getDatabase().then(getAppSettings).then((settings) => {
@@ -96,6 +102,7 @@ export function SettingsScreen({ navigate }: { navigate: (path: string) => void 
     });
     return () => { active = false; };
   }, []);
+  useEffect(() => subscribeToSync((state, running) => { setSyncState(state); setSyncRunning(running); }), []);
   const visibleSections = settingsSections.map((section) => ({
     ...section,
     rows: section.rows.map((row) => {
@@ -106,6 +113,9 @@ export function SettingsScreen({ navigate }: { navigate: (path: string) => void 
         const days = settings?.alreadyContactedDefaultReminderDays;
         return { ...row, value: settingsLoadFailed ? "Unavailable" : days === undefined ? "Loading…" : `${days} days` };
       }
+      if (section.title === "Privacy & Security" && row.label === "Data location") {
+        return { ...row, value: syncState?.enabled ? "This iPhone and private iCloud" : "This device" };
+      }
       return row;
     })
   }));
@@ -113,6 +123,23 @@ export function SettingsScreen({ navigate }: { navigate: (path: string) => void 
   function closeAlreadyContactedEditor() {
     setEditingAlreadyContacted(false);
     requestAnimationFrame(() => alreadyContactedOpenerRef.current?.focus());
+  }
+
+  const syncLabel = !cloudSupported || !syncState?.enabled
+    ? "Stored on this iPhone only"
+    : syncRunning && syncState.initialMigrationPhase !== "complete" ? "Setting up iCloud Sync"
+      : syncRunning ? "Syncing"
+        : syncState.lastErrorCategory ? "Sync needs attention"
+          : syncState.accountStatus !== "available" ? "Sync paused"
+            : "Up to date";
+  const lastSync = syncState?.lastSuccessfulSyncAt
+    ? new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(syncState.lastSuccessfulSyncAt))
+    : "Not yet synced";
+
+  async function performSyncAction(enable: boolean) {
+    setSyncActionError("");
+    try { if (enable) await enableCloudSync(); else await syncNow(); }
+    catch { setSyncActionError("PeopleOS could not sync right now. Your data remains safely stored on this iPhone."); }
   }
 
   return (
@@ -123,6 +150,23 @@ export function SettingsScreen({ navigate }: { navigate: (path: string) => void 
         <p>Only settings that affect PeopleOS as a whole belong here.</p>
       </header>
       <div className="settings-list">
+        <section className="settings-section icloud-sync-section" aria-labelledby="settings-icloud-sync">
+          <div className="settings-section-heading">
+            <h3 id="settings-icloud-sync">iCloud Sync</h3>
+            <p>Keep your PeopleOS data safely backed up and available on your Apple devices.</p>
+          </div>
+          <dl>
+            <div className="settings-row"><dt>Status</dt><dd>{syncLabel}</dd></div>
+            {syncState?.enabled && <div className="settings-row"><dt>Last successful sync</dt><dd>{lastSync}</dd></div>}
+          </dl>
+          <div className="icloud-sync-actions">
+            {cloudSupported
+              ? <button className="settings-action" type="button" disabled={syncRunning} onClick={() => void performSyncAction(!syncState?.enabled)}>{syncState?.enabled ? "Sync Now" : "Turn on iCloud Sync"}</button>
+              : <p className="muted-copy">iCloud Sync is available in the iPhone app. This version continues to store data locally.</p>}
+            {syncState?.enabled && syncState.accountStatus !== "available" && <p className="muted-copy">Sign in to iCloud in iPhone Settings, then try again. PeopleOS does not receive your Apple account details.</p>}
+            {syncActionError && <p className="error-message" role="alert">{syncActionError}</p>}
+          </div>
+        </section>
         {visibleSections.map((section) => (
           <section className="settings-section" key={section.title} aria-labelledby={`settings-${section.title.replaceAll(" ", "-").toLowerCase()}`}>
             <div className="settings-section-heading">

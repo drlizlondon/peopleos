@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { deletePeopleOsDatabase, openPeopleOsDatabase, type PeopleOsDatabase } from "../data/database";
 import { fixedNow } from "../test/fixtures";
+import { createRepositories } from "../data/repositories";
 import { captureManualPerson, createManualPersonCaptureDraft } from "./manualPersonCapture";
 import { getAppSettings, getPersonSummary, listPeopleSummaries, selectDisplayAffiliation } from "./peopleQueries";
 
@@ -81,5 +82,24 @@ describe("V1-03 Person queries", () => {
       { ...base, id: "affiliation-a", startedOn: "2026-01-01" },
       { ...base, id: "affiliation-z", startedOn: "2027-01-01", archivedAt: fixedNow }
     ])?.id).toBe("affiliation-a");
+  });
+
+  it("filters one canonical people database by relationship mode and shows Both in either mode", async () => {
+    const db = await openDatabase();
+    const base = {
+      revision: 1,
+      identityStatus: "confirmed" as const,
+      importance: "normal" as const,
+      tags: [],
+      createdAt: fixedNow,
+      updatedAt: fixedNow
+    };
+    await createRepositories(db).people.create({ ...base, id: "personal", displayName: "Personal", relationshipMode: "personal" });
+    await createRepositories(db).people.create({ ...base, id: "professional", displayName: "Professional", relationshipMode: "professional" });
+    await createRepositories(db).people.create({ ...base, id: "both", displayName: "Both", relationshipMode: "both" });
+
+    expect((await listPeopleSummaries(db, "personal")).map((item) => item.person.id).sort()).toEqual(["both", "personal"]);
+    expect((await listPeopleSummaries(db, "professional")).map((item) => item.person.id).sort()).toEqual(["both", "professional"]);
+    db.close();
   });
 });

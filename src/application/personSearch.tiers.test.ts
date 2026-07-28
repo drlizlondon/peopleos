@@ -50,7 +50,7 @@ const settings: AppSettings[] = [{
 
 function emptyData(): PeopleOsData {
   return {
-    people: [], contactMethods: [], affiliations: [], interactions: [], events: [],
+    people: [], contactMethods: [], externalIdentities: [], affiliations: [], interactions: [], events: [],
     memoryFacts: [], followUps: [], followUpEvents: [], todaySkips: [],
     reachOutEntries: [], reachOutEvents: [], reachOutContexts: [], appSettings: settings
   };

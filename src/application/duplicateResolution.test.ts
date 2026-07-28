@@ -173,7 +173,7 @@ describe("reviewed duplicate resolution", () => {
     expect(result.skippedContactMethodIds).toEqual(["contact-candidate-email"]);
     expect(result.addedAffiliation).toBeUndefined();
     expect(result.skippedAffiliationId).toBe(prepared.affiliation?.id);
-    expect(await db.get("people", "person-target")).toEqual(targetPerson());
+    expect(await db.get("people", "person-target")).toEqual({ ...targetPerson(), relationshipMode: "personal" });
     expect(await db.get("metadata", "app")).toEqual(metadataBefore);
   });
 

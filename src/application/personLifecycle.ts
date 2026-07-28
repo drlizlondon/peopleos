@@ -5,10 +5,12 @@ import {
   createRepositories
 } from "../data/repositories";
 import type { Person } from "../domain/schema";
+import type { RelationshipMode } from "../domain/relationshipMode";
 import { ValidationError } from "../domain/validation";
 
 export type PersonEditDraft = {
   displayName: string;
+  relationshipMode?: RelationshipMode;
   importance: Person["importance"];
   tags: string[];
   contactCadenceDays?: number;
@@ -34,6 +36,7 @@ function normalizeDraft(draft: PersonEditDraft): PersonEditDraft {
   if (!displayName) issues.push("Add a name or description so you can recognise this person.");
   if (displayName.length > 120) issues.push("Use 120 characters or fewer for the name or description.");
   if (!(["normal", "high"] as const).includes(draft.importance)) issues.push("Choose a supported importance level.");
+  if (draft.relationshipMode !== undefined && !(["personal", "professional", "both"] as const).includes(draft.relationshipMode)) issues.push("Choose a supported relationship type.");
   if (tags.length > 10) issues.push("Add no more than 10 tags.");
   if (tags.some((tag) => tag.length > 40)) issues.push("Each tag must be 40 characters or fewer.");
   if (draft.contactCadenceDays !== undefined
@@ -45,6 +48,7 @@ function normalizeDraft(draft: PersonEditDraft): PersonEditDraft {
   if (issues.length) throw new ValidationError(issues);
   return {
     displayName,
+    relationshipMode: draft.relationshipMode ?? "personal",
     importance: draft.importance,
     tags,
     ...(draft.contactCadenceDays === undefined ? {} : { contactCadenceDays: draft.contactCadenceDays })
@@ -53,6 +57,7 @@ function normalizeDraft(draft: PersonEditDraft): PersonEditDraft {
 
 function sameEditableValues(person: Person, draft: PersonEditDraft): boolean {
   return person.displayName === draft.displayName
+    && (person.relationshipMode ?? "personal") === (draft.relationshipMode ?? "personal")
     && person.importance === draft.importance
     && JSON.stringify(person.tags) === JSON.stringify(draft.tags)
     && person.contactCadenceDays === draft.contactCadenceDays;

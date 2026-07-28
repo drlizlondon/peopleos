@@ -34,6 +34,7 @@ import { getDatabase } from "./data/client";
 import { StaleRevisionError } from "./data/repositories";
 import { localDateForInstant } from "./domain/followUpPolicy";
 import type { LocalDate } from "./domain/schema";
+import type { ActiveRelationshipMode } from "./domain/relationshipMode";
 import type { ContactHandoff } from "./integrations/contactHandoff";
 import { openContactHandoff } from "./integrations/contactHandoff";
 import { contactMethodsPath, personProfilePath, reachOutDetailPath } from "./navigation";
@@ -42,6 +43,7 @@ import { formatExplanation } from "./relationship-engine";
 type Navigate = (path: string, options?: { replace?: boolean; state?: Record<string, unknown> }) => void;
 
 type TodayScreenProps = {
+  activeMode?: ActiveRelationshipMode;
   navigate: Navigate;
   onAddFollowUp: () => void;
   handoff?: ContactHandoff;
@@ -79,7 +81,7 @@ function importAction(navigate: Navigate) {
   return <button className="secondary-action" type="button" onClick={() => navigate("/people/import")}>Import Contacts</button>;
 }
 
-export default function TodayScreen({ navigate, onAddFollowUp, handoff = openContactHandoff }: TodayScreenProps) {
+export default function TodayScreen({ activeMode = "personal", navigate, onAddFollowUp, handoff = openContactHandoff }: TodayScreenProps) {
   const [projection, setProjection] = useState<TodayScreenProjection>();
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState("");
@@ -107,7 +109,7 @@ export default function TodayScreen({ navigate, onAddFollowUp, handoff = openCon
     if (showLoading) setLoading(true);
     setPageError("");
     try {
-      const next = await getTodayScreenProjection(await getDatabase(), createRelationshipClock());
+      const next = await getTodayScreenProjection(await getDatabase(), createRelationshipClock(), activeMode);
       if (!mountedRef.current) return;
       setProjection(next);
       setCommittedHiddenPersonIds(new Set());
@@ -119,7 +121,7 @@ export default function TodayScreen({ navigate, onAddFollowUp, handoff = openCon
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, []);
+  }, [activeMode]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -271,7 +273,7 @@ export default function TodayScreen({ navigate, onAddFollowUp, handoff = openCon
         return;
       }
       if (!command) {
-        const context = await getTodayActionContext(await getDatabase(), card.person.id, clock);
+        const context = await getTodayActionContext(await getDatabase(), card.person.id, clock, activeMode);
         if (!context) throw new Error("This person is no longer due today.");
         command = prepareNotTodayFromContext(context, { now: new Date().toISOString() });
         notTodayCommandsRef.current.set(card.person.id, command);
@@ -344,7 +346,7 @@ export default function TodayScreen({ navigate, onAddFollowUp, handoff = openCon
         prepared = undefined;
       }
       if (!prepared || prepared.nextDate !== nextDate) {
-        const context = await getTodayActionContext(await getDatabase(), card.person.id, clock);
+        const context = await getTodayActionContext(await getDatabase(), card.person.id, clock, activeMode);
         if (!context) throw new Error("This person is no longer due today.");
         if (context.projection.result.localDate !== openedLocalDate) {
           setAlreadyCard(undefined);
