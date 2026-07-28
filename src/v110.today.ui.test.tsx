@@ -145,14 +145,43 @@ describe("V1-10 Today experience", () => {
     await seedDuePerson();
     render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
     const card = await screen.findByRole("article", { name: "Sarah Jones" });
-    expect(within(card).getByText(/You planned to Reconnect with person-sarah/)).toBeInTheDocument();
+    expect(within(card).getByText(/Hi Sarah Jones, how are things with you/)).toBeInTheDocument();
     const actionGroup = within(card).getByRole("group", { name: "Actions for Sarah Jones" });
-    expect(Array.from(actionGroup.querySelectorAll("button"), (button) => button.textContent)).toEqual([
-      "Contact now",
-      "Not today",
-      "Already contacted"
+    expect(Array.from(actionGroup.querySelectorAll(":scope > button"), (button) => button.textContent)).toEqual([
+      "Call",
+      "Message",
+      "Not today"
     ]);
     expect(within(card).getByRole("button", { name: "Add phone number" })).toBeInTheDocument();
+    expect(within(card).queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+
+  it("changes only the starter and toggles an optional note without resolving Today", async () => {
+    const record = await seedDuePerson();
+    const repositories = createRepositories(await getDatabase());
+    await repositories.people.update({ ...record, todayNote: "Ask how the appointment went" }, record.revision, NOW);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
+    let card = await screen.findByRole("article", { name: "Sarah Jones" });
+    const firstStarter = within(card).getByText(/Sarah Jones.*you/).textContent;
+    await user.click(within(card).getByRole("button", { name: "Another one" }));
+    expect(within(card).getByText(/Sarah Jones.*you/).textContent).not.toBe(firstStarter);
+    const note = within(card).getByRole("checkbox", { name: "Mark note complete: Ask how the appointment went" });
+    await user.click(note);
+    card = await screen.findByRole("article", { name: "Sarah Jones" });
+    expect(within(card).getByRole("checkbox", { name: "Mark note complete: Ask how the appointment went" })).toBeChecked();
+    expect(await (await getDatabase()).getAll("interactions")).toEqual([]);
+    expect(await (await getDatabase()).get("followUps", "follow-up-person-sarah-0")).toMatchObject({ status: "pending" });
+    await user.click(within(card).getByRole("checkbox", { name: "Mark note complete: Ask how the appointment went" }));
+    card = await screen.findByRole("article", { name: "Sarah Jones" });
+    expect(within(card).getByRole("checkbox", { name: "Mark note complete: Ask how the appointment went" })).not.toBeChecked();
+    await user.click(within(card).getByRole("checkbox", { name: "Mark note complete: Ask how the appointment went" }));
+    card = await screen.findByRole("article", { name: "Sarah Jones" });
+    await user.click(within(card).getByRole("button", { name: "Not today" }));
+    await waitFor(() => expect(screen.queryByRole("article", { name: "Sarah Jones" })).not.toBeInTheDocument());
+    expect((await (await getDatabase()).get("people", "person-sarah"))?.todayNoteCompletedAt).toBeDefined();
+    expect((await (await getDatabase()).getAllFromIndex("followUps", "by-person", "person-sarah"))
+      .some((followUp) => followUp.status === "pending" && followUp.dueDate === "2026-07-24" && followUp.reason === "Reconnect with person-sarah")).toBe(true);
   });
 
   it("opens a deterministic chooser, launches the chosen target and records nothing", async () => {
@@ -167,7 +196,7 @@ describe("V1-10 Today experience", () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} handoff={handoff} />);
     const card = await screen.findByRole("article", { name: "Sarah Jones" });
-    await user.click(within(card).getByRole("button", { name: "Contact now" }));
+    await user.click(within(card).getByRole("button", { name: "Message" }));
     const dialog = await screen.findByRole("dialog", { name: "Contact Sarah Jones" });
     const methods = within(dialog).getAllByRole("button").filter((button) => /NHS email|Work mobile/.test(button.textContent ?? ""));
     expect(methods.map((button) => button.textContent)).toEqual([
@@ -178,7 +207,7 @@ describe("V1-10 Today experience", () => {
     await user.click(methods[0]);
     expect(handoff).toHaveBeenCalledWith("mailto:sarah@example.com");
     const refreshedCard = screen.getByRole("article", { name: "Sarah Jones" });
-    await waitFor(() => expect(within(refreshedCard).getByRole("button", { name: "Contact now" })).toHaveFocus());
+    await waitFor(() => expect(within(refreshedCard).getByRole("button", { name: "Message" })).toHaveFocus());
     expect(await (await getDatabase()).getAll("interactions")).toHaveLength(0);
   });
 
@@ -190,7 +219,7 @@ describe("V1-10 Today experience", () => {
     render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} handoff={handoff} />);
     const card = await screen.findByRole("article", { name: "Sarah Jones" });
     expect(within(card).getByRole("button", { name: "Add phone number" })).toBeInTheDocument();
-    await user.click(within(card).getByRole("button", { name: "Contact now" }));
+    await user.click(within(card).getByRole("button", { name: "Message" }));
     await waitFor(() => expect(handoff).toHaveBeenCalledOnce());
     expect(handoff).toHaveBeenCalledWith("mailto:sarah@example.com");
     expect(screen.queryByRole("dialog", { name: "Contact Sarah Jones" })).not.toBeInTheDocument();
@@ -204,7 +233,7 @@ describe("V1-10 Today experience", () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} handoff={handoff} />);
     const card = await screen.findByRole("article", { name: "Sarah Jones" });
-    await user.click(within(card).getByRole("button", { name: "Contact now" }));
+    await user.click(within(card).getByRole("button", { name: "Call" }));
     await waitFor(() => expect(handoff).toHaveBeenCalledWith("tel:+447900123456"));
     expect(within(card).queryByRole("button", { name: "Add phone number" })).not.toBeInTheDocument();
     expect(await (await getDatabase()).getAll("interactions")).toHaveLength(0);
@@ -220,7 +249,7 @@ describe("V1-10 Today experience", () => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     render(<TodayScreen navigate={navigate} onAddFollowUp={vi.fn()} handoff={handoff} />);
     const card = await screen.findByRole("article", { name: "Sarah Jones" });
-    await user.click(within(card).getByRole("button", { name: "Contact now" }));
+    await user.click(within(card).getByRole("button", { name: "Message" }));
     const dialog = await screen.findByRole("dialog", { name: "Contact Sarah Jones" });
     expect(within(dialog).getByRole("alert")).toHaveTextContent(/Copy it, choose another option, or manage contact details/);
     await user.click(within(dialog).getByRole("button", { name: "Copy contact detail" }));
@@ -272,15 +301,14 @@ describe("V1-10 Today experience", () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
     let card = await screen.findByRole("article", { name: "Sarah Jones" });
-    await user.click(within(card).getByRole("button", { name: "Already contacted" }));
+    await user.click(within(card).getByRole("button", { name: "Contacted" }));
     let dialog = screen.getByRole("dialog", { name: "When should I remind you again?" });
     expect(within(dialog).getByRole("button", { name: "14 days" })).toHaveAttribute("aria-pressed", "true");
     expect(within(dialog).getByText("1 other plan remains due and may bring Sarah Jones back sooner.")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(await (await getDatabase()).getAll("interactions")).toHaveLength(0);
     card = screen.getByRole("article", { name: "Sarah Jones" });
-    await waitFor(() => expect(within(card).getByRole("button", { name: "Already contacted" })).toHaveFocus());
-    await user.click(within(card).getByRole("button", { name: "Already contacted" }));
+    await user.click(within(card).getByRole("button", { name: "Contacted" }));
     dialog = screen.getByRole("dialog", { name: "When should I remind you again?" });
     await user.click(within(dialog).getByRole("button", { name: "7 days" }));
     await waitFor(() => expect(screen.queryByRole("article", { name: "Sarah Jones" })).not.toBeInTheDocument());
@@ -298,7 +326,7 @@ describe("V1-10 Today experience", () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<App />);
     let card = await screen.findByRole("article", { name: "Sarah Jones" });
-    await user.click(within(card).getByRole("button", { name: "Contact now" }));
+    await user.click(within(card).getByRole("button", { name: "Call" }));
     expect(window.location.pathname).toBe("/people/person-sarah/contact-methods");
     let phone = await screen.findByRole("textbox", { name: "Phone number" });
     expect(phone).toHaveFocus();
@@ -342,7 +370,7 @@ describe("V1-10 Today experience", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/"));
     expect(await screen.findAllByRole("article")).toHaveLength(6);
     await waitFor(() => {
-      expect(within(screen.getByRole("article", { name: "Person 6" })).getByRole("button", { name: "Contact now" })).toHaveFocus();
+      expect(within(screen.getByRole("article", { name: "Person 6" })).getByRole("button", { name: "Call" })).toHaveFocus();
     });
   });
 

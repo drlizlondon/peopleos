@@ -82,8 +82,9 @@ function relativeDate(date: string, today: string): string {
   const days = Math.round((Date.parse(`${date}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86_400_000);
   if (days === 1) return "tomorrow";
   if (days < 14) return `in ${days} days`;
-  const weeks = Math.round(days / 7);
-  return `in ${weeks} weeks`;
+  if (days < 60) return `in ${Math.round(days / 7)} weeks`;
+  if (days < 365) return `in ${Math.round(days / 30)} months`;
+  return `in ${Math.round(days / 365)} years`;
 }
 
 function cadenceLabel(days: number): string {
@@ -464,6 +465,11 @@ export default function UpcomingScreen({ activeMode = "personal", navigate }: { 
   }
 
   const groups = result ? groupUpcoming(result.items) : [];
+  const chronological = result ? [
+    ...cadences.map((item) => ({ kind: "cadence" as const, date: item.effectiveDate, item })),
+    ...result.items.map((item) => ({ kind: "follow_up" as const, date: item.effectiveDate, item }))
+  ].sort((left, right) => left.date.localeCompare(right.date)
+    || left.item.person.displayName.localeCompare(right.item.person.displayName)) : [];
   const peopleOptions = Array.from(new Map(allItems.map((item) => [item.person.id, item.person])).values())
     .sort((left, right) => left.displayName.localeCompare(right.displayName, "en-US", { sensitivity: "base" }) || left.id.localeCompare(right.id));
   const actionOptions = FOLLOW_UP_ACTION_OPTIONS.filter((option) => allItems.some((item) => item.followUp.actionType === option.value));
@@ -530,18 +536,26 @@ export default function UpcomingScreen({ activeMode = "personal", navigate }: { 
         )
       )}
 
-      {!error && result && cadences.length > 0 && !filtersActive && (
-        <section className="timeline-group upcoming-cadence-group" aria-labelledby="upcoming-regular-heading">
-          <h3 id="upcoming-regular-heading">Regular reminders</h3>
+      {!error && result && chronological.length > 0 && !filtersActive && (
+        <section className="timeline-group upcoming-cadence-group" aria-labelledby="upcoming-chronological-heading">
+          <h3 id="upcoming-chronological-heading">Coming up</h3>
           <ol className="follow-up-list">
-            {cadences.map((item) => (
-              <li key={`cadence-${item.person.id}`}>
+            {chronological.map((entry) => entry.kind === "cadence" ? (
+              <li key={`cadence-${entry.item.person.id}`}>
                 <article className="timeline-item follow-up-row">
                   <div className="timeline-item-heading">
-                    <h4><button className="text-action" type="button" onClick={() => navigate(personProfilePath(item.person.id))}>{item.person.displayName}</button></h4>
-                    <time dateTime={item.effectiveDate}>{localDateLabel(item.effectiveDate)} · {relativeDate(item.effectiveDate, localDate)}</time>
+                    <h4><button className="text-action" type="button" onClick={() => navigate(personProfilePath(entry.item.person.id))}>{entry.item.person.displayName}</button></h4>
+                    <time dateTime={entry.item.effectiveDate}>{localDateLabel(entry.item.effectiveDate)} · {relativeDate(entry.item.effectiveDate, localDate)}</time>
                   </div>
-                  <p className="muted-copy">{cadenceLabel(item.cadenceDays)}</p>
+                  <p className="muted-copy">{cadenceLabel(entry.item.cadenceDays)}</p>
+                </article>
+              </li>
+            ) : (
+              <li key={entry.item.followUp.id}>
+                <article className="timeline-item follow-up-row">
+                  <div className="timeline-item-heading"><div><h4>{entry.item.followUp.reason}</h4><time dateTime={entry.item.effectiveDate}>{localDateLabel(entry.item.effectiveDate)} · {relativeDate(entry.item.effectiveDate, localDate)}</time></div></div>
+                  <dl className="timeline-context follow-up-meta"><div><dt>Person</dt><dd><button className="text-action" type="button" onClick={() => navigate(personProfilePath(entry.item.person.id))}>{entry.item.person.displayName}</button></dd></div></dl>
+                  <button className="primary-action" type="button" onClick={() => navigate(followUpDetailPath(entry.item.followUp.id))}>Open plan</button>
                 </article>
               </li>
             ))}
@@ -549,7 +563,7 @@ export default function UpcomingScreen({ activeMode = "personal", navigate }: { 
         </section>
       )}
 
-      {!error && result && result.items.length > 0 && (
+      {!error && result && result.items.length > 0 && filtersActive && (
         <div className="upcoming-groups">
           {groups.map((group) => (
             <section className="timeline-group" key={group.key} aria-labelledby={`upcoming-month-${group.key}`}>

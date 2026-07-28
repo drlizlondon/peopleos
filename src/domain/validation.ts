@@ -94,6 +94,8 @@ function validatePerson(value: unknown): value is Person {
     && optionalDate(value.contactCadenceFirstDueDate)
     && optionalDate(value.contactCadenceDeferredUntilDate)
     && optionalInstant(value.contactCadencePausedAt)
+    && (value.todayNote === undefined || (typeof value.todayNote === "string" && value.todayNote.trim() === value.todayNote && value.todayNote.length > 0 && value.todayNote.length <= 240))
+    && optionalInstant(value.todayNoteCompletedAt)
     && optionalInstant(value.archivedAt)
     && optionalString(value.mergedIntoPersonId)
     && optionalCommandFingerprint(value.mergeCommandFingerprint)
@@ -239,7 +241,21 @@ export function validateAppSettings(value: unknown): value is AppSettings {
       && value.relationshipContexts.length >= 1
       && value.relationshipContexts.length <= 2
       && value.relationshipContexts.every((mode) => mode === "personal" || mode === "professional")
-      && new Set(value.relationshipContexts).size === value.relationshipContexts.length));
+      && new Set(value.relationshipContexts).size === value.relationshipContexts.length))
+    && (value.conversationStarters === undefined || (Array.isArray(value.conversationStarters)
+      && value.conversationStarters.length >= 1
+      && value.conversationStarters.length <= 100
+      && value.conversationStarters.every((starter) => object(starter)
+        && nonEmpty(starter.id)
+        && typeof starter.template === "string"
+        && starter.template.trim() === starter.template
+        && starter.template.length > 0
+        && starter.template.length <= 240
+        && starter.template.includes("{name}")
+        && ["personal", "professional", "both"].includes(String(starter.relationshipMode)))
+      && new Set(value.conversationStarters.map((starter) => starter.id)).size === value.conversationStarters.length
+      && value.conversationStarters.some((starter) => starter.relationshipMode === "personal" || starter.relationshipMode === "both")
+      && value.conversationStarters.some((starter) => starter.relationshipMode === "professional" || starter.relationshipMode === "both")));
 }
 
 const storeValidators: Record<DataStoreName, (value: unknown) => boolean> = {

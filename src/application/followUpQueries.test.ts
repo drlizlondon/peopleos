@@ -20,6 +20,7 @@ import {
   hasExistingFutureFollowUp,
   listPersonFollowUps,
   listTodaySkips,
+  listUpcomingCadences,
   listUpcomingFollowUps
 } from "./followUpQueries";
 import type { Interaction, Person, TodaySkip } from "../domain/schema";
@@ -81,6 +82,17 @@ afterEach(async () => {
 });
 
 describe("follow-up queries", () => {
+  it("keeps regular contacts out of Upcoming when due and orders future cadence dates chronologically", async () => {
+    const db = await openDatabase("cadence-upcoming");
+    await addPerson(db, person("due", "Due", { contactCadenceDays: 14, contactCadenceFirstDueDate: "2026-03-29" }));
+    await addPerson(db, person("ten-days", "Ten days", { contactCadenceDays: 10, contactCadenceFirstDueDate: "2026-04-08" }));
+    await addPerson(db, person("two-weeks", "Two weeks", { contactCadenceDays: 14, contactCadenceFirstDueDate: "2026-04-12" }));
+    await addPerson(db, person("five-months", "Five months", { contactCadenceDays: 150, contactCadenceFirstDueDate: "2026-08-29" }));
+    const items = await listUpcomingCadences(db, { localDate: "2026-03-29" });
+    expect(items.map((item) => [item.person.id, item.effectiveDate])).toEqual([
+      ["ten-days", "2026-04-08"], ["two-weeks", "2026-04-12"], ["five-months", "2026-08-29"]
+    ]);
+  });
   it("lists only active future plans in deterministic date, importance, name and ID order", async () => {
     const db = await openDatabase("upcoming-order");
     await addPerson(db, person("person-zed", "Zed", { importance: "high" }));

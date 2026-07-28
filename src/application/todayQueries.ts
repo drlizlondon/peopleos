@@ -1,6 +1,8 @@
 import {
   DATA_STORE_NAMES,
   type AppMetadata,
+  DEFAULT_CONVERSATION_STARTERS,
+  type ConversationStarter,
   type FollowUp,
   type OrganisationAffiliation,
   type PeopleOsData,
@@ -49,6 +51,7 @@ export type TodayCardProjection = {
   additionalDueFollowUps: FollowUp[];
   reachOut?: TodayReachOutProjection;
   contact: ContactNowProjection;
+  conversationStarters: ConversationStarter[];
 };
 
 export type TodayScreenProjection = {
@@ -197,7 +200,11 @@ function cardFromItem(
         })
       }
     } : {}),
-    contact: resolveContactNowTargets(contactMethods, settings.defaultPhoneRegion)
+    contact: resolveContactNowTargets(contactMethods, settings.defaultPhoneRegion),
+    conversationStarters: (settings.conversationStarters ?? DEFAULT_CONVERSATION_STARTERS).filter((starter) => {
+      const mode = person.relationshipMode ?? "personal";
+      return starter.relationshipMode === "both" || mode === "both" || starter.relationshipMode === mode;
+    })
   };
 }
 

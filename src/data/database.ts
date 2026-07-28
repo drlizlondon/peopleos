@@ -3,6 +3,7 @@ import {
   DATABASE_NAME,
   DATABASE_VERSION,
   DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS,
+  DEFAULT_CONVERSATION_STARTERS,
   DATA_STORE_NAMES,
   type AppMetadata,
   type AppSettings,
@@ -55,6 +56,7 @@ export function createDefaultSettings(now = new Date().toISOString()): AppSettin
     defaultPhoneRegion: defaultPhoneRegion(),
     captureMode: "standard",
     relationshipContexts: ["personal", "professional"],
+    conversationStarters: DEFAULT_CONVERSATION_STARTERS.map((starter) => ({ ...starter })),
     alreadyContactedDefaultReminderDays: DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS,
     revision: 1,
     createdAt: now,
@@ -71,6 +73,9 @@ function migrateAppSettings(settings: AppSettings): AppSettings {
       : {}),
     ...(settings.relationshipContexts === undefined
       ? { relationshipContexts: ["personal", "professional"] as const }
+      : {}),
+    ...(settings.conversationStarters === undefined
+      ? { conversationStarters: DEFAULT_CONVERSATION_STARTERS.map((starter) => ({ ...starter })) }
       : {})
   };
 }

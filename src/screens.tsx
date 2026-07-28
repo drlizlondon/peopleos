@@ -5,8 +5,55 @@ import { getAppSettings } from "./application/peopleQueries";
 // eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { getDatabase } from "./data/client";
 import AlreadyContactedDefaultSheet from "./AlreadyContactedDefaultSheet";
-import { updateRelationshipContexts } from "./application/settings";
-import type { AppSettings } from "./domain/schema";
+import { updateConversationStarters, updateRelationshipContexts } from "./application/settings";
+import { DEFAULT_CONVERSATION_STARTERS, type AppSettings, type ConversationStarter } from "./domain/schema";
+
+function ConversationStarterSettings({ settings, onSaved }: { settings: AppSettings; onSaved: (settings: AppSettings) => void }) {
+  const [starters, setStarters] = useState<ConversationStarter[]>(() => (settings.conversationStarters ?? DEFAULT_CONVERSATION_STARTERS).map((item) => ({ ...item })));
+  const [error, setError] = useState("");
+  async function persist(next: ConversationStarter[]) {
+    if (!next.some((starter) => starter.relationshipMode !== "professional") || !next.some((starter) => starter.relationshipMode !== "personal")) {
+      setError("Keep at least one starter available for Personal and Professional relationships.");
+      return;
+    }
+    if (next.some((starter) => !starter.template.includes("{name}"))) {
+      setError("Every starter must include {name} so it is clear who the message is for.");
+      return;
+    }
+    try {
+      const saved = await updateConversationStarters(await getDatabase(), next);
+      setStarters(next);
+      onSaved(saved);
+      setError("");
+    } catch {
+      setError("PeopleOS could not save the conversation starters.");
+    }
+  }
+  return (
+    <section className="settings-section starter-admin" aria-labelledby="settings-conversation-starters">
+      <div className="settings-section-heading">
+        <h3 id="settings-conversation-starters">Conversation starters</h3>
+        <p>Use <code>{"{name}"}</code> wherever the person’s name should appear. Today chooses one automatically.</p>
+      </div>
+      <div className="starter-admin-list">
+        {starters.map((starter) => (
+          <div className="starter-admin-row" key={starter.id}>
+            <input aria-label={`Starter text ${starter.id}`} value={starter.template} onChange={(event) => setStarters((current) => current.map((item) => item.id === starter.id ? { ...item, template: event.target.value } : item))} />
+            <select aria-label={`Relationship for ${starter.id}`} value={starter.relationshipMode} onChange={(event) => setStarters((current) => current.map((item) => item.id === starter.id ? { ...item, relationshipMode: event.target.value as ConversationStarter["relationshipMode"] } : item))}>
+              <option value="personal">Personal</option><option value="professional">Professional</option><option value="both">Both</option>
+            </select>
+            <button type="button" onClick={() => void persist(starters.filter((item) => item.id !== starter.id))}>Delete</button>
+          </div>
+        ))}
+      </div>
+      <div className="button-row compact-buttons">
+        <button type="button" onClick={() => setStarters((current) => [...current, { id: `starter-${crypto.randomUUID()}`, template: "Hi {name}, ", relationshipMode: "both" }])}>Add starter</button>
+        <button className="primary-action" type="button" onClick={() => void persist(starters)}>Save starters</button>
+      </div>
+      {error && <p className="field-error" role="alert">{error}</p>}
+    </section>
+  );
+}
 
 function PlannedAction({ children }: { children: string }) {
   return (
@@ -163,6 +210,7 @@ export function SettingsScreen({ navigate }: { navigate: (path: string) => void 
             {relationshipError && <p className="field-error" role="alert">{relationshipError}</p>}
           </div>
         </section>
+        {settings && <ConversationStarterSettings settings={settings} onSaved={setSettings} />}
         {visibleSections.map((section) => (
           <section className="settings-section" key={section.title} aria-labelledby={`settings-${section.title.replaceAll(" ", "-").toLowerCase()}`}>
             <div className="settings-section-heading">

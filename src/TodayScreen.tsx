@@ -16,6 +16,7 @@ import {
 } from "./application/contactNow";
 import { notToday, type NotTodayCommand } from "./application/followUps";
 import { deferRegularReminder, pauseRegularReminder } from "./application/cadence";
+import { removeTodayNote, saveTodayNote, setTodayNoteCompleted } from "./application/todayNotes";
 import {
   alreadyContacted,
   prepareAlreadyContactedCommand,
@@ -61,6 +62,7 @@ type ContactChoice = {
   projection: ContactNowProjection;
   error?: string;
   copyValue?: string;
+  requestedChannel?: "call" | "message";
 };
 
 function firstIssue(error: unknown, fallback: string): string {
@@ -206,7 +208,7 @@ export default function TodayScreen({ activeMode = "personal", navigate, onAddFo
     return getContactNowProjection(await getDatabase(), card.person.id);
   }
 
-  async function launchTarget(card: TodayCardProjection, target: ContactNowTarget) {
+  async function launchTarget(card: TodayCardProjection, target: ContactNowTarget, href?: string, focusLabel = "Message") {
     setBusyPersonId(card.person.id);
     setCardError(card.person.id);
     try {
@@ -216,9 +218,9 @@ export default function TodayScreen({ activeMode = "personal", navigate, onAddFo
         setContactChoice({ card, projection: next, error: "That contact method is no longer available. Choose another option." });
         return;
       }
-      await handoff(contactNowTargetHref(current));
+      await handoff(href ?? contactNowTargetHref(current));
       setContactChoice(undefined);
-      focusCardAction(card.person.id, "Contact now");
+      focusCardAction(card.person.id, focusLabel);
     } catch {
       const next = await latestContactProjection(card).catch(() => card.contact);
       setContactChoice({
@@ -235,6 +237,54 @@ export default function TodayScreen({ activeMode = "personal", navigate, onAddFo
     } finally {
       setBusyPersonId("");
     }
+  }
+
+  async function contactVia(card: TodayCardProjection, channel: "call" | "message") {
+    setBusyPersonId(card.person.id);
+    setCardError(card.person.id);
+    try {
+      const current = await latestContactProjection(card);
+      const targets = channel === "call"
+        ? current.targets.filter((target) => target.channel === "phone_call")
+        : current.targets.filter((target) => target.channel === "phone_call" || target.channel === "email");
+      if (targets.length === 0) return openContactMethods(card, channel === "call");
+      if (targets.length > 1) {
+        setContactChoice({ card, projection: { ...current, targets }, requestedChannel: channel });
+        return;
+      }
+      const target = targets[0];
+      await launchTarget(card, target, channel === "message" && target.channel === "phone_call" ? `sms:${target.canonicalValue}` : undefined, channel === "call" ? "Call" : "Message");
+    } catch {
+      setCardError(card.person.id, { message: `PeopleOS could not open ${channel}.` });
+    } finally {
+      setBusyPersonId("");
+    }
+  }
+
+  async function editTodayNote(card: TodayCardProjection) {
+    const next = window.prompt("Note for today", card.person.todayNote ?? "");
+    if (next === null) return;
+    try {
+      if (next.trim()) await saveTodayNote(await getDatabase(), card.person.id, next);
+      else if (card.person.todayNote) await removeTodayNote(await getDatabase(), card.person.id);
+      await load();
+    } catch (error) {
+      setCardError(card.person.id, { message: firstIssue(error, "PeopleOS could not save this note.") });
+    }
+  }
+
+  async function toggleTodayNote(card: TodayCardProjection, completed: boolean) {
+    try {
+      await setTodayNoteCompleted(await getDatabase(), card.person.id, completed);
+      await load();
+    } catch (error) {
+      setCardError(card.person.id, { message: firstIssue(error, "PeopleOS could not update this note.") });
+    }
+  }
+
+  function openContacted(card: TodayCardProjection) {
+    if (document.activeElement instanceof HTMLButtonElement) alreadyOpenerRef.current = document.activeElement;
+    setAlreadyCard(card);
   }
 
   async function contactNow(card: TodayCardProjection, opener?: HTMLButtonElement) {
@@ -506,12 +556,10 @@ export default function TodayScreen({ activeMode = "personal", navigate, onAddFo
               busy={Boolean(busyPersonId)}
               error={error?.message}
               copyValue={error?.copyValue}
-              onContactNow={() => void contactNow(card, document.activeElement instanceof HTMLButtonElement ? document.activeElement : undefined)}
+              onCall={() => void contactVia(card, "call")}
+              onMessage={() => void contactVia(card, "message")}
               onNotToday={() => void notTodayAction(card)}
-              onAlreadyContacted={() => {
-                const cadence = card.person.contactCadenceDays ?? projection.alreadyContactedDefaultReminderDays;
-                void chooseNextReminder(addDaysToLocalDate(projection.result.localDate, cadence), card);
-              }}
+              onAlreadyContacted={() => openContacted(card)}
               onAddPhone={() => openContactMethods(card, true)}
               onWhy={() => {
                 if (document.activeElement instanceof HTMLButtonElement) explanationOpenerRef.current = document.activeElement;
@@ -529,6 +577,8 @@ export default function TodayScreen({ activeMode = "personal", navigate, onAddFo
               onPauseUntil={(date) => void pauseCadence(card, date)}
               onPauseRegular={() => void pauseCadence(card, undefined, true)}
               onEditSchedule={() => navigate(`/people/${encodeURIComponent(card.person.id)}/edit`)}
+              onToggleNote={(completed) => void toggleTodayNote(card, completed)}
+              onEditNote={() => void editTodayNote(card)}
               onRetry={error?.retry === "contact" ? () => void contactNow(card) : error?.retry === "not_today" ? () => void notTodayAction(card) : undefined}
               onCopy={error?.copyValue ? () => void copyValue(error.copyValue!) : undefined}
             />
@@ -546,7 +596,12 @@ export default function TodayScreen({ activeMode = "personal", navigate, onAddFo
           copyValue={contactChoice.copyValue}
           onChoose={(targetId) => {
             const target = contactChoice.projection.targets.find((candidate) => candidate.id === targetId);
-            if (target) void launchTarget(contactChoice.card, target);
+            if (target) void launchTarget(
+              contactChoice.card,
+              target,
+              contactChoice.requestedChannel === "message" && target.channel === "phone_call" ? `sms:${target.canonicalValue}` : undefined,
+              contactChoice.requestedChannel === "call" ? "Call" : "Message"
+            );
           }}
           onAddPhone={() => openContactMethods(contactChoice.card, true)}
           onManage={() => openContactMethods(contactChoice.card, false)}

@@ -1,12 +1,13 @@
 import type { TodayCardProjection } from "./application/todayQueries";
-import { formatEngineLocalDate, formatExplanation } from "./relationship-engine";
+import { formatEngineLocalDate } from "./relationship-engine";
 
 type TodayCardProps = {
   card: TodayCardProjection;
   busy: boolean;
   error?: string;
   copyValue?: string;
-  onContactNow: () => void;
+  onCall: () => void;
+  onMessage: () => void;
   onNotToday: () => void;
   onAlreadyContacted: () => void;
   onAddPhone: () => void;
@@ -17,6 +18,8 @@ type TodayCardProps = {
   onPauseUntil: (date: string) => void;
   onPauseRegular: () => void;
   onEditSchedule: () => void;
+  onToggleNote: (completed: boolean) => void;
+  onEditNote: () => void;
   onRetry?: () => void;
   onCopy?: () => void;
 };
@@ -39,7 +42,8 @@ export default function TodayCard({
   busy,
   error,
   copyValue,
-  onContactNow,
+  onCall,
+  onMessage,
   onNotToday,
   onAlreadyContacted,
   onAddPhone,
@@ -50,13 +54,18 @@ export default function TodayCard({
   onPauseUntil,
   onPauseRegular,
   onEditSchedule,
+  onToggleNote,
+  onEditNote,
   onRetry,
   onCopy
 }: TodayCardProps) {
   const due = dueLabel(card);
   const affiliationText = affiliation(card);
-  const reason = formatExplanation(card.item.explanation);
-  const intendedAction = formatExplanation(card.item.intendedActionContext.explanation);
+  const [starterIndex, setStarterIndex] = useState(() => {
+    const seed = [...card.person.id, ...card.item.relevantDate].reduce((total, character) => total + character.charCodeAt(0), 0);
+    return card.conversationStarters.length ? seed % card.conversationStarters.length : 0;
+  });
+  const starter = card.conversationStarters[starterIndex]?.template.replaceAll("{name}", card.person.displayName);
 
   return (
     <article
@@ -75,12 +84,14 @@ export default function TodayCard({
         {due.label && <span className={`today-due-state${card.item.dueState === "overdue" ? " overdue" : ""}`}>{due.label}</span>}
       </header>
       {due.detail && <p className="today-planned-date">{due.detail}</p>}
-      <p className="today-reason"><span>Reason</span>{reason}</p>
-      <p className="today-action-context">{intendedAction}</p>
-      {card.memoryCue && (
-        <div className="today-memory-cue" aria-label="Memory cue">
-          <span>Remember</span>
-          <strong>{card.memoryCue.text}</strong>
+      {starter && <p className="today-conversation-starter">“{starter}”</p>}
+      {card.conversationStarters.length > 1 && (
+        <button className="text-action today-another-starter" type="button" onClick={() => setStarterIndex((current) => (current + 1) % card.conversationStarters.length)}>Another one</button>
+      )}
+      {card.person.todayNote && (
+        <div className={`today-note${card.person.todayNoteCompletedAt ? " completed" : ""}`}>
+          <input aria-label={`Mark note complete: ${card.person.todayNote}`} type="checkbox" checked={Boolean(card.person.todayNoteCompletedAt)} onChange={(event) => onToggleNote(event.target.checked)} />
+          <button aria-label={`Edit note: ${card.person.todayNote}`} type="button" onClick={onEditNote}>{card.person.todayNote}</button>
         </div>
       )}
       {card.item.additionalDueFollowUpIds.length > 0 && (
@@ -99,12 +110,14 @@ export default function TodayCard({
       )}
 
       <div className="today-card-actions" role="group" aria-label={`Actions for ${card.person.displayName}`}>
-        <button className="primary-action" type="button" disabled={busy} onClick={onAlreadyContacted}>Contacted</button>
+        <button className="primary-action" type="button" disabled={busy} onClick={onCall}>Call</button>
+        <button type="button" disabled={busy} onClick={onMessage}>Message</button>
         <button type="button" disabled={busy} onClick={onNotToday}>Not today</button>
         <details className="today-more-actions">
           <summary aria-label={`More actions for ${card.person.displayName}`}>•••</summary>
           <div>
-            <button type="button" disabled={busy} onClick={onContactNow}>Contact now</button>
+            <button type="button" disabled={busy} onClick={onAlreadyContacted}>Contacted</button>
+            <button type="button" onClick={onEditNote}>{card.person.todayNote ? "Edit note" : "Add note"}</button>
             <button type="button" disabled={busy} onClick={() => onPauseFor(3)}>Pause for 3 days</button>
             <button type="button" disabled={busy} onClick={() => onPauseFor(7)}>Pause for 1 week</button>
             <button type="button" disabled={busy} onClick={() => onPauseFor(14)}>Pause for 2 weeks</button>
@@ -123,3 +136,4 @@ export default function TodayCard({
     </article>
   );
 }
+import { useState } from "react";
