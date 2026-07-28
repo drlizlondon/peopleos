@@ -102,7 +102,6 @@ describe("PeopleOS backup and restore", () => {
     expect(professional.envelope.data.people[0]?.relationshipMode).toBe("professional");
   });
 
-
   it("rejects a current schema backup when the required interval is missing", () => {
     const current = completeData();
     const { alreadyContactedDefaultReminderDays: _missing, ...invalidSettings } = current.appSettings[0]!;

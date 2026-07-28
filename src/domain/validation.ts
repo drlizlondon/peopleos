@@ -88,6 +88,7 @@ function validatePerson(value: unknown): value is Person {
   return nonEmpty(value.displayName)
     && (value.relationshipMode === undefined || ["personal", "professional", "both"].includes(String(value.relationshipMode)))
     && ["provisional", "confirmed", "merged"].includes(String(status))
+    && (value.relationshipMode === undefined || ["personal", "professional", "both"].includes(String(value.relationshipMode)))
     && ["normal", "high"].includes(String(value.importance))
     && strings(value.tags)
     && (value.contactCadenceDays === undefined || (Number.isInteger(value.contactCadenceDays) && Number(value.contactCadenceDays) >= 1 && Number(value.contactCadenceDays) <= 3_650))

@@ -38,7 +38,6 @@ type SchemaThreeBackupEnvelope = {
   exportedAt: string;
   data?: unknown;
 };
-
 export type GeneratedBackup = {
   envelope: BackupEnvelope;
   json: string;
@@ -114,7 +113,6 @@ function addExternalIdentities(data: unknown): unknown {
   const record = data as Record<string, unknown>;
   return record.externalIdentities === undefined ? { ...record, externalIdentities: [] } : data;
 }
-
 function migrateSchemaTwoBackup(value: SchemaTwoBackupEnvelope): BackupPreview {
   if (!isIsoInstant(value.exportedAt)) throw new ValidationError(["backup exportedAt is invalid"]);
   const envelope: BackupEnvelope = {
