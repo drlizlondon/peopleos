@@ -194,7 +194,7 @@ describe("V1-03 manual person capture", () => {
     await user.click(screen.getByText("More details"));
     await user.type(screen.getByLabelText(/^Role or job title/), "Clinical fellow");
     await user.type(screen.getByLabelText(/^Tags/), "fellowship, clinician");
-    await user.type(screen.getByLabelText(/^Contact cadence in days/), "90");
+    await user.selectOptions(screen.getByLabelText(/^Contact cadence in days/), "90");
     await user.click(screen.getByRole("button", { name: "Save person" }));
 
     expect(await screen.findByRole("heading", { name: "Sarah Ahmed" })).toBeInTheDocument();

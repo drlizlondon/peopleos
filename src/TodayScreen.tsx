@@ -76,7 +76,7 @@ function storedFocusPersonId(): string | undefined {
 }
 
 function importAction(navigate: Navigate) {
-  return <button className="secondary-action" type="button" onClick={() => navigate("/people/import")}>Import vCard</button>;
+  return <button className="secondary-action" type="button" onClick={() => navigate("/people/import")}>Import Contacts</button>;
 }
 
 export default function TodayScreen({ navigate, onAddFollowUp, handoff = openContactHandoff }: TodayScreenProps) {

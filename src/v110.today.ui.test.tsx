@@ -117,7 +117,7 @@ describe("V1-10 Today experience", () => {
     render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
     expect(await screen.findByRole("heading", { name: "Start with one person you want to remember." })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add your first person" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Import vCard" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Import Contacts" })).toBeInTheDocument();
   });
 
   it("shows the nobody-due state when people exist but nobody is eligible", async () => {

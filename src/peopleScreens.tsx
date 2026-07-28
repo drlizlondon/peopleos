@@ -781,30 +781,6 @@ export function AddPersonScreen({
       </header>
 
       <form className="person-form" onSubmit={save} noValidate>
-        <fieldset className="choice-fieldset">
-          <legend>What do you know?</legend>
-          <label>
-            <input
-              type="radio"
-              name="identity-status"
-              value="confirmed"
-              checked={draft.identityStatus === "confirmed"}
-              onChange={() => changed((current) => ({ ...current, identityStatus: "confirmed" }))}
-            />
-            Their name
-          </label>
-          <label>
-            <input
-              type="radio"
-              name="identity-status"
-              value="provisional"
-              checked={draft.identityStatus === "provisional"}
-              onChange={() => changed((current) => ({ ...current, identityStatus: "provisional" }))}
-            />
-            A description for now
-          </label>
-        </fieldset>
-
         <div className="form-field">
           <label htmlFor="person-display-name">{identityLabel}</label>
           <input
@@ -827,8 +803,8 @@ export function AddPersonScreen({
         <section className="form-section" aria-labelledby="capture-contact-heading">
           <div className="form-section-heading">
             <div>
-              <h3 id="capture-contact-heading">Contact details <span>Optional</span></h3>
-              <p>Add as many phone numbers or email addresses as are useful.</p>
+              <h3 id="capture-contact-heading" aria-label="Contact details">Mobile or email <span>Optional</span></h3>
+              <p>Add the easiest way to contact them.</p>
             </div>
           </div>
           <div className="contact-draft-list">
@@ -847,15 +823,16 @@ export function AddPersonScreen({
                         value={contact.kind}
                         onChange={(event) => updateContact(contact.id, { kind: event.target.value as "phone" | "email" })}
                       >
-                        <option value="phone">Phone</option>
+                        <option value="phone">Mobile</option>
                         <option value="email">Email</option>
                       </select>
                     </div>
                     {contact.kind === "phone" && (
-                      <div className="form-field">
-                        <label htmlFor={`capture-contact-${contact.id}-region`}>Phone region</label>
+                      <div className="form-field phone-region-field">
+                        <label htmlFor={`capture-contact-${contact.id}-region`}>Region</label>
                         <select
                           id={`capture-contact-${contact.id}-region`}
+                          aria-label="Phone region"
                           value={contact.region ?? defaultPhoneRegion}
                           onChange={(event) => updateContact(contact.id, { region: event.target.value })}
                         >
@@ -864,9 +841,10 @@ export function AddPersonScreen({
                       </div>
                     )}
                     <div className="form-field contact-value-field">
-                      <label htmlFor={valueId}>{contactInputLabel(contact)}</label>
+                      <label htmlFor={valueId}>{contact.kind === "phone" ? "Mobile number" : "Email address"}</label>
                       <input
                         id={valueId}
+                        aria-label={contactInputLabel(contact)}
                         type={contact.kind === "email" ? "email" : "tel"}
                         inputMode={contact.kind === "email" ? "email" : "tel"}
                         autoComplete={contact.kind === "email" ? "email" : "tel"}
@@ -895,36 +873,87 @@ export function AddPersonScreen({
             })}
           </div>
           <div className="button-row compact-buttons">
-            <button type="button" onClick={() => addContact("phone")}>Add phone</button>
-            <button type="button" onClick={() => addContact("email")}>Add email</button>
+            <button aria-label="Add phone" type="button" onClick={() => addContact("phone")}>Add another mobile</button>
+            <button aria-label="Add email" type="button" onClick={() => addContact("email")}>Add another email</button>
           </div>
         </section>
 
-        <div className="form-field">
-          <label htmlFor="person-organisation">Organisation <span>Optional</span></label>
-          <input
-            id="person-organisation"
-            value={draft.organisationName ?? ""}
-            aria-invalid={Boolean(errors.organisation)}
-            aria-describedby={errors.organisation ? "person-organisation-error" : undefined}
-            onChange={(event) => changed((current) => ({ ...current, organisationName: event.target.value }))}
-          />
-          {errors.organisation && <p className="field-error" id="person-organisation-error" role="alert">{errors.organisation}</p>}
-        </div>
-
-        <div className="form-field">
-          <label htmlFor="person-where-met">Where you met <span>Optional</span></label>
-          <input
-            id="person-where-met"
-            placeholder="HealthTech Fellowship"
-            value={draft.whereMet ?? ""}
-            onChange={(event) => changed((current) => ({ ...current, whereMet: event.target.value }))}
-          />
+        <div className="form-field frequency-field">
+          <label htmlFor="person-cadence">Contact frequency <span>Optional</span></label>
+          <select
+            id="person-cadence"
+            aria-label="Contact cadence in days"
+            value={cadenceText}
+            aria-invalid={Boolean(errors.cadence)}
+            aria-describedby={errors.cadence ? "person-cadence-error" : "person-cadence-hint"}
+            onChange={(event) => {
+              preparedRef.current = null;
+              acknowledgedDuplicatePersonIdsRef.current = [];
+              setDuplicateMatches([]);
+              dirtyRef.current = true;
+              setCadenceText(event.target.value);
+              onDirtyChange(true);
+            }}
+          >
+            <option value="">No regular reminder</option>
+            <option value="7">Every week</option>
+            <option value="14">Every 2 weeks</option>
+            <option value="30">Every month</option>
+            <option value="60">Every 2 months</option>
+            <option value="90">Every 3 months</option>
+            <option value="180">Every 6 months</option>
+            <option value="365">Every year</option>
+          </select>
+          <p className="field-hint" id="person-cadence-hint">This determines when they appear in Today and Upcoming.</p>
+          {errors.cadence && <p className="field-error" id="person-cadence-error" role="alert">{errors.cadence}</p>}
         </div>
 
         <details className="more-details">
           <summary>More details</summary>
           <div className="more-details-body">
+            <fieldset className="choice-fieldset">
+              <legend>What do you know?</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="identity-status"
+                  value="confirmed"
+                  checked={draft.identityStatus === "confirmed"}
+                  onChange={() => changed((current) => ({ ...current, identityStatus: "confirmed" }))}
+                />
+                Their name
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="identity-status"
+                  value="provisional"
+                  checked={draft.identityStatus === "provisional"}
+                  onChange={() => changed((current) => ({ ...current, identityStatus: "provisional" }))}
+                />
+                A description for now
+              </label>
+            </fieldset>
+            <div className="form-field">
+              <label htmlFor="person-organisation">Organisation <span>Optional</span></label>
+              <input
+                id="person-organisation"
+                value={draft.organisationName ?? ""}
+                aria-invalid={Boolean(errors.organisation)}
+                aria-describedby={errors.organisation ? "person-organisation-error" : undefined}
+                onChange={(event) => changed((current) => ({ ...current, organisationName: event.target.value }))}
+              />
+              {errors.organisation && <p className="field-error" id="person-organisation-error" role="alert">{errors.organisation}</p>}
+            </div>
+            <div className="form-field">
+              <label htmlFor="person-where-met">Where you met <span>Optional</span></label>
+              <input
+                id="person-where-met"
+                placeholder="HealthTech Fellowship"
+                value={draft.whereMet ?? ""}
+                onChange={(event) => changed((current) => ({ ...current, whereMet: event.target.value }))}
+              />
+            </div>
             <div className="form-field">
               <label htmlFor="person-role">Role or job title <span>Optional</span></label>
               <input
@@ -963,28 +992,6 @@ export function AddPersonScreen({
               />
               <p className="field-hint" id="person-tags-hint">Separate tags with commas.</p>
               {errors.tags && <p className="field-error" id="person-tags-error" role="alert">{errors.tags}</p>}
-            </div>
-            <div className="form-field">
-              <label htmlFor="person-cadence">Contact cadence in days <span>Optional</span></label>
-              <input
-                id="person-cadence"
-                type="number"
-                inputMode="numeric"
-                min="1"
-                max="3650"
-                value={cadenceText}
-                aria-invalid={Boolean(errors.cadence)}
-                aria-describedby={errors.cadence ? "person-cadence-error" : undefined}
-                onChange={(event) => {
-                  preparedRef.current = null;
-                  acknowledgedDuplicatePersonIdsRef.current = [];
-                  setDuplicateMatches([]);
-                  dirtyRef.current = true;
-                  setCadenceText(event.target.value);
-                  onDirtyChange(true);
-                }}
-              />
-              {errors.cadence && <p className="field-error" id="person-cadence-error" role="alert">{errors.cadence}</p>}
             </div>
           </div>
         </details>
