@@ -22,6 +22,7 @@ import { listActivePersonOptions, type PersonPickerOption } from "./application/
 import { getDatabase } from "./data/client";
 import type { MemoryFact, MemoryFactKind } from "./domain/schema";
 import { ValidationError } from "./domain/validation";
+import { readActiveRelationshipMode } from "./relationshipModePreference";
 
 function firstIssue(error: unknown): string {
   if (error instanceof ValidationError) return error.issues[0] ?? error.message;
@@ -91,7 +92,7 @@ export default function FactEditorSheet({
   useEffect(() => {
     let active = true;
     getDatabase()
-      .then((db) => listActivePersonOptions(db, personId))
+      .then((db) => listActivePersonOptions(db, personId, readActiveRelationshipMode()))
       .then((options) => { if (active) setPeople(options); })
       .catch(() => { if (active) setPeopleError("PeopleOS could not load people to link."); });
     return () => { active = false; };

@@ -32,6 +32,8 @@ import EditPersonScreen from "./EditPersonScreen";
 import type { PersonPickerOption } from "./application/interactionQueries";
 import type { ContactImportSession } from "./application/contactImport";
 import type { Person } from "./domain/schema";
+import type { ActiveRelationshipMode } from "./domain/relationshipMode";
+import { readActiveRelationshipMode, writeActiveRelationshipMode } from "./relationshipModePreference";
 
 type ModalBackHandler = {
   id: string;
@@ -57,6 +59,7 @@ function resolverSuccessProfileState(route: Route): Record<string, unknown> {
 
 export default function App() {
   const [route, setRoute] = useState(() => routeFromPath(window.location.pathname));
+  const [activeRelationshipMode, setActiveRelationshipMode] = useState<ActiveRelationshipMode>(readActiveRelationshipMode);
   const [storageError, setStorageError] = useState(false);
   const [importSession, setImportSession] = useState<ContactImportSession | null>(null);
   const [importedPeopleFilter, setImportedPeopleFilter] = useState<string[] | null>(null);
@@ -306,16 +309,17 @@ export default function App() {
 
   function renderScreen() {
     switch (route.id) {
-      case "today": return <TodayScreen navigate={navigatePath} onAddFollowUp={() => setGlobalAddOpen(true)} />;
-      case "reach-out": return <ReachOutScreen navigate={navigatePath} onAdd={(opener) => openReachOutCapture(undefined, opener)} />;
+      case "today": return <TodayScreen activeMode={activeRelationshipMode} navigate={navigatePath} onAddFollowUp={() => setGlobalAddOpen(true)} />;
+      case "reach-out": return <ReachOutScreen activeMode={activeRelationshipMode} navigate={navigatePath} onAdd={(opener) => openReachOutCapture(undefined, opener)} />;
       case "people": return (
         <PeopleScreen
           navigate={navigatePath}
           importedPersonIds={importedPeopleFilter}
           onClearImportedFilter={() => setImportedPeopleFilter(null)}
+          activeMode={activeRelationshipMode}
         />
       );
-      case "upcoming": return <UpcomingScreen navigate={navigatePath} />;
+      case "upcoming": return <UpcomingScreen activeMode={activeRelationshipMode} navigate={navigatePath} />;
       case "settings": return <SettingsScreen navigate={navigatePath} />;
       case "add-person": return (
         <AddPersonScreen
@@ -569,6 +573,18 @@ export default function App() {
           )}
         </div>
       </header>
+      <div className="relationship-mode-bar">
+        <div className="segmented-control global-mode-control" role="group" aria-label="Relationship view">
+          {(["personal", "professional"] as ActiveRelationshipMode[]).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              aria-pressed={activeRelationshipMode === mode}
+              onClick={() => { writeActiveRelationshipMode(mode); setActiveRelationshipMode(mode); }}
+            >{mode === "personal" ? "Personal" : "Professional"}</button>
+          ))}
+        </div>
+      </div>
 
       {storageError && <p className="storage-error" role="alert">PeopleOS could not open local storage. Your data actions are unavailable.</p>}
       {renderScreen()}
@@ -594,6 +610,7 @@ export default function App() {
 
       {globalAddOpen && (
         <GlobalAddSheet
+          activeMode={activeRelationshipMode}
           onClose={closeGlobalAdd}
           onNavigate={(path) => { setGlobalAddOpen(false); navigatePath(path); }}
           onLogInteraction={(person) => {
@@ -614,6 +631,7 @@ export default function App() {
       )}
       {globalInteractionPerson && (
         <InteractionEditorSheet
+          activeMode={activeRelationshipMode}
           personId={globalInteractionPerson.person.id}
           personName={globalInteractionPerson.person.displayName}
           onClose={closeGlobalInteraction}
@@ -635,6 +653,7 @@ export default function App() {
       )}
       {globalReachOutOpen && (
         <ReachOutEditorSheet
+          activeMode={activeRelationshipMode}
           mode="create"
           person={globalReachOutPerson}
           onClose={() => {

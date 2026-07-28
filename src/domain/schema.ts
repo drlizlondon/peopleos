@@ -1,6 +1,6 @@
 export const DATABASE_NAME = "peopleos-v1";
-export const DATABASE_VERSION = 1;
-export const BACKUP_SCHEMA_VERSION = 2;
+export const DATABASE_VERSION = 2;
+export const BACKUP_SCHEMA_VERSION = 3;
 export const DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS = 14;
 
 export type EntityId = string;
@@ -16,6 +16,7 @@ export type MutableRecord = {
 
 export type Person = MutableRecord & {
   displayName: string;
+  relationshipMode?: "personal" | "professional" | "both";
   identityStatus: "provisional" | "confirmed" | "merged";
   mergedIntoPersonId?: EntityId;
   mergeCommandFingerprint?: string;

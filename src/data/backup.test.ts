@@ -22,7 +22,7 @@ describe("PeopleOS backup and restore", () => {
     const source = await openPeopleOsDatabase(name("source"), fixedNow);
     await restoreBackup(source, previewBackup({ product: "peopleos", schemaVersion: BACKUP_SCHEMA_VERSION, exportedAt: fixedNow, data: completeData() }), fixedNow);
     const generated = await generateBackup(source, "2026-08-02T10:00:00.000Z");
-    expect(generated.envelope.schemaVersion).toBe(2);
+    expect(generated.envelope.schemaVersion).toBe(3);
     expect(generated.envelope.data.appSettings[0]).toMatchObject({
       captureMode: "standard",
       alreadyContactedDefaultReminderDays: 14,
@@ -79,6 +79,27 @@ describe("PeopleOS backup and restore", () => {
     const currentPreview = previewBackup(first.envelope);
     expect(currentPreview.migratedFromVersion).toBeUndefined();
     expect(currentPreview.envelope).toEqual(first.envelope);
+  });
+
+  it("imports older backups as Personal without overwriting an assigned relationship mode", () => {
+    const oldData = completeData();
+    const oldPerson = { ...oldData.people[0]! };
+    delete oldPerson.relationshipMode;
+    const migrated = previewBackup({
+      product: "peopleos",
+      schemaVersion: 2,
+      exportedAt: fixedNow,
+      data: { ...oldData, people: [oldPerson] }
+    });
+    expect(migrated.envelope.data.people[0]?.relationshipMode).toBe("personal");
+
+    const professional = previewBackup({
+      product: "peopleos",
+      schemaVersion: 2,
+      exportedAt: fixedNow,
+      data: { ...oldData, people: [{ ...oldPerson, relationshipMode: "professional" }] }
+    });
+    expect(professional.envelope.data.people[0]?.relationshipMode).toBe("professional");
   });
 
   it("rejects a current schema backup when the required interval is missing", () => {

@@ -79,7 +79,7 @@ export async function openPeopleOsDatabase(
   now = new Date().toISOString()
 ): Promise<PeopleOsDatabase> {
   const db = await openDB<PeopleOsDb>(databaseName, DATABASE_VERSION, {
-    upgrade(database, oldVersion) {
+    upgrade(database, oldVersion, _newVersion, transaction) {
       if (oldVersion < 1) {
         const people = database.createObjectStore("people", { keyPath: "id" });
         people.createIndex("by-updated", "updatedAt");
@@ -134,6 +134,15 @@ export async function openPeopleOsDatabase(
 
         database.createObjectStore("appSettings", { keyPath: "id" });
         database.createObjectStore("metadata", { keyPath: "id" });
+      }
+      if (oldVersion < 2) {
+        const people = transaction.objectStore("people");
+        void people.openCursor().then(function migrate(cursor): Promise<void> | void {
+          if (!cursor) return;
+          const person = cursor.value;
+          const next = person.relationshipMode ? person : { ...person, relationshipMode: "personal" as const };
+          return cursor.update(next).then(() => cursor.continue()).then(migrate);
+        });
       }
     }
   });

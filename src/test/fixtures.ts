@@ -9,6 +9,7 @@ export function completeData(): PeopleOsData {
       revision: 1,
       displayName: "Sarah Ahmed",
       identityStatus: "confirmed",
+      relationshipMode: "personal",
       importance: "high",
       tags: ["fellowship"],
       contactCadenceDays: 90,

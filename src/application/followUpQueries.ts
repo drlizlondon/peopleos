@@ -14,6 +14,7 @@ import type {
   Person,
   TodaySkip
 } from "../domain/schema";
+import { personMatchesActiveMode, type ActiveRelationshipMode } from "../domain/relationshipMode";
 
 export type PersonFollowUpLists = {
   pending: FollowUp[];
@@ -32,6 +33,7 @@ export type FollowUpDetail = {
 
 export type UpcomingFilters = {
   localDate: LocalDate;
+  activeMode?: ActiveRelationshipMode;
   window?: "next_7_days" | "next_30_days" | "later";
   personId?: string;
   actionType?: FollowUpActionType;
@@ -137,7 +139,7 @@ export async function listUpcomingFollowUps(
     db.getAllFromIndex("followUps", "by-status", "pending"),
     db.getAll("people")
   ]);
-  const peopleById = new Map(people.filter(activePerson).map((person) => [person.id, person]));
+  const peopleById = new Map(people.filter((person) => activePerson(person) && personMatchesActiveMode(person, filters.activeMode ?? "personal")).map((person) => [person.id, person]));
   const allActive = pending.flatMap((followUp): UpcomingFollowUp[] => {
     const person = peopleById.get(followUp.personId);
     return person ? [{ followUp, person, effectiveDate: effectiveFollowUpDate(followUp) }] : [];

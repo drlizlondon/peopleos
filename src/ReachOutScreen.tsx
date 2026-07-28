@@ -17,6 +17,7 @@ import { getDatabase } from "./data/client";
 import { FOLLOW_UP_ACTION_OPTIONS } from "./domain/followUpPolicy";
 import type { ReachOutStatusFilter } from "./domain/reachOutPolicy";
 import type { FollowUpActionType, LocalDate, ReachOutContext } from "./domain/schema";
+import type { ActiveRelationshipMode } from "./domain/relationshipMode";
 import { personProfilePath, reachOutDetailPath } from "./navigation";
 
 type Navigate = (path: string, options?: { replace?: boolean; state?: Record<string, unknown> }) => void;
@@ -102,7 +103,7 @@ function sortedStatusFilters(filters: readonly ReachOutStatusFilter[]): ReachOut
     .filter((status) => filters.includes(status));
 }
 
-export default function ReachOutScreen({ navigate, onAdd }: { navigate: Navigate; onAdd: (opener: HTMLElement) => void }) {
+export default function ReachOutScreen({ activeMode = "personal", navigate, onAdd }: { activeMode?: ActiveRelationshipMode; navigate: Navigate; onAdd: (opener: HTMLElement) => void }) {
   const [initialView] = useState(readViewState);
   const [query, setQuery] = useState(initialView.query);
   const [statusFilters, setStatusFilters] = useState<ReachOutStatusFilter[]>(initialView.statusFilters);
@@ -132,12 +133,13 @@ export default function ReachOutScreen({ navigate, onAdd }: { navigate: Navigate
       const [nextItems, nextContexts, nextHasEntries] = await Promise.all([
         listReachOut(db, {
           localDate,
+          activeMode,
           ...(debouncedQuery ? { query: debouncedQuery } : {}),
           ...(statusFilters.length > 0 ? { statusFilters } : {}),
           ...(contextId ? { contextId } : {})
         }),
-        listReachOutContexts(db),
-        hasReachOutEntries(db)
+        listReachOutContexts(db, activeMode),
+        hasReachOutEntries(db, activeMode)
       ]);
       if (sequence !== loadSequence.current) return;
       setItems(nextItems);
@@ -147,7 +149,7 @@ export default function ReachOutScreen({ navigate, onAdd }: { navigate: Navigate
       if (sequence !== loadSequence.current) return;
       setError("PeopleOS could not load Reach Out from this device.");
     }
-  }, [contextId, debouncedQuery, localDate, statusFilters]);
+  }, [activeMode, contextId, debouncedQuery, localDate, statusFilters]);
 
   useEffect(() => { void load(); }, [load]);
 

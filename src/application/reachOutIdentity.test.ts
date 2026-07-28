@@ -171,7 +171,7 @@ describe("provisional Reach Out identity resolution", () => {
     })).rejects.toThrow("complete rollback");
 
     expect(await readAllData(db)).toEqual(before);
-    expect(await db.get("people", provisional.id)).toEqual(provisional);
+    expect(await db.get("people", provisional.id)).toEqual({ ...provisional, relationshipMode: "personal" });
     expect(await db.count("contactMethods")).toBe(0);
     expect(await db.count("affiliations")).toBe(0);
   });

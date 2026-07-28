@@ -4,6 +4,7 @@ import type {
   OrganisationAffiliation,
   Person
 } from "../domain/schema";
+import type { RelationshipMode } from "../domain/relationshipMode";
 import { assertValidRecord, ValidationError } from "../domain/validation";
 import { RecordConflictError } from "../data/repositories";
 import type { PeopleOsDatabase } from "../data/database";
@@ -25,6 +26,7 @@ export type ManualPersonCaptureDraft = {
   metInteractionId: string;
   createdAt: string;
   displayName: string;
+  relationshipMode: RelationshipMode;
   identityStatus: "confirmed" | "provisional";
   importance: "normal" | "high";
   tags: string[];
@@ -67,6 +69,7 @@ export function createManualPersonCaptureDraft(
     metInteractionId: createId("interaction", idFactory),
     createdAt: options.now ?? new Date().toISOString(),
     displayName: "",
+    relationshipMode: "personal",
     identityStatus: "confirmed",
     importance: "normal",
     tags: [],
@@ -126,6 +129,7 @@ export function prepareManualPersonCapture(
     id: draft.personId,
     revision: 1,
     displayName: draft.displayName.trim(),
+    relationshipMode: draft.relationshipMode,
     identityStatus: draft.identityStatus,
     importance: draft.importance,
     tags,

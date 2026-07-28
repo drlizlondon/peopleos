@@ -4,6 +4,28 @@ import { describe, expect, it } from "vitest";
 import App from "./App";
 
 describe("PeopleOS shell", () => {
+  it("keeps the selected relationship view while navigating and after remounting", async () => {
+    const values = new Map<string, string>();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => { values.set(key, value); }
+      }
+    });
+    const user = userEvent.setup();
+    const first = render(<App />);
+    const professional = screen.getByRole("button", { name: "Professional" });
+    expect(screen.getByRole("button", { name: "Personal" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(professional);
+    expect(professional).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("link", { name: "People" }));
+    expect(screen.getByRole("button", { name: "Professional" })).toHaveAttribute("aria-pressed", "true");
+    first.unmount();
+    render(<App />);
+    expect(screen.getByRole("button", { name: "Professional" })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("renders all five primary destinations in the accepted order", async () => {
     const user = userEvent.setup();
     render(<App />);

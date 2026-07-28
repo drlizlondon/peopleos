@@ -43,7 +43,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   width: min(100%, 720px);
   min-height: 100dvh;
   margin: 0 auto;
-  background: rgba(244, 246, 241, 0.72);
+  background: var(--canvas);
   border-inline: 1px solid rgba(220, 227, 220, 0.72);
 }
 
@@ -114,6 +114,45 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   gap: 16px;
 }
 
+.relationship-mode-bar {
+  display: flex;
+  justify-content: center;
+  padding: 3px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.segmented-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px;
+  width: min(100%, 310px);
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-soft);
+}
+
+.segmented-control.three-way { grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
+.segmented-control button {
+  min-height: 29px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.segmented-control button[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--forest);
+  box-shadow: 0 1px 4px rgb(76 35 48 / 10%);
+}
+.relationship-mode-fieldset { margin: 0; }
+.relationship-mode-fieldset legend { margin-bottom: 7px; font-weight: 700; }
+
 .header-add-person {
   min-height: 40px;
   display: inline-flex;
@@ -136,6 +175,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .screen {
   min-height: calc(100dvh - 76px);
   padding: 28px 24px calc(116px + env(safe-area-inset-bottom));
+  background: var(--canvas);
 }
 
 .screen:focus { outline: none; }
@@ -294,7 +334,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .settings-section h3 { margin: 0; font-size: 1rem; letter-spacing: -0.015em; }
 .settings-section-heading p { margin: 5px 0 0; color: var(--muted); font-size: 0.86rem; line-height: 1.45; }
 .settings-section dl { margin: 0; }
-
 .settings-row {
   min-height: 52px;
   padding: 12px 18px;
@@ -415,6 +454,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .person-profile-screen,
 .contact-methods-screen,
 .form-screen { padding-top: 28px; }
+
+.people-screen-loading { background: var(--canvas); }
 
 .page-heading-with-action {
   display: flex;
@@ -1780,7 +1821,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .header-add-person svg { width: 15px; height: 15px; }
 
 .screen {
-  min-height: calc(100dvh - 60px);
+  min-height: calc(100dvh - 102px - env(safe-area-inset-top));
   padding: 20px 18px calc(86px + env(safe-area-inset-bottom));
 }
 
@@ -1878,7 +1919,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 
 /* Today is a viewport-contained dashboard. User-generated card overflow scrolls here. */
 .today-screen {
-  height: calc(100dvh - 60px);
+  height: calc(100dvh - 102px - env(safe-area-inset-top));
   min-height: 0;
   padding-top: 14px;
   padding-bottom: calc(64px + env(safe-area-inset-bottom));
@@ -1927,7 +1968,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 
 @media (max-height: 740px) {
   .app-header { min-height: 54px; padding-top: calc(7px + env(safe-area-inset-top)); padding-bottom: 6px; }
-  .today-screen { height: calc(100dvh - 54px); padding-top: 10px; }
+  .today-screen { height: calc(100dvh - 96px - env(safe-area-inset-top)); padding-top: 10px; }
   .today-screen > .empty-state { margin-top: 4px; }
   .empty-mark { margin-bottom: 10px; }
   .empty-action { margin-top: 14px; }

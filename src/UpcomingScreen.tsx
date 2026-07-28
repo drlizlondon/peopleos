@@ -19,6 +19,7 @@ import {
 // eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { getDatabase } from "./data/client";
 import type { FollowUp, FollowUpActionType } from "./domain/schema";
+import type { ActiveRelationshipMode } from "./domain/relationshipMode";
 import { FOLLOW_UP_ACTION_OPTIONS } from "./domain/followUpPolicy";
 import { followUpDetailPath, personProfilePath } from "./navigation";
 
@@ -95,9 +96,11 @@ function groupUpcoming(items: readonly UpcomingFollowUp[]): Array<{
 }
 
 function PersonPicker({
+  activeMode,
   onClose,
   onSelect
 }: {
+  activeMode: ActiveRelationshipMode;
   onClose: () => void;
   onSelect: (person: PersonPickerOption) => void;
 }) {
@@ -113,12 +116,12 @@ function PersonPicker({
 
   useEffect(() => {
     let active = true;
-    getDatabase().then((db) => listActivePersonOptions(db))
+    getDatabase().then((db) => listActivePersonOptions(db, undefined, activeMode))
       .then((records) => { if (active) setPeople(records); })
       .catch(() => { if (active) setError("PeopleOS could not load people. Close this sheet and try again."); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [activeMode]);
 
   useEffect(() => {
     const id = `upcoming-person-picker-${modalId}`;
@@ -312,7 +315,7 @@ function UpcomingFilterSheet({
   );
 }
 
-export default function UpcomingScreen({ navigate }: { navigate: Navigate }) {
+export default function UpcomingScreen({ activeMode = "personal", navigate }: { activeMode?: ActiveRelationshipMode; navigate: Navigate }) {
   const [initialView] = useState(readUpcomingViewState);
   const [localDate] = useState(currentLocalDate);
   const [windowFilter, setWindowFilter] = useState<"" | WindowFilter>(initialView.window);
@@ -334,10 +337,11 @@ export default function UpcomingScreen({ navigate }: { navigate: Navigate }) {
 
   const filters = useMemo<UpcomingFilters>(() => ({
     localDate,
+    activeMode,
     ...(windowFilter ? { window: windowFilter } : {}),
     ...(personFilter ? { personId: personFilter } : {}),
     ...(actionFilter ? { actionType: actionFilter } : {})
-  }), [actionFilter, localDate, personFilter, windowFilter]);
+  }), [actionFilter, activeMode, localDate, personFilter, windowFilter]);
 
   const load = useCallback(async () => {
     setError("");
@@ -346,14 +350,14 @@ export default function UpcomingScreen({ navigate }: { navigate: Navigate }) {
       const db = await getDatabase();
       const [filtered, all] = await Promise.all([
         listUpcomingFollowUps(db, filters),
-        listUpcomingFollowUps(db, { localDate })
+        listUpcomingFollowUps(db, { localDate, activeMode })
       ]);
       setResult(filtered);
       setAllItems(all.items);
     } catch {
       setError("PeopleOS could not load upcoming follow-ups.");
     }
-  }, [filters, localDate]);
+  }, [activeMode, filters, localDate]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -545,6 +549,7 @@ export default function UpcomingScreen({ navigate }: { navigate: Navigate }) {
 
       {pickerOpen && (
         <PersonPicker
+          activeMode={activeMode}
           onClose={() => { setPickerOpen(false); restoreFocus(); }}
           onSelect={(option) => {
             setPickerOpen(false);

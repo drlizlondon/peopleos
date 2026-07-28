@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { listActivePersonOptions, type PersonPickerOption } from "./application/interactionQueries";
 // eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { getDatabase } from "./data/client";
+import type { ActiveRelationshipMode } from "./domain/relationshipMode";
 
 export default function GlobalAddSheet({
   onClose,
@@ -10,7 +11,8 @@ export default function GlobalAddSheet({
   onAddFollowUp,
   onAddReachOut,
   preferFollowUp = false,
-  preferReachOut = false
+  preferReachOut = false,
+  activeMode = "personal"
 }: {
   onClose: () => void;
   onNavigate: (path: string) => void;
@@ -19,6 +21,7 @@ export default function GlobalAddSheet({
   onAddReachOut: () => void;
   preferFollowUp?: boolean;
   preferReachOut?: boolean;
+  activeMode?: ActiveRelationshipMode;
 }) {
   const modalId = useId();
   const [choice, setChoice] = useState<"interaction" | "follow_up" | null>(null);
@@ -92,7 +95,7 @@ export default function GlobalAddSheet({
     setChoice(nextChoice);
     setError("");
     try {
-      setPeople(await listActivePersonOptions(await getDatabase()));
+      setPeople(await listActivePersonOptions(await getDatabase(), undefined, activeMode));
     } catch {
       setError("PeopleOS could not load people. Close this sheet and try again.");
     }

@@ -384,7 +384,7 @@ describe("V1-11 complete Profile and Person lifecycle UI", () => {
     confirm.mockReturnValueOnce(true);
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(await screen.findByRole("heading", { name: "Sarah Jones" })).toBeInTheDocument();
-    expect(await (await getDatabase()).get("people", original.id)).toEqual(original);
+    expect(await (await getDatabase()).get("people", original.id)).toEqual({ ...original, relationshipMode: "personal" });
 
     await user.click(screen.getByRole("button", { name: "Edit person" }));
     const staleDraft = await screen.findByLabelText(/Display name/);

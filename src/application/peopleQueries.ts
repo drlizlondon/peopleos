@@ -5,6 +5,7 @@ import type {
   OrganisationAffiliation,
   Person
 } from "../domain/schema";
+import { personMatchesActiveMode, type ActiveRelationshipMode } from "../domain/relationshipMode";
 import type { PeopleOsDatabase } from "../data/database";
 import { selectDisplayAffiliation } from "./affiliations";
 
@@ -81,7 +82,7 @@ export async function getPersonSummary(
   };
 }
 
-export async function listPeopleSummaries(db: PeopleOsDatabase): Promise<PersonSummary[]> {
+export async function listPeopleSummaries(db: PeopleOsDatabase, activeMode: ActiveRelationshipMode = "personal"): Promise<PersonSummary[]> {
   const tx = db.transaction(["people", "contactMethods", "affiliations", "interactions"], "readonly");
   const [peopleRecords, contactMethods, affiliations, interactions] = await Promise.all([
     tx.objectStore("people").getAll(),
@@ -94,7 +95,7 @@ export async function listPeopleSummaries(db: PeopleOsDatabase): Promise<PersonS
   const affiliationsByPerson = groupByPerson(affiliations);
   const interactionsByPerson = groupByPerson(interactions);
   const people = peopleRecords
-    .filter((person) => !person.archivedAt && person.identityStatus !== "merged")
+    .filter((person) => !person.archivedAt && person.identityStatus !== "merged" && personMatchesActiveMode(person, activeMode))
     .sort((left, right) =>
       descending(left.createdAt, right.createdAt)
       || ascending(left.displayName.toLocaleLowerCase("en-US"), right.displayName.toLocaleLowerCase("en-US"))

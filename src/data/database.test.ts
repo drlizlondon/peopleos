@@ -19,6 +19,39 @@ afterEach(async () => {
 });
 
 describe("PeopleOS IndexedDB foundation", () => {
+  it("migrates missing relationship modes once and preserves an existing classification", async () => {
+    const name = databaseName("relationship-mode-migration");
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open(name, 1);
+      request.onupgradeneeded = () => {
+        const database = request.result;
+        database.createObjectStore("people", { keyPath: "id" });
+        database.createObjectStore("appSettings", { keyPath: "id" });
+        database.createObjectStore("metadata", { keyPath: "id" });
+      };
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const database = request.result;
+        const transaction = database.transaction("people", "readwrite");
+        const store = transaction.objectStore("people");
+        const base = { revision: 1, identityStatus: "confirmed", importance: "normal", tags: [], createdAt: fixedNow, updatedAt: fixedNow };
+        store.add({ ...base, id: "legacy", displayName: "Legacy" });
+        store.add({ ...base, id: "assigned", displayName: "Assigned", relationshipMode: "professional" });
+        transaction.oncomplete = () => { database.close(); resolve(); };
+        transaction.onerror = () => reject(transaction.error);
+      };
+    });
+
+    const migrated = await openPeopleOsDatabase(name, fixedNow);
+    expect((await migrated.get("people", "legacy"))?.relationshipMode).toBe("personal");
+    expect((await migrated.get("people", "assigned"))?.relationshipMode).toBe("professional");
+    migrated.close();
+
+    const reopened = await openPeopleOsDatabase(name, fixedNow);
+    expect((await reopened.get("people", "assigned"))?.relationshipMode).toBe("professional");
+    reopened.close();
+  });
+
   it("creates every V1 store and deterministic singleton defaults", async () => {
     const db = await openPeopleOsDatabase(databaseName("schema"), fixedNow);
     expect(Array.from(db.objectStoreNames)).toEqual([
@@ -46,7 +79,7 @@ describe("PeopleOS IndexedDB foundation", () => {
     };
     await people.create(person);
     await people.create(person);
-    expect(await people.list()).toEqual([person]);
+    expect(await people.list()).toEqual([{ ...person, relationshipMode: "personal" }]);
     await expect(people.create({ ...person, displayName: "Different" })).rejects.toBeInstanceOf(RecordConflictError);
     db.close();
   });
