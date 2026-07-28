@@ -518,22 +518,24 @@ function buildTodayAssessment(
     }
   }
 
-  const lastContact = latestContact(contacts);
   const cadence = bundle.person.contactCadenceDays;
-  if (lastContact && cadence) {
-    const contactDate = localDateForInstant(lastContact.occurredAt, timeZone);
-    const dueDate = addDaysToLocalDate(contactDate, cadence);
-    const elapsed = calendarDaysBetween(contactDate, localDate);
-    if (elapsed >= cadence) {
+  if (cadence && !bundle.person.contactCadencePausedAt) {
+    const lastContact = latestContact(contacts);
+    const contactDate = lastContact ? localDateForInstant(lastContact.occurredAt, timeZone) : undefined;
+    const cadenceDate = contactDate ? addDaysToLocalDate(contactDate, cadence) : bundle.person.contactCadenceFirstDueDate;
+    const dueDate = bundle.person.contactCadenceDeferredUntilDate && cadenceDate
+      ? (bundle.person.contactCadenceDeferredUntilDate > cadenceDate ? bundle.person.contactCadenceDeferredUntilDate : cadenceDate)
+      : cadenceDate;
+    if (dueDate && dueDate <= localDate) {
       return {
         eligibilityCode: "cadence_due",
-        dueState: "rule_due",
+        dueState: dueDate < localDate ? "overdue" : "due_today",
         relevantDate: dueDate,
         additionalDueFollowUpIds: [],
         explanation: explanation("today.cadence_due", "today.cadence_due", [
           sourceFact("cadenceDays", String(cadence), bundle.person.id),
-          sourceFact("lastContactDate", contactDate, lastContact.id),
-          sourceFact("elapsedDays", String(elapsed), lastContact.id)
+          sourceFact("nextDueDate", dueDate, bundle.person.id),
+          ...(contactDate && lastContact ? [sourceFact("lastContactDate", contactDate, lastContact.id)] : [])
         ]),
         intendedActionContext: buildIntendedAction(bundle)
       };

@@ -13,6 +13,10 @@ type TodayCardProps = {
   onWhy: () => void;
   onProfile: () => void;
   onReachOut?: () => void;
+  onPauseFor: (days: number) => void;
+  onPauseUntil: (date: string) => void;
+  onPauseRegular: () => void;
+  onEditSchedule: () => void;
   onRetry?: () => void;
   onCopy?: () => void;
 };
@@ -42,6 +46,10 @@ export default function TodayCard({
   onWhy,
   onProfile,
   onReachOut,
+  onPauseFor,
+  onPauseUntil,
+  onPauseRegular,
+  onEditSchedule,
   onRetry,
   onCopy
 }: TodayCardProps) {
@@ -91,18 +99,27 @@ export default function TodayCard({
       )}
 
       <div className="today-card-actions" role="group" aria-label={`Actions for ${card.person.displayName}`}>
-        <button className="primary-action" type="button" disabled={busy} onClick={onContactNow}>Contact now</button>
+        <button className="primary-action" type="button" disabled={busy} onClick={onAlreadyContacted}>Contacted</button>
         <button type="button" disabled={busy} onClick={onNotToday}>Not today</button>
-        <button type="button" disabled={busy} onClick={onAlreadyContacted}>Already contacted</button>
+        <details className="today-more-actions">
+          <summary aria-label={`More actions for ${card.person.displayName}`}>•••</summary>
+          <div>
+            <button type="button" disabled={busy} onClick={onContactNow}>Contact now</button>
+            <button type="button" disabled={busy} onClick={() => onPauseFor(3)}>Pause for 3 days</button>
+            <button type="button" disabled={busy} onClick={() => onPauseFor(7)}>Pause for 1 week</button>
+            <button type="button" disabled={busy} onClick={() => onPauseFor(14)}>Pause for 2 weeks</button>
+            <label className="today-pause-date">Choose date<input type="date" onChange={(event) => { if (event.target.value) onPauseUntil(event.target.value); }} /></label>
+            <button type="button" disabled={busy} onClick={onPauseRegular}>Pause regular reminders</button>
+            <button type="button" onClick={onEditSchedule}>Edit stay-in-touch schedule</button>
+            <button type="button" onClick={onWhy}>Why this person?</button>
+            <button type="button" onClick={onProfile}>View person</button>
+            {card.reachOut && onReachOut && <button type="button" onClick={onReachOut}>Open Reach Out plan</button>}
+          </div>
+        </details>
       </div>
       {!card.contact.hasActivePhone && (
         <button className="today-add-phone" type="button" disabled={busy} onClick={onAddPhone}>Add phone number</button>
       )}
-      <div className="today-card-links">
-        <button type="button" onClick={onWhy}>Why this person?</button>
-        <button type="button" onClick={onProfile}>Open profile</button>
-        {card.reachOut && onReachOut && <button type="button" onClick={onReachOut}>Open Reach Out plan</button>}
-      </div>
     </article>
   );
 }

@@ -22,7 +22,7 @@ describe("PeopleOS backup and restore", () => {
     const source = await openPeopleOsDatabase(name("source"), fixedNow);
     await restoreBackup(source, previewBackup({ product: "peopleos", schemaVersion: BACKUP_SCHEMA_VERSION, exportedAt: fixedNow, data: completeData() }), fixedNow);
     const generated = await generateBackup(source, "2026-08-02T10:00:00.000Z");
-    expect(generated.envelope.schemaVersion).toBe(3);
+    expect(generated.envelope.schemaVersion).toBe(BACKUP_SCHEMA_VERSION);
     expect(generated.envelope.data.appSettings[0]).toMatchObject({
       captureMode: "standard",
       alreadyContactedDefaultReminderDays: 14,

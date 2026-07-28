@@ -15,6 +15,18 @@
   --warning: #d9a441;
   --danger: #d86a6a;
   --shadow: 0 8px 22px rgba(83, 27, 47, 0.06), 0 1px 2px rgba(83, 27, 47, 0.07);
+  --type-body: clamp(1rem, 0.98rem + 0.12vw, 1.0625rem);
+  --type-supporting: clamp(0.875rem, 0.85rem + 0.12vw, 0.9375rem);
+  --type-label: clamp(0.875rem, 0.85rem + 0.12vw, 0.9375rem);
+  --type-nav: clamp(0.75rem, 0.73rem + 0.1vw, 0.8125rem);
+  --type-eyebrow: clamp(0.75rem, 0.73rem + 0.1vw, 0.8125rem);
+  --type-page-title: clamp(1.875rem, 1.7rem + 0.8vw, 2.125rem);
+  --type-card-title: clamp(1.25rem, 1.15rem + 0.45vw, 1.5rem);
+  --control-height: 44px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
 }
 
 * { box-sizing: border-box; }
@@ -28,6 +40,7 @@ body {
   background: var(--canvas);
   color: var(--ink);
   -webkit-tap-highlight-color: transparent;
+  font-size: var(--type-body);
 }
 
 button, a { font: inherit; }
@@ -135,7 +148,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 
 .segmented-control.three-way { grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
 .segmented-control button {
-  min-height: 29px;
+  min-height: var(--control-height);
   padding: 4px 10px;
   border: 0;
   border-radius: 8px;
@@ -144,6 +157,33 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   box-shadow: none;
   font-size: 0.78rem;
   font-weight: 700;
+}
+.global-mode-control { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.page-heading h2 { font-size: var(--type-page-title); }
+.eyebrow { font-size: var(--type-eyebrow); }
+.primary-nav span { font-size: var(--type-nav); }
+.form-field label, .choice-fieldset legend { font-size: var(--type-label); }
+.field-hint, .settings-section-heading p { font-size: var(--type-supporting); }
+.form-field input, .form-field select, .form-field textarea, .form-actions button { min-height: var(--control-height); font-size: var(--type-body); }
+.relationship-settings-options { padding: 4px 18px 14px; }
+.relationship-settings-options label { min-height: 44px; display: flex; align-items: center; gap: 10px; font-weight: 650; }
+.relationship-settings-options input { width: 20px; height: 20px; accent-color: var(--forest); }
+.relationship-settings-options > p { margin: 6px 0 0; color: var(--muted); font-size: var(--type-supporting); }
+.today-more-actions { position: relative; }
+.today-more-actions summary { min-width: 44px; min-height: 44px; display: grid; place-items: center; cursor: pointer; list-style: none; }
+.today-more-actions summary::-webkit-details-marker { display: none; }
+.today-more-actions > div { position: absolute; z-index: 5; right: 0; top: calc(100% + 4px); min-width: 210px; padding: 6px; display: grid; gap: 4px; border: 1px solid var(--line); border-radius: 14px; background: white; box-shadow: var(--shadow); }
+.today-more-actions > div button { min-height: 44px; border: 0; background: transparent; text-align: left; }
+.today-pause-date { display: grid; gap: 4px; padding: 6px 8px; color: var(--muted); font-size: var(--type-supporting); }
+.today-pause-date input { min-height: var(--control-height); }
+
+@media (max-height: 760px) {
+  .form-screen { padding-top: 10px; padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+  .form-screen .page-heading { margin-bottom: 8px; }
+  .form-screen .page-heading > p:last-child { display: none; }
+  .person-form { padding: 10px 12px; gap: 9px; }
+  .person-form .field-hint { margin-top: 3px; }
+  .frequency-field { margin-top: 0; }
 }
 .segmented-control button[aria-pressed="true"] {
   background: var(--surface);
@@ -176,6 +216,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   min-height: calc(100dvh - 76px);
   padding: 28px 24px calc(116px + env(safe-area-inset-bottom));
   background: var(--canvas);
+}
+
+.today-screen {
+  height: calc(100dvh - 117px - env(safe-area-inset-top));
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
 }
 
 .screen:focus { outline: none; }
@@ -1968,7 +2015,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 
 @media (max-height: 740px) {
   .app-header { min-height: 54px; padding-top: calc(7px + env(safe-area-inset-top)); padding-bottom: 6px; }
-  .today-screen { height: calc(100dvh - 96px - env(safe-area-inset-top)); padding-top: 10px; }
+  .today-screen { height: calc(100dvh - 111px - env(safe-area-inset-top)); padding-top: 10px; }
   .today-screen > .empty-state { margin-top: 4px; }
   .empty-mark { margin-bottom: 10px; }
   .empty-action { margin-top: 14px; }

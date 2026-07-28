@@ -91,6 +91,9 @@ function validatePerson(value: unknown): value is Person {
     && ["normal", "high"].includes(String(value.importance))
     && strings(value.tags)
     && (value.contactCadenceDays === undefined || (Number.isInteger(value.contactCadenceDays) && Number(value.contactCadenceDays) >= 1 && Number(value.contactCadenceDays) <= 3_650))
+    && optionalDate(value.contactCadenceFirstDueDate)
+    && optionalDate(value.contactCadenceDeferredUntilDate)
+    && optionalInstant(value.contactCadencePausedAt)
     && optionalInstant(value.archivedAt)
     && optionalString(value.mergedIntoPersonId)
     && optionalCommandFingerprint(value.mergeCommandFingerprint)
@@ -231,7 +234,12 @@ export function validateAppSettings(value: unknown): value is AppSettings {
     && Number.isInteger(value.alreadyContactedDefaultReminderDays)
     && Number(value.alreadyContactedDefaultReminderDays) >= 1
     && Number(value.alreadyContactedDefaultReminderDays) <= 3_650
-    && (reminder === undefined || [1, 7, 14, 30].includes(Number(reminder)));
+    && (reminder === undefined || [1, 7, 14, 30].includes(Number(reminder)))
+    && (value.relationshipContexts === undefined || (Array.isArray(value.relationshipContexts)
+      && value.relationshipContexts.length >= 1
+      && value.relationshipContexts.length <= 2
+      && value.relationshipContexts.every((mode) => mode === "personal" || mode === "professional")
+      && new Set(value.relationshipContexts).size === value.relationshipContexts.length));
 }
 
 const storeValidators: Record<DataStoreName, (value: unknown) => boolean> = {

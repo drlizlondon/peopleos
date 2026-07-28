@@ -31,6 +31,7 @@ export type ManualPersonCaptureDraft = {
   importance: "normal" | "high";
   tags: string[];
   contactCadenceDays?: number;
+  contactCadenceFirstDueDate?: string;
   contactMethods: ManualContactMethodDraft[];
   organisationName?: string;
   role?: string;
@@ -134,6 +135,7 @@ export function prepareManualPersonCapture(
     importance: draft.importance,
     tags,
     ...(draft.contactCadenceDays === undefined ? {} : { contactCadenceDays: draft.contactCadenceDays }),
+    ...(draft.contactCadenceFirstDueDate === undefined ? {} : { contactCadenceFirstDueDate: draft.contactCadenceFirstDueDate }),
     createdAt: timestamp,
     updatedAt: timestamp
   };

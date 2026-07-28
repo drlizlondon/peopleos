@@ -15,6 +15,7 @@ import {
   type ContactNowTarget
 } from "./application/contactNow";
 import { notToday, type NotTodayCommand } from "./application/followUps";
+import { deferRegularReminder, pauseRegularReminder } from "./application/cadence";
 import {
   alreadyContacted,
   prepareAlreadyContactedCommand,
@@ -32,7 +33,7 @@ import { createRelationshipClock } from "./application/relationshipEngineQueries
 import { getDatabase } from "./data/client";
 // eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { StaleRevisionError } from "./data/repositories";
-import { localDateForInstant } from "./domain/followUpPolicy";
+import { addDaysToLocalDate, localDateForInstant } from "./domain/followUpPolicy";
 import type { LocalDate } from "./domain/schema";
 import type { ActiveRelationshipMode } from "./domain/relationshipMode";
 import type { ContactHandoff } from "./integrations/contactHandoff";
@@ -300,11 +301,23 @@ export default function TodayScreen({ activeMode = "personal", navigate, onAddFo
     }
   }
 
-  function openAlreadyContacted(card: TodayCardProjection, opener: HTMLButtonElement) {
-    alreadyOpenerRef.current = opener;
-    setAlreadyError("");
-    setAlreadyAttemptedDate(undefined);
-    setAlreadyCard(card);
+  async function pauseCadence(card: TodayCardProjection, until?: LocalDate, pause = false) {
+    if (mutationLocksRef.current.size > 0) return;
+    mutationLocksRef.current.add(card.person.id);
+    setBusyPersonId(card.person.id);
+    setCardError(card.person.id);
+    try {
+      const now = new Date().toISOString();
+      if (pause) await pauseRegularReminder(await getDatabase(), card.person.id, now);
+      else if (until) await deferRegularReminder(await getDatabase(), card.person.id, until, now);
+      setCommittedHiddenPersonIds((current) => new Set(current).add(card.person.id));
+      await load();
+    } catch (error) {
+      setCardError(card.person.id, { message: firstIssue(error, "PeopleOS could not pause this reminder.") });
+    } finally {
+      mutationLocksRef.current.delete(card.person.id);
+      setBusyPersonId("");
+    }
   }
 
   function closeAlreadyContacted() {
@@ -317,9 +330,9 @@ export default function TodayScreen({ activeMode = "personal", navigate, onAddFo
     else requestAnimationFrame(() => alreadyOpenerRef.current?.focus());
   }
 
-  async function chooseNextReminder(nextDate: LocalDate) {
-    if (!alreadyCard || mutationLocksRef.current.size > 0) return;
-    const card = alreadyCard;
+  async function chooseNextReminder(nextDate: LocalDate, selectedCard = alreadyCard) {
+    if (!selectedCard || mutationLocksRef.current.size > 0) return;
+    const card = selectedCard;
     mutationLocksRef.current.add(card.person.id);
     setAlreadyAttemptedDate(nextDate);
     rememberCardPosition(card);
@@ -369,6 +382,7 @@ export default function TodayScreen({ activeMode = "personal", navigate, onAddFo
       setCommittedHiddenPersonIds((current) => new Set(current).add(card.person.id));
       setAlreadyCard(undefined);
       setAlreadyAttemptedDate(undefined);
+      setCopiedStatus(`Next reminder: ${new Intl.DateTimeFormat("en-GB").format(new Date(`${nextDate}T12:00:00`))}`);
       await load();
     } catch (error) {
       if (error instanceof StaleRevisionError) {
@@ -495,7 +509,8 @@ export default function TodayScreen({ activeMode = "personal", navigate, onAddFo
               onContactNow={() => void contactNow(card, document.activeElement instanceof HTMLButtonElement ? document.activeElement : undefined)}
               onNotToday={() => void notTodayAction(card)}
               onAlreadyContacted={() => {
-                if (document.activeElement instanceof HTMLButtonElement) openAlreadyContacted(card, document.activeElement);
+                const cadence = card.person.contactCadenceDays ?? projection.alreadyContactedDefaultReminderDays;
+                void chooseNextReminder(addDaysToLocalDate(projection.result.localDate, cadence), card);
               }}
               onAddPhone={() => openContactMethods(card, true)}
               onWhy={() => {
@@ -510,6 +525,10 @@ export default function TodayScreen({ activeMode = "personal", navigate, onAddFo
                 rememberTodayHistory(card.person.id);
                 navigate(reachOutDetailPath(card.reachOut!.entry.id), { state: { fromPath: "/" } });
               } : undefined}
+              onPauseFor={(days) => void pauseCadence(card, addDaysToLocalDate(projection.result.localDate, days))}
+              onPauseUntil={(date) => void pauseCadence(card, date)}
+              onPauseRegular={() => void pauseCadence(card, undefined, true)}
+              onEditSchedule={() => navigate(`/people/${encodeURIComponent(card.person.id)}/edit`)}
               onRetry={error?.retry === "contact" ? () => void contactNow(card) : error?.retry === "not_today" ? () => void notTodayAction(card) : undefined}
               onCopy={error?.copyValue ? () => void copyValue(error.copyValue!) : undefined}
             />

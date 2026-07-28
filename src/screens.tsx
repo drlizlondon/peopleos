@@ -5,6 +5,7 @@ import { getAppSettings } from "./application/peopleQueries";
 // eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { getDatabase } from "./data/client";
 import AlreadyContactedDefaultSheet from "./AlreadyContactedDefaultSheet";
+import { updateRelationshipContexts } from "./application/settings";
 import type { AppSettings } from "./domain/schema";
 
 function PlannedAction({ children }: { children: string }) {
@@ -82,6 +83,7 @@ export function SettingsScreen({ navigate }: { navigate: (path: string) => void 
   const [reachOutDefault, setReachOutDefault] = useState("Loading…");
   const [editingAlreadyContacted, setEditingAlreadyContacted] = useState(false);
   const alreadyContactedOpenerRef = useRef<HTMLButtonElement>(null);
+  const [relationshipError, setRelationshipError] = useState("");
   useEffect(() => {
     let active = true;
     getDatabase().then(getAppSettings).then((settings) => {
@@ -115,6 +117,24 @@ export function SettingsScreen({ navigate }: { navigate: (path: string) => void 
     requestAnimationFrame(() => alreadyContactedOpenerRef.current?.focus());
   }
 
+  async function toggleRelationshipContext(mode: "personal" | "professional", checked: boolean) {
+    if (!settings) return;
+    const current = settings.relationshipContexts ?? ["personal", "professional"];
+    const next = checked ? [...new Set([...current, mode])] : current.filter((item) => item !== mode);
+    if (next.length === 0) {
+      setRelationshipError("Keep at least one relationship type enabled.");
+      return;
+    }
+    setRelationshipError("");
+    try {
+      const updated = await updateRelationshipContexts(await getDatabase(), next);
+      setSettings(updated);
+      window.dispatchEvent(new CustomEvent("peopleos:relationship-contexts", { detail: next }));
+    } catch {
+      setRelationshipError("PeopleOS could not update this setting.");
+    }
+  }
+
   return (
     <main className="screen settings-screen" id="main-content" tabIndex={-1}>
       <header className="page-heading">
@@ -123,6 +143,26 @@ export function SettingsScreen({ navigate }: { navigate: (path: string) => void 
         <p>Only settings that affect PeopleOS as a whole belong here.</p>
       </header>
       <div className="settings-list">
+        <section className="settings-section relationship-settings" aria-labelledby="settings-relationships-included">
+          <div className="settings-section-heading">
+            <h3 id="settings-relationships-included">Relationships included</h3>
+            <p>Choose which types of relationships you use PeopleOS for.</p>
+          </div>
+          <div className="relationship-settings-options">
+            {(["personal", "professional"] as const).map((mode) => (
+              <label key={mode}>
+                <input
+                  type="checkbox"
+                  checked={(settings?.relationshipContexts ?? ["personal", "professional"]).includes(mode)}
+                  onChange={(event) => void toggleRelationshipContext(mode, event.target.checked)}
+                />
+                <span>{mode === "personal" ? "Personal" : "Professional"}</span>
+              </label>
+            ))}
+            <p>When both are enabled, you can view everyone together or filter the app.</p>
+            {relationshipError && <p className="field-error" role="alert">{relationshipError}</p>}
+          </div>
+        </section>
         {visibleSections.map((section) => (
           <section className="settings-section" key={section.title} aria-labelledby={`settings-${section.title.replaceAll(" ", "-").toLowerCase()}`}>
             <div className="settings-section-heading">

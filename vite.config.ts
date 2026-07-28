@@ -7,7 +7,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["peopleos-mark.svg"],
+      includeAssets: ["peopleos-mark.svg", "apple-touch-icon.png", "icon-192.png", "icon-512.png"],
       manifest: {
         id: "/",
         name: "PeopleOS",
@@ -20,6 +20,8 @@ export default defineConfig({
         start_url: "/",
         scope: "/",
         icons: [
+          { src: "icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
           {
             src: "peopleos-mark.svg",
             sizes: "any",

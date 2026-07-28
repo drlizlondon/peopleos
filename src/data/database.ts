@@ -54,6 +54,7 @@ export function createDefaultSettings(now = new Date().toISOString()): AppSettin
     id: "app",
     defaultPhoneRegion: defaultPhoneRegion(),
     captureMode: "standard",
+    relationshipContexts: ["personal", "professional"],
     alreadyContactedDefaultReminderDays: DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS,
     revision: 1,
     createdAt: now,
@@ -63,11 +64,21 @@ export function createDefaultSettings(now = new Date().toISOString()): AppSettin
 
 function migrateAppSettings(settings: AppSettings): AppSettings {
   const legacy = settings as AppSettings & { alreadyContactedDefaultReminderDays?: unknown };
-  if (legacy.alreadyContactedDefaultReminderDays !== undefined) return settings;
   return {
     ...settings,
-    alreadyContactedDefaultReminderDays: DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS
+    ...(legacy.alreadyContactedDefaultReminderDays === undefined
+      ? { alreadyContactedDefaultReminderDays: DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS }
+      : {}),
+    ...(settings.relationshipContexts === undefined
+      ? { relationshipContexts: ["personal", "professional"] as const }
+      : {})
   };
+}
+
+function addDays(date: string, days: number): string {
+  const value = new Date(`${date}T12:00:00.000Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
 }
 
 export function createDefaultMetadata(now = new Date().toISOString()): AppMetadata {
@@ -144,6 +155,18 @@ export async function openPeopleOsDatabase(
           return cursor.update(next).then(() => cursor.continue()).then(migrate);
         });
       }
+      if (oldVersion < 3) {
+        const people = transaction.objectStore("people");
+        const migrationDate = now.slice(0, 10);
+        void people.openCursor().then(function migrateSchedule(cursor): Promise<void> | void {
+          if (!cursor) return;
+          const person = cursor.value;
+          const next = person.contactCadenceDays && !person.contactCadenceFirstDueDate
+            ? { ...person, contactCadenceFirstDueDate: addDays(migrationDate, person.contactCadenceDays) }
+            : person;
+          return cursor.update(next).then(() => cursor.continue()).then(migrateSchedule);
+        });
+      }
     }
   });
 
@@ -154,7 +177,7 @@ export async function openPeopleOsDatabase(
     await tx.objectStore("appSettings").add(createDefaultSettings(now));
   } else {
     const migratedSettings = migrateAppSettings(settings);
-    if (migratedSettings !== settings) await tx.objectStore("appSettings").put(migratedSettings);
+    if (JSON.stringify(migratedSettings) !== JSON.stringify(settings)) await tx.objectStore("appSettings").put(migratedSettings);
   }
   if (!metadata) await tx.objectStore("metadata").add(createDefaultMetadata(now));
   await tx.done;

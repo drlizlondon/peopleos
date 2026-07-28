@@ -32,6 +32,13 @@ type SchemaTwoBackupEnvelope = {
   data?: unknown;
 };
 
+type SchemaThreeBackupEnvelope = {
+  product: "peopleos";
+  schemaVersion: 3;
+  exportedAt: string;
+  data?: unknown;
+};
+
 export type GeneratedBackup = {
   envelope: BackupEnvelope;
   json: string;
@@ -77,6 +84,18 @@ function addRelationshipModes(data: unknown): unknown {
   };
 }
 
+function addRelationshipContexts(data: unknown): unknown {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return data;
+  const record = data as Record<string, unknown>;
+  if (!Array.isArray(record.appSettings)) return data;
+  return {
+    ...record,
+    appSettings: record.appSettings.map((settings) => typeof settings === "object" && settings !== null && !Array.isArray(settings)
+      ? { relationshipContexts: ["personal", "professional"], ...settings }
+      : settings)
+  };
+}
+
 function migrateLegacyBackup(value: LegacyBackupEnvelope): BackupPreview {
   if (!isIsoInstant(value.exportedAt)) throw new ValidationError(["legacy backup exportedAt is invalid"]);
   const defaults = emptyPeopleOsData(createDefaultSettings(value.exportedAt));
@@ -86,7 +105,7 @@ function migrateLegacyBackup(value: LegacyBackupEnvelope): BackupPreview {
     product: "peopleos",
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: value.exportedAt,
-    data: validatePeopleOsData(addRelationshipModes(migrateAlreadyContactedDefault(migrated)))
+    data: validatePeopleOsData(addRelationshipContexts(addRelationshipModes(migrateAlreadyContactedDefault(migrated))))
   };
   return { envelope, counts: countData(envelope.data), migratedFromVersion: 0 };
 }
@@ -97,7 +116,7 @@ function migrateSchemaOneBackup(value: SchemaOneBackupEnvelope): BackupPreview {
     product: "peopleos",
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: value.exportedAt,
-    data: validatePeopleOsData(addRelationshipModes(migrateAlreadyContactedDefault(value.data)))
+    data: validatePeopleOsData(addRelationshipContexts(addRelationshipModes(migrateAlreadyContactedDefault(value.data))))
   };
   return { envelope, counts: countData(envelope.data), migratedFromVersion: 1 };
 }
@@ -108,9 +127,20 @@ function migrateSchemaTwoBackup(value: SchemaTwoBackupEnvelope): BackupPreview {
     product: "peopleos",
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: value.exportedAt,
-    data: validatePeopleOsData(addRelationshipModes(value.data))
+    data: validatePeopleOsData(addRelationshipContexts(addRelationshipModes(value.data)))
   };
   return { envelope, counts: countData(envelope.data), migratedFromVersion: 2 };
+}
+
+function migrateSchemaThreeBackup(value: SchemaThreeBackupEnvelope): BackupPreview {
+  if (!isIsoInstant(value.exportedAt)) throw new ValidationError(["backup exportedAt is invalid"]);
+  const envelope: BackupEnvelope = {
+    product: "peopleos",
+    schemaVersion: BACKUP_SCHEMA_VERSION,
+    exportedAt: value.exportedAt,
+    data: validatePeopleOsData(addRelationshipContexts(value.data))
+  };
+  return { envelope, counts: countData(envelope.data), migratedFromVersion: 3 };
 }
 
 export function previewBackup(input: string | unknown): BackupPreview {
@@ -130,6 +160,7 @@ export function previewBackup(input: string | unknown): BackupPreview {
   if (candidate.schemaVersion === 0) return migrateLegacyBackup(value as LegacyBackupEnvelope);
   if (candidate.schemaVersion === 1) return migrateSchemaOneBackup(value as SchemaOneBackupEnvelope);
   if (candidate.schemaVersion === 2) return migrateSchemaTwoBackup(value as SchemaTwoBackupEnvelope);
+  if (candidate.schemaVersion === 3) return migrateSchemaThreeBackup(value as SchemaThreeBackupEnvelope);
   const envelope = validateBackupEnvelope(value);
   return { envelope, counts: countData(envelope.data) };
 }
@@ -159,7 +190,18 @@ export async function restoreBackup(
   now = new Date().toISOString(),
   hooks: RestoreHooks = {}
 ): Promise<void> {
-  const data = validatePeopleOsData(preview.envelope.data);
+  const validated = validatePeopleOsData(preview.envelope.data);
+  const restoreDate = now.slice(0, 10);
+  const data: PeopleOsData = {
+    ...validated,
+    people: validated.people.map((person) => {
+      if (preview.migratedFromVersion === undefined) return person;
+      if (!person.contactCadenceDays || person.contactCadenceFirstDueDate) return person;
+      const date = new Date(`${restoreDate}T12:00:00.000Z`);
+      date.setUTCDate(date.getUTCDate() + person.contactCadenceDays);
+      return { ...person, contactCadenceFirstDueDate: date.toISOString().slice(0, 10) };
+    })
+  };
   const stores = [...DATA_STORE_NAMES, "metadata"] as const;
   const tx = db.transaction(stores, "readwrite");
   try {

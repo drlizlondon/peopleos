@@ -56,6 +56,36 @@ export type UpcomingResult = {
   dueCount: number;
 };
 
+export type UpcomingCadence = { person: Person; effectiveDate: LocalDate; cadenceDays: number };
+
+export async function listUpcomingCadences(
+  db: PeopleOsDatabase,
+  filters: Pick<UpcomingFilters, "localDate" | "activeMode">
+): Promise<UpcomingCadence[]> {
+  const [people, interactions] = await Promise.all([db.getAll("people"), db.getAll("interactions")]);
+  const latestContact = new Map<string, string>();
+  for (const interaction of interactions) {
+    if (!interactionCountsAsContact(interaction.kind)) continue;
+    const current = latestContact.get(interaction.personId);
+    if (!current || interaction.occurredAt > current) latestContact.set(interaction.personId, interaction.occurredAt);
+  }
+  return people.flatMap((person): UpcomingCadence[] => {
+    if (!activePerson(person) || !personMatchesActiveMode(person, filters.activeMode ?? "personal")
+      || !person.contactCadenceDays || person.contactCadencePausedAt) return [];
+    const last = latestContact.get(person.id);
+    const regularDate = last
+      ? addDaysToLocalDate(localDateForInstant(last), person.contactCadenceDays)
+      : person.contactCadenceFirstDueDate;
+    const effectiveDate = person.contactCadenceDeferredUntilDate && (!regularDate || person.contactCadenceDeferredUntilDate > regularDate)
+      ? person.contactCadenceDeferredUntilDate
+      : regularDate;
+    return effectiveDate && effectiveDate > filters.localDate
+      ? [{ person, effectiveDate, cadenceDays: person.contactCadenceDays }]
+      : [];
+  }).sort((left, right) => left.effectiveDate.localeCompare(right.effectiveDate)
+    || left.person.displayName.localeCompare(right.person.displayName));
+}
+
 export type NextPlanProjection =
   | { kind: "explicit_follow_up"; date: LocalDate; followUp: FollowUp }
   | { kind: "cadence"; date?: LocalDate; cadenceDays: number }

@@ -63,7 +63,7 @@ export default function EditPersonScreen({
   const headingRef = useRef<HTMLHeadingElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const tagsRef = useRef<HTMLInputElement>(null);
-  const cadenceRef = useRef<HTMLInputElement>(null);
+  const cadenceRef = useRef<HTMLSelectElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -341,14 +341,10 @@ export default function EditPersonScreen({
                 {errors.tags && <p id={`${prefix}-tags-error`} className="field-error" role="alert">{errors.tags}</p>}
               </div>
               <div className="form-field">
-                <label htmlFor={`${prefix}-cadence`}>Contact cadence in days <span>Optional</span></label>
-                <input
+                <label htmlFor={`${prefix}-cadence`}>Stay in touch <span>Optional</span></label>
+                <select
                   ref={cadenceRef}
                   id={`${prefix}-cadence`}
-                  type="number"
-                  inputMode="numeric"
-                  min="1"
-                  max="3650"
                   value={cadenceText}
                   aria-invalid={Boolean(errors.cadence) || undefined}
                   aria-describedby={errors.cadence ? `${prefix}-cadence-error` : `${prefix}-cadence-hint`}
@@ -356,8 +352,16 @@ export default function EditPersonScreen({
                     setCadenceText(event.target.value);
                     changed({ contactCadenceDays: event.target.value ? Number(event.target.value) : undefined });
                   }}
-                />
-                <p id={`${prefix}-cadence-hint`} className="field-hint">Leave blank for no recurring cadence.</p>
+                >
+                  <option value="">No regular reminder</option>
+                  {cadenceText && !["2", "7", "14", "30", "60", "90", "180", "365"].includes(cadenceText) && (
+                    <option value={cadenceText}>Every {cadenceText} days</option>
+                  )}
+                  <option value="2">Every 2 days</option><option value="7">Every week</option><option value="14">Every 2 weeks</option>
+                  <option value="30">Every month</option><option value="60">Every 2 months</option><option value="90">Every 3 months</option>
+                  <option value="180">Every 6 months</option><option value="365">Every year</option>
+                </select>
+                <p id={`${prefix}-cadence-hint`} className="field-hint">Changing this starts the next reminder after the selected interval.</p>
                 {errors.cadence && <p id={`${prefix}-cadence-error`} className="field-error" role="alert">{errors.cadence}</p>}
               </div>
               <section className="profile-card edit-person-related" aria-labelledby={`${prefix}-details`}>

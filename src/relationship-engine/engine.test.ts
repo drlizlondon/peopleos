@@ -374,6 +374,25 @@ describe("Today eligibility", () => {
     if (eligible) expect(result.today?.relevantDate).toBe(addDaysToLocalDate(date, 30));
   });
 
+  it("uses first appearance independently of cadence and honours deferral and pause", () => {
+    expect(assessRelationship(bundle({
+      person: person("first-today", { contactCadenceDays: 30, contactCadenceFirstDueDate: "2026-08-14" })
+    }), clock).today?.eligibilityCode).toBe("cadence_due");
+    expect(assessRelationship(bundle({
+      person: person("first-later", { contactCadenceDays: 30, contactCadenceFirstDueDate: "2026-09-13" })
+    }), clock).today).toBeUndefined();
+    expect(assessRelationship(bundle({
+      person: person("deferred", { contactCadenceDays: 2, contactCadenceFirstDueDate: "2026-08-14", contactCadenceDeferredUntilDate: "2026-08-28" })
+    }), clock).today).toBeUndefined();
+    expect(assessRelationship(bundle({
+      person: person("paused", { contactCadenceDays: 2, contactCadenceFirstDueDate: "2026-08-14", contactCadencePausedAt: clock.now })
+    }), clock).today).toBeUndefined();
+  });
+
+  it("does not create a recurring Today item without a regular reminder", () => {
+    expect(assessRelationship(bundle({ person: person("none") }), clock).today).toBeUndefined();
+  });
+
   it("lets a future pending FollowUp suppress New and cadence", () => {
     const newResult = assessRelationship(bundle({
       interactions: [interaction("sole", "met", "2026-08-01")],

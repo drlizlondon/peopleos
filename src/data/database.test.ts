@@ -153,7 +153,8 @@ describe("PeopleOS IndexedDB foundation", () => {
     const migrated = await migratedDb.get("appSettings", "app");
     expect(migrated).toEqual({
       ...legacy,
-      alreadyContactedDefaultReminderDays: 14
+      alreadyContactedDefaultReminderDays: 14,
+      relationshipContexts: ["personal", "professional"]
     });
     expect(await migratedDb.get("metadata", "app")).toEqual(metadata);
     migratedDb.close();

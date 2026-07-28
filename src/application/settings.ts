@@ -77,3 +77,30 @@ export async function updateAlreadyContactedDefault(
     throw error;
   }
 }
+
+export async function updateRelationshipContexts(
+  db: PeopleOsDatabase,
+  contexts: Array<"personal" | "professional">,
+  now = new Date().toISOString()
+): Promise<AppSettings> {
+  if (contexts.length < 1 || contexts.length > 2 || new Set(contexts).size !== contexts.length) {
+    throw new ValidationError(["Keep at least one relationship type enabled."]);
+  }
+  const tx = db.transaction(["appSettings", "metadata"], "readwrite");
+  const settingsStore = tx.objectStore("appSettings");
+  const metadataStore = tx.objectStore("metadata");
+  const current = await settingsStore.get("app");
+  const metadata = await metadataStore.get("app");
+  if (!current || !metadata) throw new Error("PeopleOS settings are missing");
+  const updated: AppSettings = {
+    ...current,
+    relationshipContexts: contexts,
+    revision: current.revision + 1,
+    updatedAt: now
+  };
+  assertValidRecord("appSettings", updated);
+  await settingsStore.put(updated);
+  await metadataStore.put({ ...metadata, datasetRevision: metadata.datasetRevision + 1, updatedAt: now });
+  await tx.done;
+  return updated;
+}

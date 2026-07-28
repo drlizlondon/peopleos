@@ -4,6 +4,8 @@ import FollowUpCompletionSheet from "./FollowUpCompletionSheet";
 import FollowUpEditorSheet from "./FollowUpEditorSheet";
 import {
   listUpcomingFollowUps,
+  listUpcomingCadences,
+  type UpcomingCadence,
   type UpcomingFollowUp,
   type UpcomingFilters,
   type UpcomingResult
@@ -74,6 +76,20 @@ function localDateLabel(value: string, options: Intl.DateTimeFormatOptions = { d
 
 function actionLabel(action: FollowUpActionType): string {
   return FOLLOW_UP_ACTION_OPTIONS.find((option) => option.value === action)?.label ?? "Other";
+}
+
+function relativeDate(date: string, today: string): string {
+  const days = Math.round((Date.parse(`${date}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86_400_000);
+  if (days === 1) return "tomorrow";
+  if (days < 14) return `in ${days} days`;
+  const weeks = Math.round(days / 7);
+  return `in ${weeks} weeks`;
+}
+
+function cadenceLabel(days: number): string {
+  return days === 2 ? "Every 2 days" : days === 7 ? "Every week" : days === 14 ? "Every 2 weeks"
+    : days === 30 ? "Every month" : days === 60 ? "Every 2 months" : days === 90 ? "Every 3 months"
+      : days === 180 ? "Every 6 months" : days === 365 ? "Every year" : `Every ${days} days`;
 }
 
 function groupUpcoming(items: readonly UpcomingFollowUp[]): Array<{
@@ -323,6 +339,7 @@ export default function UpcomingScreen({ activeMode = "personal", navigate }: { 
   const [actionFilter, setActionFilter] = useState<"" | FollowUpActionType>(initialView.actionType);
   const [result, setResult] = useState<UpcomingResult | undefined>(undefined);
   const [allItems, setAllItems] = useState<UpcomingFollowUp[]>([]);
+  const [cadences, setCadences] = useState<UpcomingCadence[]>([]);
   const [error, setError] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -348,12 +365,14 @@ export default function UpcomingScreen({ activeMode = "personal", navigate }: { 
     setResult(undefined);
     try {
       const db = await getDatabase();
-      const [filtered, all] = await Promise.all([
+      const [filtered, all, regular] = await Promise.all([
         listUpcomingFollowUps(db, filters),
-        listUpcomingFollowUps(db, { localDate, activeMode })
+        listUpcomingFollowUps(db, { localDate, activeMode }),
+        listUpcomingCadences(db, { localDate, activeMode })
       ]);
       setResult(filtered);
       setAllItems(all.items);
+      setCadences(regular);
     } catch {
       setError("PeopleOS could not load upcoming follow-ups.");
     }
@@ -488,7 +507,7 @@ export default function UpcomingScreen({ activeMode = "personal", navigate }: { 
 
       {actionError && <p className="form-alert screen-status" role="alert">{actionError}</p>}
 
-      {!error && result && result.items.length === 0 && (
+      {!error && result && result.items.length === 0 && cadences.length === 0 && (
         filtersActive ? (
           <section className="profile-card timeline-empty" aria-labelledby="upcoming-filter-empty-heading">
             <h3 id="upcoming-filter-empty-heading">No follow-ups match these filters.</h3>
@@ -509,6 +528,25 @@ export default function UpcomingScreen({ activeMode = "personal", navigate }: { 
             )}
           />
         )
+      )}
+
+      {!error && result && cadences.length > 0 && !filtersActive && (
+        <section className="timeline-group upcoming-cadence-group" aria-labelledby="upcoming-regular-heading">
+          <h3 id="upcoming-regular-heading">Regular reminders</h3>
+          <ol className="follow-up-list">
+            {cadences.map((item) => (
+              <li key={`cadence-${item.person.id}`}>
+                <article className="timeline-item follow-up-row">
+                  <div className="timeline-item-heading">
+                    <h4><button className="text-action" type="button" onClick={() => navigate(personProfilePath(item.person.id))}>{item.person.displayName}</button></h4>
+                    <time dateTime={item.effectiveDate}>{localDateLabel(item.effectiveDate)} · {relativeDate(item.effectiveDate, localDate)}</time>
+                  </div>
+                  <p className="muted-copy">{cadenceLabel(item.cadenceDays)}</p>
+                </article>
+              </li>
+            ))}
+          </ol>
+        </section>
       )}
 
       {!error && result && result.items.length > 0 && (

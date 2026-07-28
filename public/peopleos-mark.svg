@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="PeopleOS">
-  <rect width="512" height="512" rx="112" fill="#173d36"/>
-  <circle cx="196" cy="204" r="68" fill="#e9b86b"/>
-  <circle cx="326" cy="204" r="68" fill="#f4f6f1"/>
-  <path d="M93 394c12-75 56-112 103-112s91 37 103 112" fill="#e9b86b"/>
-  <path d="M213 394c12-75 56-112 113-112s91 37 103 112" fill="#f4f6f1"/>
+  <rect width="512" height="512" rx="112" fill="#A61E4D"/>
+  <circle cx="196" cy="204" r="68" fill="#C69750"/>
+  <circle cx="326" cy="204" r="68" fill="#FFF8F1"/>
+  <path d="M93 394c12-75 56-112 103-112s91 37 103 112" fill="#C69750"/>
+  <path d="M213 394c12-75 56-112 113-112s91 37 103 112" fill="#FFF8F1"/>
 </svg>

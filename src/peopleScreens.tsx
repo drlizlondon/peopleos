@@ -95,7 +95,7 @@ import { StaleRevisionError } from "./data/repositories";
 import type { ContactMethod, FollowUp, Interaction, InteractionKind, MemoryFact, Person, ReachOutEntry } from "./domain/schema";
 import type { ActiveRelationshipMode } from "./domain/relationshipMode";
 import { RELATIONSHIP_MODE_OPTIONS } from "./domain/relationshipMode";
-import { effectiveFollowUpDate, FOLLOW_UP_ACTION_OPTIONS } from "./domain/followUpPolicy";
+import { addDaysToLocalDate, effectiveFollowUpDate, FOLLOW_UP_ACTION_OPTIONS } from "./domain/followUpPolicy";
 import type { DuplicateMatch } from "./domain/duplicates";
 import { ValidationError } from "./domain/validation";
 import {
@@ -504,10 +504,6 @@ function firstIssue(error: unknown): string {
   return "PeopleOS could not save this yet.";
 }
 
-function contactInputLabel(contact: ManualContactMethodDraft): string {
-  return contact.kind === "phone" ? "Phone number" : "Email address";
-}
-
 function parseTags(value: string): string[] {
   return value.split(",").map((tag) => tag.trim()).filter(Boolean);
 }
@@ -542,6 +538,7 @@ export function AddPersonScreen({
   }));
   const [tagsText, setTagsText] = useState(initialCapture?.tagsText ?? "");
   const [cadenceText, setCadenceText] = useState(initialCapture?.cadenceText ?? "");
+  const [firstAppearance, setFirstAppearance] = useState<"today" | "interval">("interval");
   const [defaultPhoneRegion, setDefaultPhoneRegion] = useState("GB");
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState("");
@@ -656,7 +653,19 @@ export function AddPersonScreen({
       requestAnimationFrame(() => document.querySelector<HTMLElement>("[aria-invalid='true']")?.focus());
       return undefined;
     }
-    return { ...draft, displayName, tags, contactCadenceDays };
+    const today = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" })
+      .format(new Date()).replaceAll("/", "-");
+    return {
+      ...draft,
+      displayName,
+      tags,
+      contactCadenceDays,
+      ...(contactCadenceDays ? {
+        contactCadenceFirstDueDate: firstAppearance === "today"
+          ? today
+          : addDaysToLocalDate(today, contactCadenceDays)
+      } : { contactCadenceFirstDueDate: undefined })
+    };
   }
 
   function markCaptureFinished() {
@@ -786,7 +795,6 @@ export function AddPersonScreen({
 
   return (
     <main className="screen form-screen" id="main-content" tabIndex={-1}>
-      <button className="back-button" type="button" onClick={dismiss} disabled={saving}>← Cancel</button>
       <header className="page-heading compact-heading">
         <p className="eyebrow">People</p>
         <h2>Add a person</h2>
@@ -823,86 +831,33 @@ export function AddPersonScreen({
           {errors.displayName && <p className="field-error" id="person-display-name-error" role="alert">{errors.displayName}</p>}
         </div>
 
-        <section className="form-section" aria-labelledby="capture-contact-heading">
-          <div className="form-section-heading">
-            <div>
-              <h3 id="capture-contact-heading" aria-label="Contact details">Mobile or email <span>Optional</span></h3>
-              <p>Add the easiest way to contact them.</p>
+        {draft.contactMethods[0] && (() => {
+          const contact = draft.contactMethods[0];
+          const error = errors[`contact-${contact.id}`];
+          return (
+            <div className="form-field simple-contact-field">
+              <label htmlFor={`capture-contact-${contact.id}-value`}>Phone or email <span>Optional</span></label>
+              <input
+                id={`capture-contact-${contact.id}-value`}
+                type="text"
+                inputMode={contact.kind === "email" ? "email" : "text"}
+                autoComplete={contact.kind === "email" ? "email" : "tel"}
+                placeholder="Mobile number or email address"
+                value={contact.value}
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? `capture-contact-${contact.id}-error` : undefined}
+                onChange={(event) => updateContact(contact.id, {
+                  value: event.target.value,
+                  kind: event.target.value.includes("@") ? "email" : "phone"
+                })}
+              />
+              {error && <p className="field-error" id={`capture-contact-${contact.id}-error`} role="alert">{error}</p>}
             </div>
-          </div>
-          <div className="contact-draft-list">
-            {draft.contactMethods.map((contact, index) => {
-              const errorId = `capture-contact-${contact.id}-error`;
-              const valueId = `capture-contact-${contact.id}-value`;
-              const error = errors[`contact-${contact.id}`];
-              return (
-                <fieldset className="contact-draft" key={contact.id}>
-                  <legend>Contact detail {index + 1}</legend>
-                  <div className={`contact-row-grid${contact.kind === "phone" ? " phone-row-grid" : ""}`}>
-                    <div className="form-field">
-                      <label htmlFor={`capture-contact-${contact.id}-kind`}>Type</label>
-                      <select
-                        id={`capture-contact-${contact.id}-kind`}
-                        value={contact.kind}
-                        onChange={(event) => updateContact(contact.id, { kind: event.target.value as "phone" | "email" })}
-                      >
-                        <option value="phone">Mobile</option>
-                        <option value="email">Email</option>
-                      </select>
-                    </div>
-                    {contact.kind === "phone" && (
-                      <div className="form-field phone-region-field">
-                        <label htmlFor={`capture-contact-${contact.id}-region`}>Region</label>
-                        <select
-                          id={`capture-contact-${contact.id}-region`}
-                          aria-label="Phone region"
-                          value={contact.region ?? defaultPhoneRegion}
-                          onChange={(event) => updateContact(contact.id, { region: event.target.value })}
-                        >
-                          {phoneRegionOptions.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}
-                        </select>
-                      </div>
-                    )}
-                    <div className="form-field contact-value-field">
-                      <label htmlFor={valueId}>{contact.kind === "phone" ? "Mobile number" : "Email address"}</label>
-                      <input
-                        id={valueId}
-                        aria-label={contactInputLabel(contact)}
-                        type={contact.kind === "email" ? "email" : "tel"}
-                        inputMode={contact.kind === "email" ? "email" : "tel"}
-                        autoComplete={contact.kind === "email" ? "email" : "tel"}
-                        value={contact.value}
-                        aria-invalid={Boolean(error)}
-                        aria-describedby={error ? errorId : undefined}
-                        onChange={(event) => updateContact(contact.id, { value: event.target.value })}
-                      />
-                      {error && <p className="field-error" id={errorId} role="alert">{error}</p>}
-                    </div>
-                    <div className="form-field">
-                      <label htmlFor={`capture-contact-${contact.id}-label`}>Label</label>
-                      <input
-                        id={`capture-contact-${contact.id}-label`}
-                        placeholder={contact.kind === "phone" ? "Personal mobile" : "Work email"}
-                        value={contact.label ?? ""}
-                        onChange={(event) => updateContact(contact.id, { label: event.target.value })}
-                      />
-                    </div>
-                  </div>
-                  <button className="text-action danger-text" type="button" onClick={() => removeContact(contact.id)}>
-                    Remove contact detail
-                  </button>
-                </fieldset>
-              );
-            })}
-          </div>
-          <div className="button-row compact-buttons">
-            <button aria-label="Add phone" type="button" onClick={() => addContact("phone")}>Add another mobile</button>
-            <button aria-label="Add email" type="button" onClick={() => addContact("email")}>Add another email</button>
-          </div>
-        </section>
+          );
+        })()}
 
         <div className="form-field frequency-field">
-          <label htmlFor="person-cadence">Contact frequency <span>Optional</span></label>
+          <label htmlFor="person-cadence">Stay in touch <span>Optional</span></label>
           <select
             id="person-cadence"
             aria-label="Contact cadence in days"
@@ -919,6 +874,7 @@ export function AddPersonScreen({
             }}
           >
             <option value="">No regular reminder</option>
+            <option value="2">Every 2 days</option>
             <option value="7">Every week</option>
             <option value="14">Every 2 weeks</option>
             <option value="30">Every month</option>
@@ -927,9 +883,17 @@ export function AddPersonScreen({
             <option value="180">Every 6 months</option>
             <option value="365">Every year</option>
           </select>
-          <p className="field-hint" id="person-cadence-hint">This determines when they appear in Today and Upcoming.</p>
+          <p className="field-hint" id="person-cadence-hint">How often would you like PeopleOS to bring this person back to your attention?</p>
           {errors.cadence && <p className="field-error" id="person-cadence-error" role="alert">{errors.cadence}</p>}
         </div>
+
+        {cadenceText && (
+          <fieldset className="choice-fieldset first-appearance-fieldset">
+            <legend>First appearance</legend>
+            <label><input type="radio" name="first-appearance" checked={firstAppearance === "today"} onChange={() => setFirstAppearance("today")} /> Appear today</label>
+            <label><input type="radio" name="first-appearance" checked={firstAppearance === "interval"} onChange={() => setFirstAppearance("interval")} /> Start in {Number(cadenceText) === 1 ? "1 day" : `${cadenceText} days`}</label>
+          </fieldset>
+        )}
 
         <details className="more-details">
           <summary>More details</summary>
@@ -957,6 +921,33 @@ export function AddPersonScreen({
                 A description for now
               </label>
             </fieldset>
+            <section className="advanced-contact-details" aria-labelledby="advanced-contact-heading">
+              <h3 id="advanced-contact-heading">Contact details</h3>
+              {draft.contactMethods.map((contact, index) => (
+                <fieldset className="contact-draft" key={contact.id}>
+                  <legend>{index === 0 ? "Primary contact" : `Additional contact ${index}`}</legend>
+                  {index > 0 && <div className="form-field">
+                    <label htmlFor={`advanced-contact-${contact.id}`}>{contact.kind === "email" ? "Email address" : "Mobile number"}</label>
+                    <input id={`advanced-contact-${contact.id}`} value={contact.value} onChange={(event) => updateContact(contact.id, { value: event.target.value })} />
+                  </div>}
+                  {contact.kind === "phone" && <div className="form-field phone-region-field">
+                    <label htmlFor={`capture-contact-${contact.id}-region`}>Phone region</label>
+                    <select id={`capture-contact-${contact.id}-region`} value={contact.region ?? defaultPhoneRegion} onChange={(event) => updateContact(contact.id, { region: event.target.value })}>
+                      {phoneRegionOptions.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}
+                    </select>
+                  </div>}
+                  <div className="form-field">
+                    <label htmlFor={`capture-contact-${contact.id}-label`}>Label <span>Optional</span></label>
+                    <input id={`capture-contact-${contact.id}-label`} value={contact.label ?? ""} onChange={(event) => updateContact(contact.id, { label: event.target.value })} />
+                  </div>
+                  {index > 0 && <button className="text-action danger-text" type="button" onClick={() => removeContact(contact.id)}>Remove contact detail</button>}
+                </fieldset>
+              ))}
+              <div className="button-row compact-buttons">
+                <button type="button" onClick={() => addContact("phone")}>Add mobile</button>
+                <button type="button" onClick={() => addContact("email")}>Add email</button>
+              </div>
+            </section>
             <div className="form-field">
               <label htmlFor="person-organisation">Organisation <span>Optional</span></label>
               <input

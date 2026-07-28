@@ -60,6 +60,7 @@ function resolverSuccessProfileState(route: Route): Record<string, unknown> {
 export default function App() {
   const [route, setRoute] = useState(() => routeFromPath(window.location.pathname));
   const [activeRelationshipMode, setActiveRelationshipMode] = useState<ActiveRelationshipMode>(readActiveRelationshipMode);
+  const [relationshipContexts, setRelationshipContexts] = useState<Array<"personal" | "professional">>(["personal", "professional"]);
   const [storageError, setStorageError] = useState(false);
   const [importSession, setImportSession] = useState<ContactImportSession | null>(null);
   const [importedPeopleFilter, setImportedPeopleFilter] = useState<string[] | null>(null);
@@ -142,8 +143,24 @@ export default function App() {
   }, [setUnsavedCapture]);
 
   useEffect(() => {
-    getDatabase().catch(() => setStorageError(true));
+    getDatabase().then(async (db) => {
+      const settings = await db.get("appSettings", "app");
+      const included = settings?.relationshipContexts ?? ["personal", "professional"];
+      setRelationshipContexts([...included]);
+      if (included.length === 1) setActiveRelationshipMode(included[0]);
+    }).catch(() => setStorageError(true));
   }, []);
+
+  useEffect(() => {
+    const update = (event: Event) => {
+      const included = (event as CustomEvent<Array<"personal" | "professional">>).detail;
+      setRelationshipContexts([...included]);
+      if (included.length === 1) setActiveRelationshipMode(included[0]);
+      else if (!included.includes(activeRelationshipMode as "personal" | "professional")) setActiveRelationshipMode("all");
+    };
+    window.addEventListener("peopleos:relationship-contexts", update);
+    return () => window.removeEventListener("peopleos:relationship-contexts", update);
+  }, [activeRelationshipMode]);
 
   useEffect(() => {
     document.title = route.id === "today" ? "PeopleOS" : `${route.label} · PeopleOS`;
@@ -540,6 +557,7 @@ export default function App() {
   }
 
   const showGlobalAdd = ["today", "reach-out", "people", "upcoming"].includes(route.id);
+  const showPrimaryNavigation = ["today", "reach-out", "people", "upcoming", "settings"].includes(route.id);
 
   function closeGlobalAdd() {
     setGlobalAddOpen(false);
@@ -573,23 +591,23 @@ export default function App() {
           )}
         </div>
       </header>
-      <div className="relationship-mode-bar">
+      {relationshipContexts.length === 2 && showPrimaryNavigation && <div className="relationship-mode-bar">
         <div className="segmented-control global-mode-control" role="group" aria-label="Relationship view">
-          {(["personal", "professional"] as ActiveRelationshipMode[]).map((mode) => (
+          {(["all", "personal", "professional"] as ActiveRelationshipMode[]).map((mode) => (
             <button
               key={mode}
               type="button"
               aria-pressed={activeRelationshipMode === mode}
               onClick={() => { writeActiveRelationshipMode(mode); setActiveRelationshipMode(mode); }}
-            >{mode === "personal" ? "Personal" : "Professional"}</button>
+            >{mode === "all" ? "All" : mode === "personal" ? "Personal" : "Professional"}</button>
           ))}
         </div>
-      </div>
+      </div>}
 
       {storageError && <p className="storage-error" role="alert">PeopleOS could not open local storage. Your data actions are unavailable.</p>}
       {renderScreen()}
 
-      <nav className="primary-nav" aria-label="Primary navigation">
+      {showPrimaryNavigation && <nav className="primary-nav" aria-label="Primary navigation">
         {routes.map((item) => (
           <a
             key={item.id}
@@ -606,7 +624,7 @@ export default function App() {
             <span>{item.label}</span>
           </a>
         ))}
-      </nav>
+      </nav>}
 
       {globalAddOpen && (
         <GlobalAddSheet

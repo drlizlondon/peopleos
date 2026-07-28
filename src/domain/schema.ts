@@ -1,6 +1,6 @@
 export const DATABASE_NAME = "peopleos-v1";
-export const DATABASE_VERSION = 2;
-export const BACKUP_SCHEMA_VERSION = 3;
+export const DATABASE_VERSION = 3;
+export const BACKUP_SCHEMA_VERSION = 4;
 export const DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS = 14;
 
 export type EntityId = string;
@@ -24,6 +24,9 @@ export type Person = MutableRecord & {
   importance: "normal" | "high";
   tags: string[];
   contactCadenceDays?: number;
+  contactCadenceFirstDueDate?: LocalDate;
+  contactCadenceDeferredUntilDate?: LocalDate;
+  contactCadencePausedAt?: IsoInstant;
   archivedAt?: IsoInstant;
 };
 
@@ -206,6 +209,7 @@ export type AppSettings = MutableRecord & {
   captureMode: "standard" | "networking";
   alreadyContactedDefaultReminderDays: number;
   reachOutDefaultReminderDays?: 1 | 7 | 14 | 30;
+  relationshipContexts?: Array<"personal" | "professional">;
 };
 
 export type AppMetadata = {

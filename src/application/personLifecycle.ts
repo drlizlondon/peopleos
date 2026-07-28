@@ -84,7 +84,18 @@ export async function updatePerson(
   }
   if (sameEditableValues(current, draft)) return current;
   const updated: Person = { ...current, ...draft };
-  if (draft.contactCadenceDays === undefined) delete updated.contactCadenceDays;
+  if (draft.contactCadenceDays === undefined) {
+    delete updated.contactCadenceDays;
+    delete updated.contactCadenceFirstDueDate;
+    delete updated.contactCadenceDeferredUntilDate;
+    delete updated.contactCadencePausedAt;
+  } else if (draft.contactCadenceDays !== current.contactCadenceDays) {
+    const next = new Date(command.occurredAt);
+    next.setUTCDate(next.getUTCDate() + draft.contactCadenceDays);
+    updated.contactCadenceFirstDueDate = next.toISOString().slice(0, 10);
+    delete updated.contactCadenceDeferredUntilDate;
+    delete updated.contactCadencePausedAt;
+  }
   return createRepositories(db).people.update(updated, command.expectedRevision, command.occurredAt);
 }
 
