@@ -14,8 +14,8 @@ export default defineConfig({
         short_name: "PeopleOS",
         description:
           "A calm relationship operating system that helps you remember people.",
-        theme_color: "#f4f6f1",
-        background_color: "#f4f6f1",
+        theme_color: "#ffffff",
+        background_color: "#ffffff",
         display: "standalone",
         start_url: "/",
         scope: "/",

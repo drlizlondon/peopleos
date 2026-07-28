@@ -429,6 +429,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .compact-heading { margin-bottom: 22px; }
 .screen-status { max-width: 620px; margin: 0 auto; }
 
+/* Fast local reads should not paint a one-frame loading label between routes. */
+.screen-status[role="status"] {
+  opacity: 0;
+  animation: reveal-screen-status 1ms linear 180ms forwards;
+}
+
+@keyframes reveal-screen-status {
+  to { opacity: 1; }
+}
+
 .people-search-toolbar,
 .active-filter-chips,
 .people-no-matches {
@@ -1738,6 +1748,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; }
+  .screen-status[role="status"] { opacity: 1; animation: none; }
 }
 
 /* V1 visual refinement: compact, warm, mobile-first presentation. */
