@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import EmptyState from "./EmptyState";
 import { Icon } from "./icons";
 import TodayCard from "./TodayCard";
@@ -47,8 +47,9 @@ type Navigate = (path: string, options?: { replace?: boolean; state?: Record<str
 type TodayScreenProps = {
   activeMode?: ActiveRelationshipMode;
   navigate: Navigate;
-  onAddFollowUp: () => void;
+  onAddFollowUp?: () => void;
   handoff?: ContactHandoff;
+  relationshipFilter?: ReactNode;
 };
 
 type CardError = {
@@ -84,7 +85,7 @@ function importAction(navigate: Navigate) {
   return <button className="secondary-action" type="button" onClick={() => navigate("/people/import")}>Import Contacts</button>;
 }
 
-export default function TodayScreen({ activeMode = "personal", navigate, onAddFollowUp, handoff = openContactHandoff }: TodayScreenProps) {
+export default function TodayScreen({ activeMode = "personal", navigate, handoff = openContactHandoff, relationshipFilter }: TodayScreenProps) {
   const [projection, setProjection] = useState<TodayScreenProjection>();
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState("");
@@ -495,6 +496,7 @@ export default function TodayScreen({ activeMode = "personal", navigate, onAddFo
           eyebrow="Today"
           title="Start with one person you want to remember."
           description="PeopleOS will show who needs your attention and explain why."
+          filter={relationshipFilter}
           action={<div className="empty-action-stack"><button className="primary-action" type="button" onClick={() => navigate("/people/new")}><Icon name="plus" /> Add your first person</button>{importAction(navigate)}</div>}
         />
       </main>
@@ -512,6 +514,7 @@ export default function TodayScreen({ activeMode = "personal", navigate, onAddFo
           eyebrow="Today"
           title="Today could not check every relationship."
           description="Retry before treating the list as complete."
+          filter={relationshipFilter}
         />
       </main>
     );
@@ -525,7 +528,8 @@ export default function TodayScreen({ activeMode = "personal", navigate, onAddFo
           eyebrow="Today"
           title={cleared ? "You’ve cleared Today for now." : "Nothing needs your attention today."}
           description={cleared ? "Your deferred plans remain available in Upcoming." : "Your people and plans are still here whenever you need them."}
-          action={!cleared ? <div className="empty-action-stack"><button className="primary-action" type="button" onClick={() => navigate("/people")}>Find someone in People</button><button type="button" onClick={onAddFollowUp}>Add follow-up</button></div> : undefined}
+          filter={relationshipFilter}
+          action={!cleared ? <button className="primary-action" type="button" onClick={() => navigate("/people")}>Find someone in People</button> : undefined}
         />
       </main>
     );
@@ -536,7 +540,7 @@ export default function TodayScreen({ activeMode = "personal", navigate, onAddFo
       <header className="page-heading compact-heading today-heading">
         <p className="eyebrow">Today</p>
         <h2>Who should I contact today?</h2>
-        <p>People you want to stay in touch with, plus anything due today.</p>
+        {relationshipFilter}
       </header>
       {pageError && <div className="section-error"><p role="alert">{pageError}</p><button type="button" onClick={() => void load()}>Retry</button></div>}
       {projection.evaluationIssues.length > 0 && (

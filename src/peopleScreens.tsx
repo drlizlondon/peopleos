@@ -2,7 +2,8 @@ import {
   useEffect,
   useRef,
   useState,
-  type FormEvent
+  type FormEvent,
+  type ReactNode
 } from "react";
 import EmptyState from "./EmptyState";
 import { Icon } from "./icons";
@@ -210,12 +211,14 @@ export function PeopleScreen({
   navigate,
   activeMode,
   importedPersonIds = null,
-  onClearImportedFilter
+  onClearImportedFilter,
+  relationshipFilter
 }: {
   navigate: Navigate;
   activeMode: ActiveRelationshipMode;
   importedPersonIds?: string[] | null;
   onClearImportedFilter?: () => void;
+  relationshipFilter?: ReactNode;
 }) {
   const initialStateRef = useRef(initialPeopleDirectoryState());
   const [query, setQuery] = useState(initialStateRef.current.query);
@@ -345,6 +348,7 @@ export function PeopleScreen({
         <EmptyState
           eyebrow="People"
           title="Your people will appear here."
+          filter={relationshipFilter}
           description="Add someone manually, even if all you know is enough to recognise them later."
           action={(
             <div className="empty-action-stack">
@@ -363,9 +367,7 @@ export function PeopleScreen({
         <div>
           <p className="eyebrow">People</p>
           <h2>{importedPersonIds ? "Imported people" : "Find a person"}</h2>
-          <p>{importedPersonIds
-            ? "People created or updated in the most recent import."
-            : "Search by name or by the context you remember."}</p>
+          {relationshipFilter}
         </div>
         <div className="page-actions">
           <button className="secondary-action" type="button" onClick={() => navigate("/people/import")}>Import contacts</button>

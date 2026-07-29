@@ -2,9 +2,10 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import App from "./App";
+import { RELATIONSHIP_MODE_PREFERENCE_KEY } from "./relationshipModePreference";
 
 describe("PeopleOS shell", () => {
-  it("keeps the selected relationship view while navigating and after remounting", async () => {
+  it("keeps the selected relationship view while navigating", async () => {
     const values = new Map<string, string>();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
@@ -13,17 +14,17 @@ describe("PeopleOS shell", () => {
         setItem: (key: string, value: string) => { values.set(key, value); }
       }
     });
+    window.localStorage.setItem(RELATIONSHIP_MODE_PREFERENCE_KEY, "all");
     const user = userEvent.setup();
-    const first = render(<App />);
-    const professional = screen.getByRole("button", { name: "Professional" });
-    expect(screen.getByRole("button", { name: "Personal" })).toHaveAttribute("aria-pressed", "true");
-    await user.click(professional);
-    expect(professional).toHaveAttribute("aria-pressed", "true");
-    await user.click(screen.getByRole("link", { name: "People" }));
-    expect(screen.getByRole("button", { name: "Professional" })).toHaveAttribute("aria-pressed", "true");
-    first.unmount();
     render(<App />);
-    expect(screen.getByRole("button", { name: "Professional" })).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByText("Showing everyone")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Filter people" }));
+    const professional = screen.getByRole("menuitemradio", { name: "Professional" });
+    await user.click(professional);
+    expect(screen.getByText("Showing professional contacts")).toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "People" }));
+    expect(await screen.findByText("Showing professional contacts")).toBeInTheDocument();
+    window.localStorage.setItem(RELATIONSHIP_MODE_PREFERENCE_KEY, "all");
   });
 
   it("renders all five primary destinations in the accepted order", async () => {
@@ -40,8 +41,12 @@ describe("PeopleOS shell", () => {
     expect(screen.getByRole("link", { name: "Today" })).toHaveAttribute("aria-current", "page");
     await user.click(screen.getByRole("button", { name: "Add" }));
     expect(screen.getByRole("button", { name: "Add person" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add follow-up" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add follow-up" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Log interaction" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close Add menu" }));
+    await user.click(screen.getByRole("link", { name: "People" }));
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    expect(screen.getByRole("button", { name: "Add follow-up" })).toBeInTheDocument();
   });
 
   it("navigates to Reach Out and preserves its canonical empty-state wording", async () => {

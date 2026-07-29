@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { SEARCH_DEBOUNCE_MS, useDebouncedValue } from "./useDebouncedValue";
 import EmptyState from "./EmptyState";
 import ReachOutFilterSheet, {
@@ -103,7 +103,7 @@ function sortedStatusFilters(filters: readonly ReachOutStatusFilter[]): ReachOut
     .filter((status) => filters.includes(status));
 }
 
-export default function ReachOutScreen({ activeMode = "personal", navigate, onAdd }: { activeMode?: ActiveRelationshipMode; navigate: Navigate; onAdd: (opener: HTMLElement) => void }) {
+export default function ReachOutScreen({ activeMode = "personal", navigate, onAdd, relationshipFilter }: { activeMode?: ActiveRelationshipMode; navigate: Navigate; onAdd: (opener: HTMLElement) => void; relationshipFilter?: ReactNode }) {
   const [initialView] = useState(readViewState);
   const [query, setQuery] = useState(initialView.query);
   const [statusFilters, setStatusFilters] = useState<ReachOutStatusFilter[]>(initialView.statusFilters);
@@ -209,7 +209,7 @@ export default function ReachOutScreen({ activeMode = "personal", navigate, onAd
       <div>
         <p className="eyebrow">Reach Out</p>
         <h2>People you mean to contact</h2>
-        <p>A deliberate queue of relationships you intend to act on.</p>
+        {relationshipFilter}
       </div>
       <button className="primary-action" type="button" onClick={(event) => onAdd(event.currentTarget)}>Add someone</button>
     </header>
@@ -279,6 +279,7 @@ export default function ReachOutScreen({ activeMode = "personal", navigate, onAd
         <EmptyState
           eyebrow="Reach Out"
           title="People you mean to contact"
+          filter={relationshipFilter}
           description="Keep a deliberate list of people you want to contact, reconnect with or build a relationship with."
           note="You can even add someone if all you remember is where you met them."
           action={<button className="primary-action" type="button" onClick={(event) => onAdd(event.currentTarget)}>Add someone</button>}

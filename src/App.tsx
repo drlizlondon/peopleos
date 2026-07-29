@@ -34,6 +34,7 @@ import type { ContactImportSession } from "./application/contactImport";
 import type { Person } from "./domain/schema";
 import type { ActiveRelationshipMode } from "./domain/relationshipMode";
 import { readActiveRelationshipMode, writeActiveRelationshipMode } from "./relationshipModePreference";
+import RelationshipFilter from "./RelationshipFilter";
 
 type ModalBackHandler = {
   id: string;
@@ -325,18 +326,28 @@ export default function App() {
   }
 
   function renderScreen() {
+    const relationshipFilter = relationshipContexts.length === 2 ? (
+      <RelationshipFilter
+        value={activeRelationshipMode}
+        onChange={(mode) => {
+          writeActiveRelationshipMode(mode);
+          setActiveRelationshipMode(mode);
+        }}
+      />
+    ) : undefined;
     switch (route.id) {
-      case "today": return <TodayScreen activeMode={activeRelationshipMode} navigate={navigatePath} onAddFollowUp={() => setGlobalAddOpen(true)} />;
-      case "reach-out": return <ReachOutScreen activeMode={activeRelationshipMode} navigate={navigatePath} onAdd={(opener) => openReachOutCapture(undefined, opener)} />;
+      case "today": return <TodayScreen activeMode={activeRelationshipMode} relationshipFilter={relationshipFilter} navigate={navigatePath} />;
+      case "reach-out": return <ReachOutScreen activeMode={activeRelationshipMode} relationshipFilter={relationshipFilter} navigate={navigatePath} onAdd={(opener) => openReachOutCapture(undefined, opener)} />;
       case "people": return (
         <PeopleScreen
           navigate={navigatePath}
           importedPersonIds={importedPeopleFilter}
           onClearImportedFilter={() => setImportedPeopleFilter(null)}
           activeMode={activeRelationshipMode}
+          relationshipFilter={relationshipFilter}
         />
       );
-      case "upcoming": return <UpcomingScreen activeMode={activeRelationshipMode} navigate={navigatePath} />;
+      case "upcoming": return <UpcomingScreen activeMode={activeRelationshipMode} relationshipFilter={relationshipFilter} navigate={navigatePath} />;
       case "settings": return <SettingsScreen navigate={navigatePath} />;
       case "add-person": return (
         <AddPersonScreen
@@ -591,19 +602,6 @@ export default function App() {
           )}
         </div>
       </header>
-      {relationshipContexts.length === 2 && showPrimaryNavigation && <div className="relationship-mode-bar">
-        <div className="segmented-control global-mode-control" role="group" aria-label="Relationship view">
-          {(["all", "personal", "professional"] as ActiveRelationshipMode[]).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              aria-pressed={activeRelationshipMode === mode}
-              onClick={() => { writeActiveRelationshipMode(mode); setActiveRelationshipMode(mode); }}
-            >{mode === "all" ? "Combined" : mode === "personal" ? "Personal" : "Professional"}</button>
-          ))}
-        </div>
-      </div>}
-
       {storageError && <p className="storage-error" role="alert">PeopleOS could not open local storage. Your data actions are unavailable.</p>}
       {renderScreen()}
 
@@ -645,6 +643,7 @@ export default function App() {
           }}
           preferFollowUp={route.id === "upcoming"}
           preferReachOut={route.id === "reach-out"}
+          allowFollowUp={route.id !== "today"}
         />
       )}
       {globalInteractionPerson && (

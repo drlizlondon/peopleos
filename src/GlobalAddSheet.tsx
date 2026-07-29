@@ -12,6 +12,7 @@ export default function GlobalAddSheet({
   onAddReachOut,
   preferFollowUp = false,
   preferReachOut = false,
+  allowFollowUp = true,
   activeMode = "personal"
 }: {
   onClose: () => void;
@@ -21,6 +22,7 @@ export default function GlobalAddSheet({
   onAddReachOut: () => void;
   preferFollowUp?: boolean;
   preferReachOut?: boolean;
+  allowFollowUp?: boolean;
   activeMode?: ActiveRelationshipMode;
 }) {
   const modalId = useId();
@@ -149,10 +151,10 @@ export default function GlobalAddSheet({
         ) : (
           <div className="global-add-actions">
             {preferReachOut && <button className="primary-action" type="button" onClick={onAddReachOut}>Add to Reach Out</button>}
-            {preferFollowUp && <button ref={addFollowUpRef} className="primary-action" type="button" onClick={() => void startPersonPicker("follow_up")}>Add follow-up</button>}
+            {allowFollowUp && preferFollowUp && <button ref={addFollowUpRef} className="primary-action" type="button" onClick={() => void startPersonPicker("follow_up")}>Add follow-up</button>}
             <button className="primary-action" type="button" onClick={() => onNavigate("/people/new")}>Add person</button>
             {!preferReachOut && <button type="button" onClick={onAddReachOut}>Add to Reach Out</button>}
-            {!preferFollowUp && <button ref={addFollowUpRef} type="button" onClick={() => void startPersonPicker("follow_up")}>Add follow-up</button>}
+            {allowFollowUp && !preferFollowUp && <button ref={addFollowUpRef} type="button" onClick={() => void startPersonPicker("follow_up")}>Add follow-up</button>}
             <button ref={logInteractionRef} type="button" onClick={() => void startPersonPicker("interaction")}>Log interaction</button>
             <button type="button" onClick={() => onNavigate("/people/import")}>Import contacts</button>
           </div>

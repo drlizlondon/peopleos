@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import EmptyState from "./EmptyState";
 import FollowUpCompletionSheet from "./FollowUpCompletionSheet";
 import FollowUpEditorSheet from "./FollowUpEditorSheet";
@@ -333,7 +333,7 @@ function UpcomingFilterSheet({
   );
 }
 
-export default function UpcomingScreen({ activeMode = "personal", navigate }: { activeMode?: ActiveRelationshipMode; navigate: Navigate }) {
+export default function UpcomingScreen({ activeMode = "personal", navigate, relationshipFilter }: { activeMode?: ActiveRelationshipMode; navigate: Navigate; relationshipFilter?: ReactNode }) {
   const [initialView] = useState(readUpcomingViewState);
   const [localDate] = useState(currentLocalDate);
   const [windowFilter, setWindowFilter] = useState<"" | WindowFilter>(initialView.window);
@@ -483,7 +483,7 @@ export default function UpcomingScreen({ activeMode = "personal", navigate }: { 
         <div>
           <p className="eyebrow">Upcoming</p>
           <h2 ref={headingRef} tabIndex={-1}>What you’ve planned for later</h2>
-          <p>Future follow-ups stay here until their planned day.</p>
+          {relationshipFilter}
         </div>
         <button className="primary-action" type="button" onClick={(event) => { openerRef.current = event.currentTarget; setPickerOpen(true); }}>
           Add follow-up

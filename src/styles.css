@@ -127,14 +127,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   gap: 16px;
 }
 
-.relationship-mode-bar {
-  display: flex;
-  justify-content: center;
-  padding: 3px 14px;
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
-}
-
 .segmented-control {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -158,7 +150,58 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   font-size: 0.78rem;
   font-weight: 700;
 }
-.global-mode-control { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.relationship-filter { position: relative; z-index: 12; width: 138px; margin-top: 8px; }
+.relationship-filter-trigger {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--surface-soft);
+  color: var(--forest);
+  box-shadow: inset 0 0 0 1px rgba(139, 45, 80, 0.06);
+  font-size: 0.88rem;
+  font-weight: 750;
+}
+.relationship-filter-trigger:hover { background: #f8e8ed; }
+.relationship-filter-trigger:active,
+.relationship-filter-trigger[aria-expanded="true"] { background: #f4dde5; }
+.relationship-filter-chevron { font-size: 1rem; line-height: 1; transform: translateY(-2px); }
+.relationship-filter-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  width: 174px;
+  padding: 5px;
+  border: 1px solid rgba(139, 45, 80, 0.08);
+  border-radius: 13px;
+  background: white;
+  box-shadow: 0 12px 30px rgba(76, 35, 48, 0.16);
+}
+.relationship-filter-menu button {
+  width: 100%;
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+.relationship-filter-menu button:hover,
+.relationship-filter-menu button:active,
+.relationship-filter-menu button[aria-checked="true"] { background: var(--surface-soft); color: var(--forest); }
+.empty-state .relationship-filter { margin-inline: auto; }
 .page-heading h2 { font-size: var(--type-page-title); }
 .eyebrow { font-size: var(--type-eyebrow); }
 .primary-nav span { font-size: var(--type-nav); }
