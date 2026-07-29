@@ -189,12 +189,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 @media (max-width: 430px) { .starter-admin-row { grid-template-columns: 1fr auto; } .starter-admin-row input { grid-column: 1 / -1; } }
 
 @media (max-height: 760px) {
-  .form-screen { padding-top: 10px; padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+  .form-screen { padding-top: 8px; padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
   .form-screen .page-heading { margin-bottom: 8px; }
+  .form-screen .page-heading .eyebrow { display: none; }
   .form-screen .page-heading > p:last-child { display: none; }
   .person-form { padding: 10px 12px; gap: 9px; }
   .person-form .field-hint { margin-top: 3px; }
   .frequency-field { margin-top: 0; }
+  .form-actions { bottom: calc(8px + env(safe-area-inset-bottom)); }
 }
 .segmented-control button[aria-pressed="true"] {
   background: var(--surface);
@@ -203,6 +205,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 .relationship-mode-fieldset { margin: 0; }
 .relationship-mode-fieldset legend { margin-bottom: 7px; font-weight: 700; }
+.keep-in-touch-fieldset { min-width: 0; margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-soft); }
+.keep-in-touch-fieldset legend { padding: 0 3px; font-size: var(--type-label); font-weight: 750; }
+.checkbox-row { min-height: 44px; display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 650; }
+.checkbox-row input { width: 20px; height: 20px; margin: 0; accent-color: var(--forest); }
 
 .header-add-person {
   min-height: 40px;
@@ -2130,5 +2136,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 
 @media (max-height: 740px) {
-  .form-screen { height: calc(100dvh - 54px); }
+  .form-screen { height: calc(100dvh - 54px); padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+  .form-screen .page-heading { margin-bottom: 4px; }
+  .form-screen .page-heading .eyebrow,
+  .form-screen .page-heading > p:last-child { display: none; }
+  .form-screen .page-heading h2 { font-size: 1.7rem; }
+  .person-form { padding: 8px 10px; gap: 7px; }
+  .person-form .field-hint { display: none; }
+  .form-actions { bottom: calc(8px + env(safe-area-inset-bottom)); }
 }

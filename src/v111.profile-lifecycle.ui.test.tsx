@@ -273,7 +273,10 @@ describe("V1-11 complete Profile and Person lifecycle UI", () => {
     await waitFor(() => expect(name).toHaveFocus());
 
     await user.type(name, "Sarah Ahmed");
-    const cadence = screen.getByLabelText(/Contact cadence in days/);
+    await user.click(screen.getByRole("checkbox", { name: "Professional" }));
+    await user.click(screen.getByRole("checkbox", { name: "Remind me to stay in touch" }));
+    await user.selectOptions(screen.getByLabelText("How often?"), "custom");
+    const cadence = screen.getByLabelText("Days between reminders");
     await user.type(cadence, "0");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Enter a whole number from 1 to 3650 days");
@@ -282,7 +285,7 @@ describe("V1-11 complete Profile and Person lifecycle UI", () => {
     await user.selectOptions(screen.getByLabelText("Importance"), "high");
     await user.clear(screen.getByLabelText(/Tags/));
     await user.type(screen.getByLabelText(/Tags/), "mentor, NHS");
-    await user.type(cadence, "90");
+    await user.selectOptions(screen.getByLabelText("How often?"), "90");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(await screen.findByRole("heading", { name: "Sarah Ahmed" })).toBeInTheDocument();
@@ -293,6 +296,7 @@ describe("V1-11 complete Profile and Person lifecycle UI", () => {
       revision: 2,
       createdAt: original.createdAt,
       displayName: "Sarah Ahmed",
+      relationshipMode: "both",
       importance: "high",
       tags: ["mentor", "NHS"],
       contactCadenceDays: 90

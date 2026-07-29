@@ -496,6 +496,9 @@ export type ManualCaptureResumeState = {
   draft: ManualPersonCaptureDraft;
   tagsText: string;
   cadenceText: string;
+  customInterval?: string;
+  firstAppearance?: "today" | "tomorrow" | "week" | "date";
+  firstAppearanceDate?: string;
 };
 
 function firstIssue(error: unknown): string {
@@ -538,7 +541,9 @@ export function AddPersonScreen({
   }));
   const [tagsText, setTagsText] = useState(initialCapture?.tagsText ?? "");
   const [cadenceText, setCadenceText] = useState(initialCapture?.cadenceText ?? "");
-  const [firstAppearance, setFirstAppearance] = useState<"today" | "interval">("interval");
+  const [customInterval, setCustomInterval] = useState(initialCapture?.customInterval ?? "");
+  const [firstAppearance, setFirstAppearance] = useState<"today" | "tomorrow" | "week" | "date">(initialCapture?.firstAppearance ?? "today");
+  const [firstAppearanceDate, setFirstAppearanceDate] = useState(initialCapture?.firstAppearanceDate ?? "");
   const [defaultPhoneRegion, setDefaultPhoneRegion] = useState("GB");
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState("");
@@ -639,7 +644,7 @@ export function AddPersonScreen({
 
     let contactCadenceDays: number | undefined;
     if (cadenceText.trim()) {
-      contactCadenceDays = Number(cadenceText);
+      contactCadenceDays = Number(cadenceText === "custom" ? customInterval : cadenceText);
       if (!Number.isInteger(contactCadenceDays) || contactCadenceDays < 1 || contactCadenceDays > 3650) {
         nextErrors.cadence = "Enter a whole number from 1 to 3650 days.";
       }
@@ -655,15 +660,21 @@ export function AddPersonScreen({
     }
     const today = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" })
       .format(new Date()).replaceAll("/", "-");
+    const firstDueDate = firstAppearance === "today" ? today
+      : firstAppearance === "tomorrow" ? addDaysToLocalDate(today, 1)
+        : firstAppearance === "week" ? addDaysToLocalDate(today, 7)
+          : firstAppearanceDate;
+    if (contactCadenceDays && !firstDueDate) {
+      setErrors((current) => ({ ...current, start: "Pick a start date." }));
+      return undefined;
+    }
     return {
       ...draft,
       displayName,
       tags,
       contactCadenceDays,
       ...(contactCadenceDays ? {
-        contactCadenceFirstDueDate: firstAppearance === "today"
-          ? today
-          : addDaysToLocalDate(today, contactCadenceDays)
+        contactCadenceFirstDueDate: firstDueDate
       } : { contactCadenceFirstDueDate: undefined })
     };
   }
@@ -780,7 +791,7 @@ export function AddPersonScreen({
 
   function openExisting(match: DuplicateMatch) {
     const resumeDraft = validatedDraftRef.current ?? draft;
-    onOpenDuplicatePerson(match.person.id, { draft: resumeDraft, tagsText, cadenceText });
+    onOpenDuplicatePerson(match.person.id, { draft: resumeDraft, tagsText, cadenceText, customInterval, firstAppearance, firstAppearanceDate });
   }
 
   function returnToEdit() {
@@ -803,7 +814,7 @@ export function AddPersonScreen({
 
       <form className="person-form" onSubmit={save} noValidate>
         <fieldset className="choice-fieldset relationship-mode-fieldset">
-          <legend>Relationship</legend>
+          <legend>Appears in</legend>
           <div className="segmented-control three-way" role="group" aria-label="Relationship">
             {RELATIONSHIP_MODE_OPTIONS.map((option) => (
               <button key={option.value} type="button" aria-pressed={draft.relationshipMode === option.value} onClick={() => changed((current) => ({ ...current, relationshipMode: option.value }))}>
@@ -856,11 +867,26 @@ export function AddPersonScreen({
           );
         })()}
 
-        <div className="form-field frequency-field">
-          <label htmlFor="person-cadence">Stay in touch <span>Optional</span></label>
+        <fieldset className="keep-in-touch-fieldset">
+          <legend>Keep in touch</legend>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={Boolean(cadenceText)}
+              onChange={(event) => {
+                setCadenceText(event.target.checked ? "30" : "");
+                setFirstAppearance("today");
+                changed((current) => ({ ...current, contactCadenceDays: event.target.checked ? 30 : undefined }));
+              }}
+            />
+            <span>Remind me to stay in touch</span>
+          </label>
+        </fieldset>
+
+        {cadenceText && <div className="form-field frequency-field">
+          <label htmlFor="person-cadence">How often?</label>
           <select
             id="person-cadence"
-            aria-label="Contact cadence in days"
             value={cadenceText}
             aria-invalid={Boolean(errors.cadence)}
             aria-describedby={errors.cadence ? "person-cadence-error" : "person-cadence-hint"}
@@ -873,26 +899,27 @@ export function AddPersonScreen({
               onDirtyChange(true);
             }}
           >
-            <option value="">No regular reminder</option>
-            <option value="2">Every 2 days</option>
+            <option value="1">Every day</option>
+            <option value="3">Every few days</option>
             <option value="7">Every week</option>
             <option value="14">Every 2 weeks</option>
             <option value="30">Every month</option>
-            <option value="60">Every 2 months</option>
-            <option value="90">Every 3 months</option>
-            <option value="180">Every 6 months</option>
-            <option value="365">Every year</option>
+            <option value="90">Every few months</option>
+            <option value="custom">Custom</option>
           </select>
-          <p className="field-hint" id="person-cadence-hint">How often would you like PeopleOS to bring this person back to your attention?</p>
+          {cadenceText === "custom" && <input aria-label="Days between reminders" type="number" inputMode="numeric" min="1" max="3650" value={customInterval} onChange={(event) => setCustomInterval(event.target.value)} />}
           {errors.cadence && <p className="field-error" id="person-cadence-error" role="alert">{errors.cadence}</p>}
-        </div>
+        </div>}
 
         {cadenceText && (
-          <fieldset className="choice-fieldset first-appearance-fieldset">
-            <legend>First appearance</legend>
-            <label><input type="radio" name="first-appearance" checked={firstAppearance === "today"} onChange={() => setFirstAppearance("today")} /> Appear today</label>
-            <label><input type="radio" name="first-appearance" checked={firstAppearance === "interval"} onChange={() => setFirstAppearance("interval")} /> Start in {Number(cadenceText) === 1 ? "1 day" : `${cadenceText} days`}</label>
-          </fieldset>
+          <div className="form-field first-appearance-fieldset">
+            <label htmlFor="person-start">Start</label>
+            <select id="person-start" value={firstAppearance} onChange={(event) => setFirstAppearance(event.target.value as typeof firstAppearance)}>
+              <option value="today">Today</option><option value="tomorrow">Tomorrow</option><option value="week">In 1 week</option><option value="date">Pick a date</option>
+            </select>
+            {firstAppearance === "date" && <input aria-label="Start date" type="date" value={firstAppearanceDate} onChange={(event) => setFirstAppearanceDate(event.target.value)} aria-invalid={Boolean(errors.start)} />}
+            {errors.start && <p className="field-error" role="alert">{errors.start}</p>}
+          </div>
         )}
 
         <details className="more-details">
@@ -1045,6 +1072,16 @@ function displayContact(contact: ContactMethod, phoneRegion: string): string {
   } catch {
     return contact.rawValue;
   }
+}
+
+function keepInTouchLabel(days: number): string {
+  if (days === 1) return "Every day";
+  if (days === 3) return "Every few days";
+  if (days === 7) return "Every week";
+  if (days === 14) return "Every 2 weeks";
+  if (days === 30) return "Every month";
+  if (days === 90) return "Every few months";
+  return `Every ${days} days`;
 }
 
 function usePerson(personId: string, refreshVersion = 0) {
@@ -1539,7 +1576,7 @@ export function PersonProfileScreen({
                 Add memory
               </button>
               <button className="secondary-action" type="button" onClick={(event) => openCadenceEditor(event.currentTarget)}>
-                Cadence
+                Keep in touch
               </button>
               <button className="secondary-action" type="button" onClick={() => navigate(editPersonPath(summary.person.id))}>
                 Edit person
@@ -1616,14 +1653,13 @@ export function PersonProfileScreen({
               )}
               {nextPlan?.kind === "cadence" && (
                 <div className="current-plan-summary">
-                  <strong>Every {nextPlan.cadenceDays} days</strong>
+                  <strong>{keepInTouchLabel(nextPlan.cadenceDays)}</strong>
                   {nextPlan.date
-                    ? <p>Next expected contact: {formatLocalDate(nextPlan.date)}</p>
-                    : <p>Cadence is saved. Plan the first follow-up when you are ready.</p>}
-                  <p className="muted-copy">A cadence never creates a follow-up automatically.</p>
+                    ? <p>Next: {formatLocalDate(nextPlan.date)}</p>
+                    : null}
                   <div className="button-row compact-buttons">
                     <button type="button" onClick={(event) => openFollowUpEditor(event.currentTarget)}>Plan follow-up</button>
-                    <button type="button" onClick={(event) => openCadenceEditor(event.currentTarget)}>Change cadence</button>
+                    <button type="button" onClick={(event) => openCadenceEditor(event.currentTarget)}>Change</button>
                   </div>
                 </div>
               )}

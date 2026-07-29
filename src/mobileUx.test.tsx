@@ -36,15 +36,16 @@ describe("compact mobile relationship and scheduling controls", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Keep at least one relationship type enabled.");
   });
 
-  it("stores cadence and a visible first appearance independently", async () => {
+  it("stores Keep in touch frequency and start independently", async () => {
     vi.useRealTimers();
     vi.setSystemTime(new Date("2026-08-14T12:00:00.000Z"));
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/people/new");
     render(<App />);
     await user.type(await screen.findByLabelText("Name"), "Monthly person");
-    await user.selectOptions(screen.getByLabelText("Contact cadence in days"), "30");
-    await user.click(screen.getByRole("radio", { name: "Appear today" }));
+    await user.click(screen.getByRole("checkbox", { name: "Remind me to stay in touch" }));
+    await user.selectOptions(screen.getByLabelText("How often?"), "30");
+    await user.selectOptions(screen.getByLabelText("Start"), "today");
     await user.click(screen.getByRole("button", { name: "Save person" }));
     const [person] = await (await getDatabase()).getAll("people");
     expect(person).toMatchObject({ contactCadenceDays: 30, contactCadenceFirstDueDate: "2026-08-14" });

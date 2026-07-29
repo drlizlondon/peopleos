@@ -88,8 +88,9 @@ function relativeDate(date: string, today: string): string {
 }
 
 function cadenceLabel(days: number): string {
-  return days === 2 ? "Every 2 days" : days === 7 ? "Every week" : days === 14 ? "Every 2 weeks"
-    : days === 30 ? "Every month" : days === 60 ? "Every 2 months" : days === 90 ? "Every 3 months"
+  return days === 1 ? "Every day" : days === 3 ? "Every few days" : days === 7 ? "Every week" : days === 14 ? "Every 2 weeks"
+    : days === 30 ? "Every month" : days === 90 ? "Every few months"
+      : days === 2 ? "Every 2 days" : days === 60 ? "Every 2 months"
       : days === 180 ? "Every 6 months" : days === 365 ? "Every year" : `Every ${days} days`;
 }
 

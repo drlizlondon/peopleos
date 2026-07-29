@@ -536,7 +536,7 @@ export default function TodayScreen({ activeMode = "personal", navigate, onAddFo
       <header className="page-heading compact-heading today-heading">
         <p className="eyebrow">Today</p>
         <h2>Who should I contact today?</h2>
-        <p>People to contact, based on your plans and cadence.</p>
+        <p>People you want to stay in touch with, plus anything due today.</p>
       </header>
       {pageError && <div className="section-error"><p role="alert">{pageError}</p><button type="button" onClick={() => void load()}>Retry</button></div>}
       {projection.evaluationIssues.length > 0 && (

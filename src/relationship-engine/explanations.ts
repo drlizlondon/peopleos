@@ -66,7 +66,11 @@ export function formatExplanation(explanation: Explanation, locale = "en-GB"): s
     return `Your only recorded contact was ${requiredFact(explanation, "elapsedDays")} days ago and you have not recorded a later follow-up.`;
   }
   if (key === "today.cadence_due") {
-    return `You usually reconnect every ${requiredFact(explanation, "cadenceDays")} days. Your last recorded contact was ${requiredFact(explanation, "elapsedDays")} days ago.`;
+    const interval = requiredFact(explanation, "cadenceDays");
+    const elapsed = fact(explanation, "elapsedDays");
+    return elapsed
+      ? `You chose to keep in touch every ${interval} days. Your last contact was ${elapsed} days ago.`
+      : `You chose to keep in touch every ${interval} days.`;
   }
   if (key === "intended_action.follow_up") {
     const action = requiredFact(explanation, "actionType");
@@ -130,7 +134,7 @@ export function formatExplanation(explanation: Explanation, locale = "en-GB"): s
     return `Suggested for ${formatEngineLocalDate(requiredFact(explanation, "dueDate"), locale)}: 30 days after your introduction.`;
   }
   if (key === "suggested_reminder.cadence") {
-    return `Suggested for ${formatEngineLocalDate(requiredFact(explanation, "dueDate"), locale)}: your ${requiredFact(explanation, "cadenceDays")}-day contact cadence.`;
+    return `Next: ${formatEngineLocalDate(requiredFact(explanation, "dueDate"), locale)}.`;
   }
 
   if (key === "reach_out.active") return "In Reach Out because you chose to contact this person.";

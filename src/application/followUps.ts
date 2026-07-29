@@ -107,6 +107,7 @@ export type ContactCadenceCommand = {
   personId: string;
   expectedRevision: number;
   cadenceDays?: number;
+  firstDueDate?: LocalDate;
   occurredAt: string;
 };
 
@@ -753,16 +754,17 @@ export async function updateContactCadence(
   command: ContactCadenceCommand,
   hooks: FollowUpMutationHooks = {}
 ): Promise<Person> {
-  requireInstant(command.occurredAt, "The cadence command needs a valid time.");
+  requireInstant(command.occurredAt, "This change needs a valid time.");
   if (command.cadenceDays !== undefined
     && (!Number.isInteger(command.cadenceDays) || command.cadenceDays < 1 || command.cadenceDays > 3_650)) {
-    throw new ValidationError(["Custom cadence must be between 1 and 3,650 days."]);
+    throw new ValidationError(["Choose a whole number from 1 to 3,650 days."]);
   }
   const tx = db.transaction(["people", "metadata"], "readwrite");
   try {
     const people = tx.objectStore("people");
     const current = requireWritablePerson(await people.get(command.personId));
-    const sameCadence = current.contactCadenceDays === command.cadenceDays;
+    const sameCadence = current.contactCadenceDays === command.cadenceDays
+      && (command.cadenceDays === undefined || current.contactCadenceFirstDueDate === command.firstDueDate);
     if (current.revision === command.expectedRevision + 1
       && sameCadence && current.updatedAt === command.occurredAt) {
       await tx.done;
@@ -773,10 +775,19 @@ export async function updateContactCadence(
       await tx.done;
       return current;
     }
-    const { contactCadenceDays: _oldCadence, ...withoutCadence } = current;
+    const {
+      contactCadenceDays: _oldCadence,
+      contactCadenceFirstDueDate: _oldFirstDueDate,
+      contactCadenceDeferredUntilDate: _oldDeferredDate,
+      contactCadencePausedAt: _oldPausedAt,
+      ...withoutCadence
+    } = current;
     const updated: Person = {
       ...withoutCadence,
-      ...(command.cadenceDays !== undefined ? { contactCadenceDays: command.cadenceDays } : {}),
+      ...(command.cadenceDays !== undefined ? {
+        contactCadenceDays: command.cadenceDays,
+        ...(command.firstDueDate ? { contactCadenceFirstDueDate: command.firstDueDate } : {})
+      } : {}),
       revision: current.revision + 1,
       updatedAt: command.occurredAt
     };
@@ -830,7 +841,7 @@ export function createNotTodayCommand(
     };
   }
   if (options.primaryFollowUp) {
-    throw new ValidationError(["New and cadence Not today commands cannot include a primary follow-up."]);
+    throw new ValidationError(["This Not today action cannot include a primary follow-up."]);
   }
   return {
     ...base,

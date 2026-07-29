@@ -599,7 +599,7 @@ export default function App() {
               type="button"
               aria-pressed={activeRelationshipMode === mode}
               onClick={() => { writeActiveRelationshipMode(mode); setActiveRelationshipMode(mode); }}
-            >{mode === "all" ? "All" : mode === "personal" ? "Personal" : "Professional"}</button>
+            >{mode === "all" ? "Combined" : mode === "personal" ? "Personal" : "Professional"}</button>
           ))}
         </div>
       </div>}

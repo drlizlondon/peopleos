@@ -201,10 +201,11 @@ describe("V1-07 full FollowUp screens", () => {
     expect(within(planSection!).getByText("Send the pilot update")).toBeInTheDocument();
     expect((await readAllData(await getDatabase())).followUps).toHaveLength(1);
 
-    await user.click(within(personActions).getByRole("button", { name: "Cadence" }));
-    dialog = await screen.findByRole("dialog", { name: "Contact cadence" });
-    await user.selectOptions(within(dialog).getByLabelText("Recurring cadence"), "90");
-    await user.click(within(dialog).getByRole("button", { name: "Save cadence" }));
+    await user.click(within(personActions).getByRole("button", { name: "Keep in touch" }));
+    dialog = await screen.findByRole("dialog", { name: "Keep in touch" });
+    await user.click(within(dialog).getByRole("checkbox", { name: "Remind me to stay in touch" }));
+    await user.selectOptions(within(dialog).getByLabelText("How often?"), "90");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(async () => {
       const data = await readAllData(await getDatabase());
       expect(data.people[0]?.contactCadenceDays).toBe(90);

@@ -14,6 +14,7 @@ export type PersonEditDraft = {
   importance: Person["importance"];
   tags: string[];
   contactCadenceDays?: number;
+  contactCadenceFirstDueDate?: string;
 };
 
 export type PersonUpdateCommand = {
@@ -43,7 +44,7 @@ function normalizeDraft(draft: PersonEditDraft): PersonEditDraft {
     && (!Number.isInteger(draft.contactCadenceDays)
       || draft.contactCadenceDays < 1
       || draft.contactCadenceDays > 3_650)) {
-    issues.push("Contact cadence must be a whole number from 1 to 3650 days.");
+    issues.push("Choose a whole number from 1 to 3650 days.");
   }
   if (issues.length) throw new ValidationError(issues);
   return {
@@ -51,7 +52,10 @@ function normalizeDraft(draft: PersonEditDraft): PersonEditDraft {
     relationshipMode: draft.relationshipMode ?? "personal",
     importance: draft.importance,
     tags,
-    ...(draft.contactCadenceDays === undefined ? {} : { contactCadenceDays: draft.contactCadenceDays })
+    ...(draft.contactCadenceDays === undefined ? {} : {
+      contactCadenceDays: draft.contactCadenceDays,
+      ...(draft.contactCadenceFirstDueDate ? { contactCadenceFirstDueDate: draft.contactCadenceFirstDueDate } : {})
+    })
   };
 }
 
@@ -60,7 +64,8 @@ function sameEditableValues(person: Person, draft: PersonEditDraft): boolean {
     && (person.relationshipMode ?? "personal") === (draft.relationshipMode ?? "personal")
     && person.importance === draft.importance
     && JSON.stringify(person.tags) === JSON.stringify(draft.tags)
-    && person.contactCadenceDays === draft.contactCadenceDays;
+    && person.contactCadenceDays === draft.contactCadenceDays
+    && (draft.contactCadenceDays === undefined || person.contactCadenceFirstDueDate === draft.contactCadenceFirstDueDate);
 }
 
 function requireEditable(person: Person | undefined): Person {
@@ -87,6 +92,10 @@ export async function updatePerson(
   if (draft.contactCadenceDays === undefined) {
     delete updated.contactCadenceDays;
     delete updated.contactCadenceFirstDueDate;
+    delete updated.contactCadenceDeferredUntilDate;
+    delete updated.contactCadencePausedAt;
+  } else if (draft.contactCadenceFirstDueDate) {
+    updated.contactCadenceFirstDueDate = draft.contactCadenceFirstDueDate;
     delete updated.contactCadenceDeferredUntilDate;
     delete updated.contactCadencePausedAt;
   } else if (draft.contactCadenceDays !== current.contactCadenceDays) {

@@ -103,7 +103,7 @@ function assertCaptureFields(draft: ManualPersonCaptureDraft): void {
   if (draft.tags.some((tag) => tag.trim().length > 40)) issues.push("Each tag must be 40 characters or fewer.");
   if (draft.contactCadenceDays !== undefined
     && (!Number.isInteger(draft.contactCadenceDays) || draft.contactCadenceDays < 1 || draft.contactCadenceDays > 3650)) {
-    issues.push("Contact cadence must be between 1 and 3650 days.");
+    issues.push("Choose a whole number from 1 to 3650 days.");
   }
   if (optionalTrimmed(draft.role) && !optionalTrimmed(draft.organisationName)) {
     issues.push("Add an organisation before adding a role.");
