@@ -11,6 +11,7 @@ import { getDatabase } from "./data/client";
 // eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { RecordConflictError, StaleRevisionError } from "./data/repositories";
 import type { Person } from "./domain/schema";
+import { relationshipModeOf } from "./domain/relationshipMode";
 import { ValidationError } from "./domain/validation";
 import { affiliationsPath, contactMethodsPath } from "./navigation";
 
@@ -19,7 +20,6 @@ type Navigate = (path: string, options?: { replace?: boolean; state?: Record<str
 type FieldErrors = {
   displayName?: string;
   tags?: string;
-  cadence?: string;
 };
 
 function parseTags(value: string): string[] {
@@ -48,9 +48,8 @@ export default function EditPersonScreen({
   const prefix = useId();
   const [person, setPerson] = useState<Person | null | undefined>(undefined);
   const [loadVersion, setLoadVersion] = useState(0);
-  const [draft, setDraft] = useState<PersonEditDraft>({ displayName: "", importance: "normal", tags: [] });
+  const [draft, setDraft] = useState<PersonEditDraft>({ displayName: "", relationshipMode: "personal", importance: "normal", tags: [] });
   const [tagsText, setTagsText] = useState("");
-  const [cadenceText, setCadenceText] = useState("");
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -62,7 +61,6 @@ export default function EditPersonScreen({
   const headingRef = useRef<HTMLHeadingElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const tagsRef = useRef<HTMLInputElement>(null);
-  const cadenceRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -75,12 +73,12 @@ export default function EditPersonScreen({
       if (record) {
         setDraft({
           displayName: record.displayName,
+          relationshipMode: relationshipModeOf(record),
           importance: record.importance,
           tags: record.tags,
           ...(record.contactCadenceDays ? { contactCadenceDays: record.contactCadenceDays } : {})
         });
         setTagsText(record.tags.join(", "));
-        setCadenceText(record.contactCadenceDays ? String(record.contactCadenceDays) : "");
         requestAnimationFrame(() => {
           const active = document.activeElement;
           if (active === document.body || active?.id === "main-content") headingRef.current?.focus();
@@ -125,31 +123,29 @@ export default function EditPersonScreen({
     const nextErrors: FieldErrors = {};
     const displayName = draft.displayName.trim();
     const tags = parseTags(tagsText);
-    const cadence = cadenceText.trim() ? Number(cadenceText) : undefined;
     if (!displayName) nextErrors.displayName = "Add a name or description so you can recognise this person.";
     else if (displayName.length > 120) nextErrors.displayName = "Use 120 characters or fewer.";
     if (tags.length > 10) nextErrors.tags = "Add no more than 10 tags.";
     else if (tags.some((tag) => tag.length > 40)) nextErrors.tags = "Each tag must be 40 characters or fewer.";
-    if (cadence !== undefined && (!Number.isInteger(cadence) || cadence < 1 || cadence > 3_650)) {
-      nextErrors.cadence = "Enter a whole number from 1 to 3650 days, or leave this blank.";
-    }
     setErrors(nextErrors);
     const first = nextErrors.displayName
       ? nameRef.current
       : nextErrors.tags
         ? tagsRef.current
-        : nextErrors.cadence
-          ? cadenceRef.current
-          : undefined;
+        : undefined;
     if (Object.keys(nextErrors).length > 0) {
       requestAnimationFrame(() => first?.focus());
       return undefined;
     }
     return {
       displayName,
+      relationshipMode: draft.relationshipMode,
       importance: draft.importance,
       tags,
-      ...(cadence === undefined ? {} : { contactCadenceDays: cadence })
+      ...(person?.contactCadenceDays === undefined ? {} : {
+        contactCadenceDays: person.contactCadenceDays,
+        ...(person.contactCadenceFirstDueDate ? { contactCadenceFirstDueDate: person.contactCadenceFirstDueDate } : {})
+      })
     };
   }
 
@@ -273,7 +269,7 @@ export default function EditPersonScreen({
             <h2 ref={headingRef} tabIndex={-1}>{person.archivedAt ? "Archived person" : "Edit person"}</h2>
             <p>{person.archivedAt
               ? "History and plans are preserved. Restore this person before making changes."
-              : "Change identity and relationship preferences. Detailed history stays in its own sections."}</p>
+              : "Change their name and saved details."}</p>
           </header>
           {formError && <p className="form-alert" role="alert">{formError}</p>}
           {person.archivedAt ? (
@@ -326,26 +322,6 @@ export default function EditPersonScreen({
                 />
                 <p id={`${prefix}-tags-hint`} className="field-hint">Separate up to ten tags with commas.</p>
                 {errors.tags && <p id={`${prefix}-tags-error`} className="field-error" role="alert">{errors.tags}</p>}
-              </div>
-              <div className="form-field">
-                <label htmlFor={`${prefix}-cadence`}>Contact cadence in days <span>Optional</span></label>
-                <input
-                  ref={cadenceRef}
-                  id={`${prefix}-cadence`}
-                  type="number"
-                  inputMode="numeric"
-                  min="1"
-                  max="3650"
-                  value={cadenceText}
-                  aria-invalid={Boolean(errors.cadence) || undefined}
-                  aria-describedby={errors.cadence ? `${prefix}-cadence-error` : `${prefix}-cadence-hint`}
-                  onChange={(event) => {
-                    setCadenceText(event.target.value);
-                    changed({ contactCadenceDays: event.target.value ? Number(event.target.value) : undefined });
-                  }}
-                />
-                <p id={`${prefix}-cadence-hint`} className="field-hint">Leave blank for no recurring cadence.</p>
-                {errors.cadence && <p id={`${prefix}-cadence-error`} className="field-error" role="alert">{errors.cadence}</p>}
               </div>
               <section className="profile-card edit-person-related" aria-labelledby={`${prefix}-details`}>
                 <h3 id={`${prefix}-details`}>Detailed information</h3>

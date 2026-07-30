@@ -19,6 +19,7 @@ import type {
   ReachOutEvent
 } from "../domain/schema";
 import { selectDisplayAffiliation } from "./affiliations";
+import { personMatchesActiveMode, type ActiveRelationshipMode } from "../domain/relationshipMode";
 
 export type ReachOutSearchSource = "Person" | "Role" | "Organisation" | "Why" | "Notes" | "Context";
 
@@ -42,6 +43,7 @@ export type ReachOutListItem = {
 
 export type ReachOutListOptions = {
   localDate: LocalDate;
+  activeMode?: ActiveRelationshipMode;
   query?: string;
   statusFilters?: ReachOutStatusFilter[];
   contextId?: string;
@@ -138,7 +140,7 @@ export async function listReachOut(
   const result = entries.flatMap((entry): ReachOutListItem[] => {
     if (entry.removedAt) return [];
     const person = peopleById.get(entry.personId);
-    if (!person || person.archivedAt || person.identityStatus === "merged") return [];
+    if (!person || person.archivedAt || person.identityStatus === "merged" || !personMatchesActiveMode(person, options.activeMode ?? "personal")) return [];
     const selectedContexts = entry.contextIds
       .map((id) => contextsById.get(id))
       .filter((context): context is ReachOutContext => Boolean(context && !context.archivedAt));
@@ -192,7 +194,7 @@ export async function listReachOut(
   });
 }
 
-export async function hasReachOutEntries(db: PeopleOsDatabase): Promise<boolean> {
+export async function hasReachOutEntries(db: PeopleOsDatabase, activeMode: ActiveRelationshipMode = "personal"): Promise<boolean> {
   const tx = db.transaction(["reachOutEntries", "people"], "readonly");
   const [entries, people] = await Promise.all([
     tx.objectStore("reachOutEntries").getAll(),
@@ -203,7 +205,7 @@ export async function hasReachOutEntries(db: PeopleOsDatabase): Promise<boolean>
   return entries.some((entry) => {
     if (entry.removedAt) return false;
     const person = peopleById.get(entry.personId);
-    return Boolean(person && !person.archivedAt && person.identityStatus !== "merged");
+    return Boolean(person && !person.archivedAt && person.identityStatus !== "merged" && personMatchesActiveMode(person, activeMode));
   });
 }
 
@@ -271,13 +273,19 @@ export async function listReachOutHistoryForPerson(
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id));
 }
 
-export async function listReachOutContexts(db: PeopleOsDatabase): Promise<ReachOutContext[]> {
-  const [contexts, entries] = await Promise.all([
+export async function listReachOutContexts(
+  db: PeopleOsDatabase,
+  activeMode: ActiveRelationshipMode = "personal"
+): Promise<ReachOutContext[]> {
+  const [contexts, entries, people] = await Promise.all([
     db.getAll("reachOutContexts"),
-    db.getAll("reachOutEntries")
+    db.getAll("reachOutEntries"),
+    db.getAll("people")
   ]);
+  const visiblePeople = new Set(people.filter((person) => personMatchesActiveMode(person, activeMode)).map((person) => person.id));
+  const visibleEntries = entries.filter((entry) => visiblePeople.has(entry.personId));
   const lastUsedAt = new Map<string, string>();
-  for (const entry of entries) {
+  for (const entry of visibleEntries) {
     for (const contextId of entry.contextIds) {
       const current = lastUsedAt.get(contextId);
       if (!current || entry.updatedAt > current) lastUsedAt.set(contextId, entry.updatedAt);

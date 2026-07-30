@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import EmptyState from "./EmptyState";
 import FollowUpCompletionSheet from "./FollowUpCompletionSheet";
 import FollowUpEditorSheet from "./FollowUpEditorSheet";
 import {
   listUpcomingFollowUps,
+  listUpcomingCadences,
+  type UpcomingCadence,
   type UpcomingFollowUp,
   type UpcomingFilters,
   type UpcomingResult
@@ -19,6 +21,7 @@ import {
 // eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { getDatabase } from "./data/client";
 import type { FollowUp, FollowUpActionType } from "./domain/schema";
+import type { ActiveRelationshipMode } from "./domain/relationshipMode";
 import { FOLLOW_UP_ACTION_OPTIONS } from "./domain/followUpPolicy";
 import { followUpDetailPath, personProfilePath } from "./navigation";
 
@@ -75,6 +78,22 @@ function actionLabel(action: FollowUpActionType): string {
   return FOLLOW_UP_ACTION_OPTIONS.find((option) => option.value === action)?.label ?? "Other";
 }
 
+function relativeDate(date: string, today: string): string {
+  const days = Math.round((Date.parse(`${date}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86_400_000);
+  if (days === 1) return "tomorrow";
+  if (days < 14) return `in ${days} days`;
+  if (days < 60) return `in ${Math.round(days / 7)} weeks`;
+  if (days < 365) return `in ${Math.round(days / 30)} months`;
+  return `in ${Math.round(days / 365)} years`;
+}
+
+function cadenceLabel(days: number): string {
+  return days === 1 ? "Every day" : days === 3 ? "Every few days" : days === 7 ? "Every week" : days === 14 ? "Every 2 weeks"
+    : days === 30 ? "Every month" : days === 90 ? "Every few months"
+      : days === 2 ? "Every 2 days" : days === 60 ? "Every 2 months"
+      : days === 180 ? "Every 6 months" : days === 365 ? "Every year" : `Every ${days} days`;
+}
+
 function groupUpcoming(items: readonly UpcomingFollowUp[]): Array<{
   key: string;
   label: string;
@@ -95,9 +114,11 @@ function groupUpcoming(items: readonly UpcomingFollowUp[]): Array<{
 }
 
 function PersonPicker({
+  activeMode,
   onClose,
   onSelect
 }: {
+  activeMode: ActiveRelationshipMode;
   onClose: () => void;
   onSelect: (person: PersonPickerOption) => void;
 }) {
@@ -113,12 +134,12 @@ function PersonPicker({
 
   useEffect(() => {
     let active = true;
-    getDatabase().then((db) => listActivePersonOptions(db))
+    getDatabase().then((db) => listActivePersonOptions(db, undefined, activeMode))
       .then((records) => { if (active) setPeople(records); })
       .catch(() => { if (active) setError("PeopleOS could not load people. Close this sheet and try again."); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [activeMode]);
 
   useEffect(() => {
     const id = `upcoming-person-picker-${modalId}`;
@@ -312,7 +333,7 @@ function UpcomingFilterSheet({
   );
 }
 
-export default function UpcomingScreen({ navigate }: { navigate: Navigate }) {
+export default function UpcomingScreen({ activeMode = "personal", navigate, relationshipFilter }: { activeMode?: ActiveRelationshipMode; navigate: Navigate; relationshipFilter?: ReactNode }) {
   const [initialView] = useState(readUpcomingViewState);
   const [localDate] = useState(currentLocalDate);
   const [windowFilter, setWindowFilter] = useState<"" | WindowFilter>(initialView.window);
@@ -320,6 +341,7 @@ export default function UpcomingScreen({ navigate }: { navigate: Navigate }) {
   const [actionFilter, setActionFilter] = useState<"" | FollowUpActionType>(initialView.actionType);
   const [result, setResult] = useState<UpcomingResult | undefined>(undefined);
   const [allItems, setAllItems] = useState<UpcomingFollowUp[]>([]);
+  const [cadences, setCadences] = useState<UpcomingCadence[]>([]);
   const [error, setError] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -334,26 +356,29 @@ export default function UpcomingScreen({ navigate }: { navigate: Navigate }) {
 
   const filters = useMemo<UpcomingFilters>(() => ({
     localDate,
+    activeMode,
     ...(windowFilter ? { window: windowFilter } : {}),
     ...(personFilter ? { personId: personFilter } : {}),
     ...(actionFilter ? { actionType: actionFilter } : {})
-  }), [actionFilter, localDate, personFilter, windowFilter]);
+  }), [actionFilter, activeMode, localDate, personFilter, windowFilter]);
 
   const load = useCallback(async () => {
     setError("");
     setResult(undefined);
     try {
       const db = await getDatabase();
-      const [filtered, all] = await Promise.all([
+      const [filtered, all, regular] = await Promise.all([
         listUpcomingFollowUps(db, filters),
-        listUpcomingFollowUps(db, { localDate })
+        listUpcomingFollowUps(db, { localDate, activeMode }),
+        listUpcomingCadences(db, { localDate, activeMode })
       ]);
       setResult(filtered);
       setAllItems(all.items);
+      setCadences(regular);
     } catch {
       setError("PeopleOS could not load upcoming follow-ups.");
     }
-  }, [filters, localDate]);
+  }, [activeMode, filters, localDate]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -441,6 +466,11 @@ export default function UpcomingScreen({ navigate }: { navigate: Navigate }) {
   }
 
   const groups = result ? groupUpcoming(result.items) : [];
+  const chronological = result ? [
+    ...cadences.map((item) => ({ kind: "cadence" as const, date: item.effectiveDate, item })),
+    ...result.items.map((item) => ({ kind: "follow_up" as const, date: item.effectiveDate, item }))
+  ].sort((left, right) => left.date.localeCompare(right.date)
+    || left.item.person.displayName.localeCompare(right.item.person.displayName)) : [];
   const peopleOptions = Array.from(new Map(allItems.map((item) => [item.person.id, item.person])).values())
     .sort((left, right) => left.displayName.localeCompare(right.displayName, "en-US", { sensitivity: "base" }) || left.id.localeCompare(right.id));
   const actionOptions = FOLLOW_UP_ACTION_OPTIONS.filter((option) => allItems.some((item) => item.followUp.actionType === option.value));
@@ -453,7 +483,7 @@ export default function UpcomingScreen({ navigate }: { navigate: Navigate }) {
         <div>
           <p className="eyebrow">Upcoming</p>
           <h2 ref={headingRef} tabIndex={-1}>What you’ve planned for later</h2>
-          <p>Future follow-ups stay here until their planned day.</p>
+          {relationshipFilter}
         </div>
         <button className="primary-action" type="button" onClick={(event) => { openerRef.current = event.currentTarget; setPickerOpen(true); }}>
           Add follow-up
@@ -484,7 +514,7 @@ export default function UpcomingScreen({ navigate }: { navigate: Navigate }) {
 
       {actionError && <p className="form-alert screen-status" role="alert">{actionError}</p>}
 
-      {!error && result && result.items.length === 0 && (
+      {!error && result && result.items.length === 0 && cadences.length === 0 && (
         filtersActive ? (
           <section className="profile-card timeline-empty" aria-labelledby="upcoming-filter-empty-heading">
             <h3 id="upcoming-filter-empty-heading">No follow-ups match these filters.</h3>
@@ -507,7 +537,34 @@ export default function UpcomingScreen({ navigate }: { navigate: Navigate }) {
         )
       )}
 
-      {!error && result && result.items.length > 0 && (
+      {!error && result && chronological.length > 0 && !filtersActive && (
+        <section className="timeline-group upcoming-cadence-group" aria-labelledby="upcoming-chronological-heading">
+          <h3 id="upcoming-chronological-heading">Coming up</h3>
+          <ol className="follow-up-list">
+            {chronological.map((entry) => entry.kind === "cadence" ? (
+              <li key={`cadence-${entry.item.person.id}`}>
+                <article className="timeline-item follow-up-row">
+                  <div className="timeline-item-heading">
+                    <h4><button className="text-action" type="button" onClick={() => navigate(personProfilePath(entry.item.person.id))}>{entry.item.person.displayName}</button></h4>
+                    <time dateTime={entry.item.effectiveDate}>{localDateLabel(entry.item.effectiveDate)} · {relativeDate(entry.item.effectiveDate, localDate)}</time>
+                  </div>
+                  <p className="muted-copy">{cadenceLabel(entry.item.cadenceDays)}</p>
+                </article>
+              </li>
+            ) : (
+              <li key={entry.item.followUp.id}>
+                <article className="timeline-item follow-up-row">
+                  <div className="timeline-item-heading"><div><h4>{entry.item.followUp.reason}</h4><time dateTime={entry.item.effectiveDate}>{localDateLabel(entry.item.effectiveDate)} · {relativeDate(entry.item.effectiveDate, localDate)}</time></div></div>
+                  <dl className="timeline-context follow-up-meta"><div><dt>Person</dt><dd><button className="text-action" type="button" onClick={() => navigate(personProfilePath(entry.item.person.id))}>{entry.item.person.displayName}</button></dd></div></dl>
+                  <button className="primary-action" type="button" onClick={() => navigate(followUpDetailPath(entry.item.followUp.id))}>Open plan</button>
+                </article>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
+      {!error && result && result.items.length > 0 && filtersActive && (
         <div className="upcoming-groups">
           {groups.map((group) => (
             <section className="timeline-group" key={group.key} aria-labelledby={`upcoming-month-${group.key}`}>
@@ -545,6 +602,7 @@ export default function UpcomingScreen({ navigate }: { navigate: Navigate }) {
 
       {pickerOpen && (
         <PersonPicker
+          activeMode={activeMode}
           onClose={() => { setPickerOpen(false); restoreFocus(); }}
           onSelect={(option) => {
             setPickerOpen(false);

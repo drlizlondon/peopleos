@@ -9,7 +9,7 @@ import { createAppendOnlyRecord, createRepositories, StaleRevisionError } from "
 import { generateBackup } from "../data/backup";
 import type { FollowUp, Interaction, Person, ReachOutEntry } from "../domain/schema";
 import { ValidationError, validatePeopleOsData } from "../domain/validation";
-import { archivePerson, restorePerson, updatePerson } from "./personLifecycle";
+import { archivePerson, restorePerson, updatePerson, updatePersonRelationshipMode } from "./personLifecycle";
 
 const now = "2026-07-23T09:00:00.000Z";
 const names = new Set<string>();
@@ -121,6 +121,70 @@ describe("V1-11 Person lifecycle commands", () => {
     const metadata = await db.get("metadata", "app");
     await expect(updatePerson(db, command)).resolves.toEqual(first);
     expect(await db.get("metadata", "app")).toEqual(metadata);
+  });
+
+  it("changes relationship visibility without resetting Keep in touch state", async () => {
+    const db = await openDatabase("relationship-mode");
+    const repositories = createRepositories(db);
+    const original = person({
+      relationshipMode: "personal",
+      contactCadenceDays: 14,
+      contactCadenceFirstDueDate: "2026-07-01",
+      contactCadenceDeferredUntilDate: "2026-08-04",
+      contactCadencePausedAt: "2026-07-22T09:00:00.000Z"
+    });
+    await repositories.people.create(original);
+    const command = {
+      personId: original.id,
+      expectedRevision: original.revision,
+      relationshipMode: "both" as const,
+      occurredAt: "2026-07-23T10:00:00.000Z"
+    };
+
+    const saved = await updatePersonRelationshipMode(db, command);
+    expect(saved).toMatchObject({
+      relationshipMode: "both",
+      contactCadenceDays: 14,
+      contactCadenceFirstDueDate: "2026-07-01",
+      contactCadenceDeferredUntilDate: "2026-08-04",
+      contactCadencePausedAt: "2026-07-22T09:00:00.000Z"
+    });
+    const metadata = await db.get("metadata", "app");
+    await expect(updatePersonRelationshipMode(db, command)).resolves.toEqual(saved);
+    expect(await db.get("metadata", "app")).toEqual(metadata);
+  });
+
+  it("preserves a paused or deferred reminder when only identity details change", async () => {
+    const db = await openDatabase("identity-preserves-reminder");
+    const repositories = createRepositories(db);
+    const original = person({
+      contactCadenceDays: 30,
+      contactCadenceFirstDueDate: "2026-07-01",
+      contactCadenceDeferredUntilDate: "2026-08-12",
+      contactCadencePausedAt: "2026-07-20T09:00:00.000Z"
+    });
+    await repositories.people.create(original);
+
+    const saved = await updatePerson(db, {
+      personId: original.id,
+      expectedRevision: original.revision,
+      draft: {
+        displayName: "Sarah J.",
+        importance: original.importance,
+        tags: original.tags,
+        contactCadenceDays: 30,
+        contactCadenceFirstDueDate: "2026-07-01"
+      },
+      occurredAt: "2026-07-23T10:00:00.000Z"
+    });
+
+    expect(saved).toMatchObject({
+      displayName: "Sarah J.",
+      contactCadenceDays: 30,
+      contactCadenceFirstDueDate: "2026-07-01",
+      contactCadenceDeferredUntilDate: "2026-08-12",
+      contactCadencePausedAt: "2026-07-20T09:00:00.000Z"
+    });
   });
 
   it("clears an existing cadence and makes the exact clear retry idempotent", async () => {

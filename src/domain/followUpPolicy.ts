@@ -16,14 +16,16 @@ export const FOLLOW_UP_ACTION_OPTIONS: ReadonlyArray<{
 ];
 
 export const CADENCE_PRESET_OPTIONS: ReadonlyArray<{
-  value: undefined | 30 | 90 | 180 | 365;
+  value: undefined | 1 | 3 | 7 | 14 | 30 | 90;
   label: string;
 }> = [
-  { value: undefined, label: "No recurring cadence" },
-  { value: 30, label: "Monthly" },
-  { value: 90, label: "Every 3 months" },
-  { value: 180, label: "Every 6 months" },
-  { value: 365, label: "Yearly" }
+  { value: undefined, label: "Off" },
+  { value: 1, label: "Every day" },
+  { value: 3, label: "Every few days" },
+  { value: 7, label: "Every week" },
+  { value: 14, label: "Every 2 weeks" },
+  { value: 30, label: "Every month" },
+  { value: 90, label: "Every few months" }
 ];
 
 export function effectiveFollowUpDate(

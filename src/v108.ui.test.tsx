@@ -74,12 +74,12 @@ describe("V1-08 Reach Out UI", () => {
     await user.click(screen.getByRole("button", { name: "Add someone" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Who do you want to reach out to?" });
-    const identity = within(dialog).getByLabelText(/^Person or description/);
+    const identity = await within(dialog).findByLabelText(/^Person or description/);
     await waitFor(() => expect(identity).toHaveFocus());
     await user.click(within(dialog).getByRole("button", { name: "Add to Reach Out" }));
-    expect(within(dialog).getByRole("alert")).toHaveTextContent("Choose an existing person");
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("Add a person or a short description.");
     await user.type(identity, "Hackathon organiser");
-    await user.click(within(dialog).getByRole("button", { name: /Use “Hackathon organiser”/ }));
+    expect(within(dialog).getByText(/PeopleOS will create this person when you save/)).toBeInTheDocument();
     await user.type(within(dialog).getByLabelText(/^Why I want to reach out/), "Thank them for bringing everyone together");
     await user.selectOptions(within(dialog).getByLabelText(/^Intended next action/), "research_contact_route");
     await user.click(within(dialog).getByRole("button", { name: "Tomorrow" }));
@@ -104,7 +104,7 @@ describe("V1-08 Reach Out UI", () => {
     expect(validatePeopleOsData(data)).toBeTruthy();
   });
 
-  it("adds an existing Person without duplication and makes Reach Out the contextual first global Add action", async () => {
+  it("adds an existing Person without duplication while global Add stays person-only", async () => {
     await seedPerson();
     window.history.replaceState({}, "", "/reach-out");
     const user = userEvent.setup();
@@ -114,11 +114,14 @@ describe("V1-08 Reach Out UI", () => {
     await user.click(screen.getByRole("button", { name: "Add" }));
     const addSheet = await screen.findByRole("dialog", { name: "Add to PeopleOS" });
     const labels = Array.from(addSheet.querySelectorAll(".global-add-actions > button"), (button) => button.textContent);
-    expect(labels[0]).toBe("Add to Reach Out");
-    await user.click(within(addSheet).getByRole("button", { name: "Add to Reach Out" }));
+    expect(labels).toEqual(["Add person"]);
+    await user.click(within(addSheet).getByRole("button", { name: "Close Add menu" }));
+    await user.click(screen.getByRole("button", { name: "Add someone" }));
 
     const editor = await screen.findByRole("dialog", { name: "Who do you want to reach out to?" });
-    await user.type(within(editor).getByLabelText(/^Person or description/), "Sarah");
+    const identity = await within(editor).findByLabelText(/^Person or description/);
+    await waitFor(() => expect(identity).toHaveFocus());
+    await user.type(identity, "Sarah");
     await user.click(within(editor).getByRole("button", { name: /Sarah Jones/ }));
     await user.click(within(editor).getByRole("button", { name: "Add to Reach Out" }));
 
@@ -160,6 +163,9 @@ describe("V1-08 Reach Out UI", () => {
     await user.click(screen.getByRole("button", { name: "See full timeline" }));
     expect(await screen.findByRole("heading", { name: "Added to Reach Out" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Reach Out reminder linked" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "← Person" }));
+    await user.click(await screen.findByRole("button", { name: /Back to Reach Out plan/ }));
+    await user.click(await screen.findByRole("button", { name: "← Reach Out" }));
     await user.click(screen.getByRole("link", { name: "Upcoming" }));
     expect(await screen.findByRole("heading", { name: "Send the pilot update" })).toBeInTheDocument();
     expect((await readAllData(await getDatabase())).followUps.filter((followUp) => followUp.status === "pending"))
@@ -395,7 +401,7 @@ describe("V1-08 Reach Out UI", () => {
     expect(await screen.findByRole("heading", { name: "Simon Jones" })).toBeInTheDocument();
   });
 
-  it("guards dirty resolver work on Cancel, primary-tab navigation and browser back", async () => {
+  it("guards dirty resolver work on Cancel, contextual navigation and browser back", async () => {
     const created = await createReachOut(await getDatabase(), prepareCreateReachOutCommand({
       person: { provisionalLabel: "Hackathon organiser" }
     }, { localDate: today(), idFactory: sequence("dirty-resolver") }));
@@ -406,7 +412,7 @@ describe("V1-08 Reach Out UI", () => {
     await user.type(name, " updated");
     vi.mocked(window.confirm).mockReturnValue(false);
 
-    await user.click(screen.getByRole("link", { name: "People" }));
+    await user.click(screen.getByRole("button", { name: "← Reach Out plan" }));
     expect(window.location.pathname).toBe(`/reach-out/${created.entry.id}/resolve`);
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(window.location.pathname).toBe(`/reach-out/${created.entry.id}/resolve`);
@@ -431,13 +437,17 @@ describe("V1-08 Reach Out UI", () => {
     render(<App />);
     const emptyOpener = await screen.findByRole("button", { name: "Add someone" });
     await user.click(emptyOpener);
-    await user.click(within(await screen.findByRole("dialog", { name: "Who do you want to reach out to?" })).getByRole("button", { name: "Cancel" }));
+    const editor = await screen.findByRole("dialog", { name: "Who do you want to reach out to?" });
+    const cancel = await within(editor).findByRole("button", { name: "Cancel" });
+    await user.click(cancel);
     await waitFor(() => expect(emptyOpener).toHaveFocus());
 
     const headerOpener = screen.getByRole("button", { name: "Add" });
     await user.click(headerOpener);
-    await user.click(within(await screen.findByRole("dialog", { name: "Add to PeopleOS" })).getByRole("button", { name: "Add to Reach Out" }));
-    await user.click(within(await screen.findByRole("dialog", { name: "Who do you want to reach out to?" })).getByRole("button", { name: "Cancel" }));
+    const addSheet = await screen.findByRole("dialog", { name: "Add to PeopleOS" });
+    expect(Array.from(addSheet.querySelectorAll(".global-add-actions > button"), (button) => button.textContent))
+      .toEqual(["Add person"]);
+    await user.click(within(addSheet).getByRole("button", { name: "Close Add menu" }));
     await waitFor(() => expect(headerOpener).toHaveFocus());
   });
 
@@ -446,9 +456,13 @@ describe("V1-08 Reach Out UI", () => {
     window.history.replaceState({ fromPath: "/people" }, "", `/people/${person.id}`);
     const user = userEvent.setup();
     render(<App />);
-    const opener = await screen.findByRole("button", { name: "Add to Reach Out" });
+    const reachOut = (await screen.findByRole("heading", { name: "Reach Out" })).closest("section")!;
+    expect(await within(reachOut).findByText("Not included")).toBeInTheDocument();
+    const opener = within(reachOut).getByRole("button", { name: "Add" });
     await user.click(opener);
-    await user.click(within(await screen.findByRole("dialog", { name: "Who do you want to reach out to?" })).getByRole("button", { name: "Cancel" }));
+    const editor = await screen.findByRole("dialog", { name: "Who do you want to reach out to?" });
+    await within(editor).findByLabelText(/^Why I want to reach out/);
+    await user.click(within(editor).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(opener).toHaveFocus());
   });
 });

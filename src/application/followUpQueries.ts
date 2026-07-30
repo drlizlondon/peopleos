@@ -14,6 +14,7 @@ import type {
   Person,
   TodaySkip
 } from "../domain/schema";
+import { personMatchesActiveMode, type ActiveRelationshipMode } from "../domain/relationshipMode";
 
 export type PersonFollowUpLists = {
   pending: FollowUp[];
@@ -32,6 +33,7 @@ export type FollowUpDetail = {
 
 export type UpcomingFilters = {
   localDate: LocalDate;
+  activeMode?: ActiveRelationshipMode;
   window?: "next_7_days" | "next_30_days" | "later";
   personId?: string;
   actionType?: FollowUpActionType;
@@ -53,6 +55,36 @@ export type UpcomingResult = {
   groups: UpcomingGroup[];
   dueCount: number;
 };
+
+export type UpcomingCadence = { person: Person; effectiveDate: LocalDate; cadenceDays: number };
+
+export async function listUpcomingCadences(
+  db: PeopleOsDatabase,
+  filters: Pick<UpcomingFilters, "localDate" | "activeMode">
+): Promise<UpcomingCadence[]> {
+  const [people, interactions] = await Promise.all([db.getAll("people"), db.getAll("interactions")]);
+  const latestContact = new Map<string, string>();
+  for (const interaction of interactions) {
+    if (!interactionCountsAsContact(interaction.kind)) continue;
+    const current = latestContact.get(interaction.personId);
+    if (!current || interaction.occurredAt > current) latestContact.set(interaction.personId, interaction.occurredAt);
+  }
+  return people.flatMap((person): UpcomingCadence[] => {
+    if (!activePerson(person) || !personMatchesActiveMode(person, filters.activeMode ?? "personal")
+      || !person.contactCadenceDays || person.contactCadencePausedAt) return [];
+    const last = latestContact.get(person.id);
+    const regularDate = last
+      ? addDaysToLocalDate(localDateForInstant(last), person.contactCadenceDays)
+      : person.contactCadenceFirstDueDate;
+    const effectiveDate = person.contactCadenceDeferredUntilDate && (!regularDate || person.contactCadenceDeferredUntilDate > regularDate)
+      ? person.contactCadenceDeferredUntilDate
+      : regularDate;
+    return effectiveDate && effectiveDate > filters.localDate
+      ? [{ person, effectiveDate, cadenceDays: person.contactCadenceDays }]
+      : [];
+  }).sort((left, right) => left.effectiveDate.localeCompare(right.effectiveDate)
+    || left.person.displayName.localeCompare(right.person.displayName));
+}
 
 export type NextPlanProjection =
   | { kind: "explicit_follow_up"; date: LocalDate; followUp: FollowUp }
@@ -137,7 +169,7 @@ export async function listUpcomingFollowUps(
     db.getAllFromIndex("followUps", "by-status", "pending"),
     db.getAll("people")
   ]);
-  const peopleById = new Map(people.filter(activePerson).map((person) => [person.id, person]));
+  const peopleById = new Map(people.filter((person) => activePerson(person) && personMatchesActiveMode(person, filters.activeMode ?? "personal")).map((person) => [person.id, person]));
   const allActive = pending.flatMap((followUp): UpcomingFollowUp[] => {
     const person = peopleById.get(followUp.personId);
     return person ? [{ followUp, person, effectiveDate: effectiveFollowUpDate(followUp) }] : [];

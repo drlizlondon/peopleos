@@ -7,7 +7,7 @@ import {
 import { StaleRevisionError } from "../data/repositories";
 import { ValidationError } from "../domain/validation";
 import { fixedNow } from "../test/fixtures";
-import { updateAlreadyContactedDefault } from "./settings";
+import { updateAlreadyContactedDefault, updateConversationStarters } from "./settings";
 
 const names = new Set<string>();
 const connections = new Set<PeopleOsDatabase>();
@@ -28,6 +28,17 @@ afterEach(async () => {
 });
 
 describe("V1-10 Settings command", () => {
+  it("adds, edits and deletes name-aware conversation starters", async () => {
+    const db = await openDatabase("starters");
+    const initial = await db.get("appSettings", "app");
+    expect(initial?.conversationStarters?.length).toBeGreaterThan(0);
+    const added = { id: "starter-custom", template: "Hello {name}, congratulations!", relationshipMode: "both" as const };
+    const saved = await updateConversationStarters(db, [added], "2026-08-02T09:00:00.000Z");
+    expect(saved.conversationStarters).toEqual([added]);
+    await expect(updateConversationStarters(db, [{ ...added, template: "Hello there" }], "2026-08-02T09:01:00.000Z"))
+      .rejects.toBeInstanceOf(ValidationError);
+    await expect(updateConversationStarters(db, [], "2026-08-02T09:02:00.000Z")).rejects.toBeInstanceOf(ValidationError);
+  });
   it("updates the default interval and increments the dataset revision once", async () => {
     const db = await openDatabase("update");
     const metadataBefore = await db.get("metadata", "app");

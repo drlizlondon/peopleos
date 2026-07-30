@@ -103,25 +103,28 @@ export class MutableRepository<S extends MutableStoreName> {
   }
 
   async create(record: StoreRecords[S]): Promise<StoreRecords[S]> {
-    assertValidRecord(this.store, record);
-    await assertWriteReferences(this.db, this.store, record);
+    const normalizedRecord = (this.store === "people" && !(record as Person).relationshipMode
+      ? { ...record, relationshipMode: "personal" as const }
+      : record) as StoreRecords[S];
+    assertValidRecord(this.store, normalizedRecord);
+    await assertWriteReferences(this.db, this.store, normalizedRecord);
     const tx = this.db.transaction([this.store, "metadata"] as never, "readwrite");
     const recordStore = tx.objectStore(this.store as never) as ReturnType<typeof tx.objectStore>;
-    const existing = await recordStore.get(record.id as never) as StoreRecords[S] | undefined;
+    const existing = await recordStore.get(normalizedRecord.id as never) as StoreRecords[S] | undefined;
     if (existing) {
-      if (identical(existing, record)) {
+      if (identical(existing, normalizedRecord)) {
         await tx.done;
         return existing;
       }
-      throw new RecordConflictError(`${this.store} already contains id ${record.id}`);
+      throw new RecordConflictError(`${this.store} already contains id ${normalizedRecord.id}`);
     }
-    await recordStore.add(record as never);
+    await recordStore.add(normalizedRecord as never);
     const metadataStore = tx.objectStore("metadata" as never);
     const metadata = await metadataStore.get("app" as never) as { datasetRevision: number; updatedAt: string } | undefined;
     if (!metadata) throw new Error("PeopleOS metadata is missing");
-    await metadataStore.put({ ...metadata, datasetRevision: metadata.datasetRevision + 1, updatedAt: record.updatedAt } as never);
+    await metadataStore.put({ ...metadata, datasetRevision: metadata.datasetRevision + 1, updatedAt: normalizedRecord.updatedAt } as never);
     await tx.done;
-    return record;
+    return normalizedRecord;
   }
 
   async update(record: StoreRecords[S], expectedRevision: number, now = new Date().toISOString()): Promise<StoreRecords[S]> {

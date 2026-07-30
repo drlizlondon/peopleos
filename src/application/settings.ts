@@ -1,6 +1,6 @@
 import type { PeopleOsDatabase } from "../data/database";
 import { StaleRevisionError } from "../data/repositories";
-import type { AppSettings } from "../domain/schema";
+import type { AppSettings, ConversationStarter } from "../domain/schema";
 import { assertValidRecord, isIsoInstant, ValidationError } from "../domain/validation";
 
 export type UpdateAlreadyContactedDefaultCommand = {
@@ -76,4 +76,50 @@ export async function updateAlreadyContactedDefault(
     try { await tx.done; } catch { /* expected rollback */ }
     throw error;
   }
+}
+
+export async function updateRelationshipContexts(
+  db: PeopleOsDatabase,
+  contexts: Array<"personal" | "professional">,
+  now = new Date().toISOString()
+): Promise<AppSettings> {
+  if (contexts.length < 1 || contexts.length > 2 || new Set(contexts).size !== contexts.length) {
+    throw new ValidationError(["Keep at least one relationship type enabled."]);
+  }
+  const tx = db.transaction(["appSettings", "metadata"], "readwrite");
+  const settingsStore = tx.objectStore("appSettings");
+  const metadataStore = tx.objectStore("metadata");
+  const current = await settingsStore.get("app");
+  const metadata = await metadataStore.get("app");
+  if (!current || !metadata) throw new Error("PeopleOS settings are missing");
+  const updated: AppSettings = {
+    ...current,
+    relationshipContexts: contexts,
+    revision: current.revision + 1,
+    updatedAt: now
+  };
+  assertValidRecord("appSettings", updated);
+  await settingsStore.put(updated);
+  await metadataStore.put({ ...metadata, datasetRevision: metadata.datasetRevision + 1, updatedAt: now });
+  await tx.done;
+  return updated;
+}
+
+export async function updateConversationStarters(
+  db: PeopleOsDatabase,
+  starters: ConversationStarter[],
+  now = new Date().toISOString()
+): Promise<AppSettings> {
+  const tx = db.transaction(["appSettings", "metadata"], "readwrite");
+  const settingsStore = tx.objectStore("appSettings");
+  const metadataStore = tx.objectStore("metadata");
+  const current = await settingsStore.get("app");
+  const metadata = await metadataStore.get("app");
+  if (!current || !metadata) throw new Error("PeopleOS settings are missing");
+  const updated: AppSettings = { ...current, conversationStarters: starters, revision: current.revision + 1, updatedAt: now };
+  assertValidRecord("appSettings", updated);
+  await settingsStore.put(updated);
+  await metadataStore.put({ ...metadata, datasetRevision: metadata.datasetRevision + 1, updatedAt: now });
+  await tx.done;
+  return updated;
 }

@@ -4,6 +4,7 @@ import type { Interaction, Person, RelationshipEvent } from "../domain/schema";
 import { normalizeEventName } from "./interactions";
 import { selectDisplayAffiliation } from "./peopleQueries";
 import { memoryFactValueLabel, selectMemoryCueFactCandidates } from "./memoryFacts";
+import { personMatchesActiveMode, type ActiveRelationshipMode } from "../domain/relationshipMode";
 
 export type TimelineDisplayItem = TimelineItem & {
   event?: RelationshipEvent;
@@ -88,7 +89,8 @@ export type PersonPickerOption = {
 
 export async function listActivePersonOptions(
   db: PeopleOsDatabase,
-  excludePersonId?: string
+  excludePersonId?: string,
+  activeMode: ActiveRelationshipMode = "personal"
 ): Promise<PersonPickerOption[]> {
   const tx = db.transaction(["people", "affiliations", "memoryFacts"], "readonly");
   const [people, affiliations, facts] = await Promise.all([
@@ -98,7 +100,7 @@ export async function listActivePersonOptions(
   ]);
   await tx.done;
   return people
-    .filter((person) => !person.archivedAt && person.identityStatus !== "merged" && person.id !== excludePersonId)
+    .filter((person) => !person.archivedAt && person.identityStatus !== "merged" && person.id !== excludePersonId && personMatchesActiveMode(person, activeMode))
     .map((person) => {
       const current = selectDisplayAffiliation(
         affiliations.filter((affiliation) => affiliation.personId === person.id)

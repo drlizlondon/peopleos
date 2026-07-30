@@ -8,11 +8,11 @@ import {
 import { updateContactCadence } from "./application/followUps";
 // eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { getDatabase } from "./data/client";
-import { CADENCE_PRESET_OPTIONS } from "./domain/followUpPolicy";
+import { addDaysToLocalDate, CADENCE_PRESET_OPTIONS } from "./domain/followUpPolicy";
 import type { Person } from "./domain/schema";
 import { ValidationError } from "./domain/validation";
 
-type CadenceChoice = "none" | "30" | "90" | "180" | "365" | "custom";
+type CadenceChoice = "1" | "3" | "7" | "14" | "30" | "90" | "custom";
 
 export type CadenceEditorSheetProps = {
   person: Person;
@@ -21,27 +21,35 @@ export type CadenceEditorSheetProps = {
 };
 
 function initialChoice(days: number | undefined): CadenceChoice {
-  if (days === undefined) return "none";
-  if (days === 30 || days === 90 || days === 180 || days === 365) return String(days) as CadenceChoice;
+  if (days === undefined) return "30";
+  if (days === 1 || days === 3 || days === 7 || days === 14 || days === 30 || days === 90) return String(days) as CadenceChoice;
   return "custom";
 }
 
 function firstIssue(error: unknown): string {
   if (error instanceof ValidationError) return error.issues[0] ?? error.message;
-  return error instanceof Error ? error.message : "PeopleOS could not update this cadence.";
+  return error instanceof Error ? error.message : "PeopleOS could not update this reminder.";
+}
+
+function today(): string {
+  return new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()).replaceAll("/", "-");
 }
 
 export default function CadenceEditorSheet({ person, onClose, onSaved }: CadenceEditorSheetProps) {
   const modalId = useId();
   const fieldId = useId();
+  const [enabled, setEnabled] = useState(Boolean(person.contactCadenceDays));
   const [choice, setChoice] = useState<CadenceChoice>(() => initialChoice(person.contactCadenceDays));
   const [customDays, setCustomDays] = useState(() =>
-    initialChoice(person.contactCadenceDays) === "custom" ? String(person.contactCadenceDays) : ""
+    person.contactCadenceDays !== undefined && initialChoice(person.contactCadenceDays) === "custom" ? String(person.contactCadenceDays) : ""
   );
+  const [startChoice, setStartChoice] = useState<"today" | "tomorrow" | "week" | "date">("date");
+  const [startDate, setStartDate] = useState(person.contactCadenceFirstDueDate ?? today());
   const [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const sheetRef = useRef<HTMLElement>(null);
+  const enabledRef = useRef<HTMLInputElement>(null);
   const choiceRef = useRef<HTMLSelectElement>(null);
   const customRef = useRef<HTMLInputElement>(null);
   const mutationRef = useRef(false);
@@ -71,13 +79,13 @@ export default function CadenceEditorSheet({ person, onClose, onSaved }: Cadence
 
   useEffect(() => {
     requestAnimationFrame(() => {
-      if (!sheetRef.current?.contains(document.activeElement)) choiceRef.current?.focus();
+      if (!sheetRef.current?.contains(document.activeElement)) enabledRef.current?.focus();
     });
   }, []);
 
   useEffect(() => {
-    if (choice === "custom") requestAnimationFrame(() => customRef.current?.focus());
-  }, [choice]);
+    if (enabled && choice === "custom") requestAnimationFrame(() => customRef.current?.focus());
+  }, [choice, enabled]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -127,7 +135,7 @@ export default function CadenceEditorSheet({ person, onClose, onSaved }: Cadence
   }
 
   function selectedDays(): number | undefined {
-    if (choice === "none") return undefined;
+    if (!enabled) return undefined;
     if (choice === "custom") return Number(customDays);
     return Number(choice);
   }
@@ -141,7 +149,16 @@ export default function CadenceEditorSheet({ person, onClose, onSaved }: Cadence
       requestAnimationFrame(() => customRef.current?.focus());
       return;
     }
-    if (cadenceDays === person.contactCadenceDays) {
+    const firstDueDate = !cadenceDays ? undefined
+      : startChoice === "today" ? today()
+        : startChoice === "tomorrow" ? addDaysToLocalDate(today(), 1)
+          : startChoice === "week" ? addDaysToLocalDate(today(), 7)
+            : startDate;
+    if (cadenceDays && !firstDueDate) {
+      setError("Pick a start date.");
+      return;
+    }
+    if (cadenceDays === person.contactCadenceDays && firstDueDate === person.contactCadenceFirstDueDate) {
       setDirty(false);
       onSaved(person);
       return;
@@ -155,6 +172,7 @@ export default function CadenceEditorSheet({ person, onClose, onSaved }: Cadence
         personId: person.id,
         expectedRevision: person.revision,
         ...(cadenceDays === undefined ? {} : { cadenceDays }),
+        ...(firstDueDate === undefined ? {} : { firstDueDate }),
         occurredAt: new Date().toISOString()
       });
       setDirty(false);
@@ -179,30 +197,35 @@ export default function CadenceEditorSheet({ person, onClose, onSaved }: Cadence
         <div className="sheet-heading">
           <div>
             <p className="eyebrow">{person.displayName}</p>
-            <h3 id={`${fieldId}-title`}>Contact cadence</h3>
+            <h3 id={`${fieldId}-title`}>Keep in touch</h3>
           </div>
-          <button type="button" aria-label="Close cadence editor" onClick={closeEditor} disabled={saving}>×</button>
+          <button type="button" aria-label="Close Keep in touch" onClick={closeEditor} disabled={saving}>×</button>
         </div>
 
         <form className="contact-editor" onSubmit={save} noValidate>
-          <div className="form-field">
-            <label htmlFor={`${fieldId}-choice`}>Recurring cadence</label>
+          <label className="checkbox-row">
+            <input ref={enabledRef} type="checkbox" checked={enabled} onChange={(event) => { setEnabled(event.target.checked); setDirty(true); }} />
+            <span>Remind me to stay in touch</span>
+          </label>
+
+          {enabled && <div className="form-field">
+            <label htmlFor={`${fieldId}-choice`}>How often?</label>
             <select
               ref={choiceRef}
               id={`${fieldId}-choice`}
               value={choice}
               onChange={(event) => selectChoice(event.target.value as CadenceChoice)}
             >
-              {CADENCE_PRESET_OPTIONS.map((option) => (
-                <option key={option.value ?? "none"} value={option.value ?? "none"}>{option.label}</option>
+              {CADENCE_PRESET_OPTIONS.filter((option) => option.value !== undefined).map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
               ))}
-              <option value="custom">Custom days</option>
+              <option value="custom">Custom</option>
             </select>
-          </div>
+          </div>}
 
-          {choice === "custom" && (
+          {enabled && choice === "custom" && (
             <div className="form-field">
-              <label htmlFor={`${fieldId}-custom`}>Days between contact <span>Required</span></label>
+              <label htmlFor={`${fieldId}-custom`}>Days between reminders</label>
               <input
                 ref={customRef}
                 id={`${fieldId}-custom`}
@@ -221,16 +244,20 @@ export default function CadenceEditorSheet({ person, onClose, onSaved }: Cadence
             </div>
           )}
 
-          <p className="interaction-kind-readout">
-            Cadence is a preference calculated from meaningful contact. Saving it does not create a follow-up automatically.
-          </p>
+          {enabled && <div className="form-field first-appearance-fieldset">
+            <label htmlFor={`${fieldId}-start`}>Start</label>
+            <select id={`${fieldId}-start`} value={startChoice} onChange={(event) => { setStartChoice(event.target.value as typeof startChoice); setDirty(true); }}>
+              <option value="today">Today</option><option value="tomorrow">Tomorrow</option><option value="week">In 1 week</option><option value="date">Pick a date</option>
+            </select>
+            {startChoice === "date" && <input aria-label="Start date" type="date" value={startDate} onChange={(event) => { setStartDate(event.target.value); setDirty(true); }} />}
+          </div>}
 
           {error && <p className="field-error" id={`${fieldId}-error`} role="alert">{error}</p>}
 
           <div className="button-row sheet-actions">
             <button type="button" onClick={closeEditor} disabled={saving}>Cancel</button>
             <button className="primary-action" type="submit" disabled={saving}>
-              {saving ? "Saving…" : "Save cadence"}
+              {saving ? "Saving…" : "Save"}
             </button>
           </div>
         </form>

@@ -10,8 +10,8 @@ import {
 describe("contact value normalization", () => {
   it("provides every supported region as a human-readable option", () => {
     expect(getPhoneRegionOptions("en-GB")).toEqual(expect.arrayContaining([
-      { code: "GB", label: "United Kingdom (+44)" },
-      { code: "US", label: "United States (+1)" }
+      { code: "GB", callingCode: "+44", label: "United Kingdom +44" },
+      { code: "US", callingCode: "+1", label: "United States +1" }
     ]));
   });
 

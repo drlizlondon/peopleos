@@ -25,6 +25,14 @@ describe("People secondary routes", () => {
     expect(routeFromPath("/people/import/results")).toMatchObject({ id: "import-results", primaryId: "people" });
   });
 
+  it("resolves the focused conversation-starter editor as a Settings route", () => {
+    expect(routeFromPath("/settings/conversation-starters")).toMatchObject({
+      id: "conversation-starters",
+      path: "/settings/conversation-starters",
+      primaryId: "settings"
+    });
+  });
+
   it("round-trips safe Person IDs through every Person-owned secondary path", () => {
     const personId = "person-one/two";
     const profilePath = personProfilePath(personId);

@@ -7,21 +7,23 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["peopleos-mark.svg"],
+      includeAssets: ["peopleos-mark.svg", "apple-touch-icon.png", "icon-192.png", "icon-512.png"],
       manifest: {
         id: "/",
         name: "PeopleOS",
         short_name: "PeopleOS",
         description:
           "A calm relationship operating system that helps you remember people.",
-        theme_color: "#f4f6f1",
-        background_color: "#f4f6f1",
+        theme_color: "#a61e4d",
+        background_color: "#ffffff",
         display: "standalone",
         start_url: "/",
         scope: "/",
         icons: [
+          { src: "icon-192.png?v=raspberry-2", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "icon-512.png?v=raspberry-2", sizes: "512x512", type: "image/png", purpose: "any maskable" },
           {
-            src: "peopleos-mark.svg",
+            src: "peopleos-mark.svg?v=raspberry-2",
             sizes: "any",
             type: "image/svg+xml",
             purpose: "any maskable"

@@ -251,25 +251,27 @@ describe("V1-07 follow-up and cadence sheets", () => {
     });
   });
 
-  it("validates and saves a custom cadence without creating persistent follow-up work", async () => {
+  it("validates and saves a custom Keep in touch reminder without creating follow-up work", async () => {
     const person = await seedPerson();
     const user = userEvent.setup();
     const onSaved = vi.fn();
     render(<CadenceEditorSheet person={person} onClose={vi.fn()} onSaved={onSaved} />);
 
-    const dialog = screen.getByRole("dialog", { name: "Contact cadence" });
-    await waitFor(() => expect(within(dialog).getByLabelText("Recurring cadence")).toHaveFocus());
-    await user.selectOptions(within(dialog).getByLabelText("Recurring cadence"), "custom");
-    const custom = within(dialog).getByLabelText(/^Days between contact/);
+    const dialog = screen.getByRole("dialog", { name: "Keep in touch" });
+    const enabled = within(dialog).getByRole("checkbox", { name: "Remind me to stay in touch" });
+    await waitFor(() => expect(enabled).toHaveFocus());
+    await user.click(enabled);
+    await user.selectOptions(within(dialog).getByLabelText("How often?"), "custom");
+    const custom = within(dialog).getByLabelText("Days between reminders");
     await waitFor(() => expect(custom).toHaveFocus());
     await user.type(custom, "0");
-    await user.click(within(dialog).getByRole("button", { name: "Save cadence" }));
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
     expect(within(dialog).getByRole("alert")).toHaveTextContent("whole number from 1 to 3650");
     expect(custom).toHaveAttribute("aria-invalid", "true");
 
     await user.clear(custom);
     await user.type(custom, "45");
-    const form = within(dialog).getByRole("button", { name: "Save cadence" }).closest("form");
+    const form = within(dialog).getByRole("button", { name: "Save" }).closest("form");
     fireEvent.submit(form!);
     fireEvent.submit(form!);
 

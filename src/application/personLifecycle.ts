@@ -5,13 +5,16 @@ import {
   createRepositories
 } from "../data/repositories";
 import type { Person } from "../domain/schema";
+import type { RelationshipMode } from "../domain/relationshipMode";
 import { ValidationError } from "../domain/validation";
 
 export type PersonEditDraft = {
   displayName: string;
+  relationshipMode?: RelationshipMode;
   importance: Person["importance"];
   tags: string[];
   contactCadenceDays?: number;
+  contactCadenceFirstDueDate?: string;
 };
 
 export type PersonUpdateCommand = {
@@ -27,6 +30,13 @@ export type PersonArchiveCommand = {
   occurredAt: string;
 };
 
+export type PersonRelationshipModeCommand = {
+  personId: string;
+  expectedRevision: number;
+  relationshipMode: RelationshipMode;
+  occurredAt: string;
+};
+
 function normalizeDraft(draft: PersonEditDraft): PersonEditDraft {
   const displayName = draft.displayName.trim();
   const tags = draft.tags.map((tag) => tag.trim()).filter(Boolean);
@@ -34,28 +44,35 @@ function normalizeDraft(draft: PersonEditDraft): PersonEditDraft {
   if (!displayName) issues.push("Add a name or description so you can recognise this person.");
   if (displayName.length > 120) issues.push("Use 120 characters or fewer for the name or description.");
   if (!(["normal", "high"] as const).includes(draft.importance)) issues.push("Choose a supported importance level.");
+  if (draft.relationshipMode !== undefined && !(["personal", "professional", "both"] as const).includes(draft.relationshipMode)) issues.push("Choose a supported relationship type.");
   if (tags.length > 10) issues.push("Add no more than 10 tags.");
   if (tags.some((tag) => tag.length > 40)) issues.push("Each tag must be 40 characters or fewer.");
   if (draft.contactCadenceDays !== undefined
     && (!Number.isInteger(draft.contactCadenceDays)
       || draft.contactCadenceDays < 1
       || draft.contactCadenceDays > 3_650)) {
-    issues.push("Contact cadence must be a whole number from 1 to 3650 days.");
+    issues.push("Choose a whole number from 1 to 3650 days.");
   }
   if (issues.length) throw new ValidationError(issues);
   return {
     displayName,
+    relationshipMode: draft.relationshipMode ?? "personal",
     importance: draft.importance,
     tags,
-    ...(draft.contactCadenceDays === undefined ? {} : { contactCadenceDays: draft.contactCadenceDays })
+    ...(draft.contactCadenceDays === undefined ? {} : {
+      contactCadenceDays: draft.contactCadenceDays,
+      ...(draft.contactCadenceFirstDueDate ? { contactCadenceFirstDueDate: draft.contactCadenceFirstDueDate } : {})
+    })
   };
 }
 
 function sameEditableValues(person: Person, draft: PersonEditDraft): boolean {
   return person.displayName === draft.displayName
+    && (person.relationshipMode ?? "personal") === (draft.relationshipMode ?? "personal")
     && person.importance === draft.importance
     && JSON.stringify(person.tags) === JSON.stringify(draft.tags)
-    && person.contactCadenceDays === draft.contactCadenceDays;
+    && person.contactCadenceDays === draft.contactCadenceDays
+    && (draft.contactCadenceDays === undefined || person.contactCadenceFirstDueDate === draft.contactCadenceFirstDueDate);
 }
 
 function requireEditable(person: Person | undefined): Person {
@@ -79,8 +96,49 @@ export async function updatePerson(
   }
   if (sameEditableValues(current, draft)) return current;
   const updated: Person = { ...current, ...draft };
-  if (draft.contactCadenceDays === undefined) delete updated.contactCadenceDays;
+  if (draft.contactCadenceDays === undefined) {
+    delete updated.contactCadenceDays;
+    delete updated.contactCadenceFirstDueDate;
+    delete updated.contactCadenceDeferredUntilDate;
+    delete updated.contactCadencePausedAt;
+  } else if (draft.contactCadenceFirstDueDate
+    && (draft.contactCadenceDays !== current.contactCadenceDays
+      || draft.contactCadenceFirstDueDate !== current.contactCadenceFirstDueDate)) {
+    updated.contactCadenceFirstDueDate = draft.contactCadenceFirstDueDate;
+    delete updated.contactCadenceDeferredUntilDate;
+    delete updated.contactCadencePausedAt;
+  } else if (draft.contactCadenceDays !== current.contactCadenceDays) {
+    const next = new Date(command.occurredAt);
+    next.setUTCDate(next.getUTCDate() + draft.contactCadenceDays);
+    updated.contactCadenceFirstDueDate = next.toISOString().slice(0, 10);
+    delete updated.contactCadenceDeferredUntilDate;
+    delete updated.contactCadencePausedAt;
+  }
   return createRepositories(db).people.update(updated, command.expectedRevision, command.occurredAt);
+}
+
+export async function updatePersonRelationshipMode(
+  db: PeopleOsDatabase,
+  command: PersonRelationshipModeCommand
+): Promise<Person> {
+  if (!(command.relationshipMode === "personal"
+    || command.relationshipMode === "professional"
+    || command.relationshipMode === "both")) {
+    throw new ValidationError(["Choose where this person should appear."]);
+  }
+  const current = requireEditable(await db.get("people", command.personId));
+  if (current.revision !== command.expectedRevision) {
+    if (current.revision === command.expectedRevision + 1
+      && current.relationshipMode === command.relationshipMode
+      && current.updatedAt === command.occurredAt) return current;
+    throw new StaleRevisionError();
+  }
+  if ((current.relationshipMode ?? "personal") === command.relationshipMode) return current;
+  return createRepositories(db).people.update(
+    { ...current, relationshipMode: command.relationshipMode },
+    command.expectedRevision,
+    command.occurredAt
+  );
 }
 
 export async function archivePerson(

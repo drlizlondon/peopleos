@@ -31,6 +31,8 @@ import {
 } from "./domain/interactionPolicy";
 import type { Interaction, InteractionKind, RelationshipEvent } from "./domain/schema";
 import { ValidationError } from "./domain/validation";
+import type { ActiveRelationshipMode } from "./domain/relationshipMode";
+import { readActiveRelationshipMode } from "./relationshipModePreference";
 
 function firstIssue(error: unknown): string {
   if (error instanceof ValidationError) return error.issues[0] ?? error.message;
@@ -75,7 +77,8 @@ export default function InteractionEditorSheet({
   initialKind,
   onClose,
   onSaved,
-  onDeleted
+  onDeleted,
+  activeMode = readActiveRelationshipMode()
 }: {
   personId: string;
   personName: string;
@@ -84,6 +87,7 @@ export default function InteractionEditorSheet({
   onClose: () => void;
   onSaved: (interaction: Interaction) => void;
   onDeleted: (interactionId: string) => void;
+  activeMode?: ActiveRelationshipMode;
 }) {
   const modalId = useId();
   const initialDraft = useMemo(() => interaction
@@ -126,14 +130,14 @@ export default function InteractionEditorSheet({
     let active = true;
     getDatabase().then(async (db) => Promise.all([
       listEvents(db),
-      listActivePersonOptions(db, personId)
+      listActivePersonOptions(db, personId, activeMode)
     ])).then(([storedEvents, personOptions]) => {
       if (!active) return;
       setEvents(storedEvents);
       setPeople(personOptions);
     }).catch(() => { if (active) setError("PeopleOS could not load interaction choices."); });
     return () => { active = false; };
-  }, [personId]);
+  }, [activeMode, personId]);
 
   useEffect(() => {
     const id = `interaction-editor-${modalId}`;
@@ -321,7 +325,7 @@ export default function InteractionEditorSheet({
   async function remove() {
     if (!interaction || mutationRef.current) return;
     const confirmed = window.confirm(
-      "Delete this interaction? It will be removed from the timeline. Last contact, relationship stage and Today may change."
+      "Delete this interaction? It will be removed from the timeline and Today may change."
     );
     if (!confirmed) return;
     mutationRef.current = true;

@@ -86,15 +86,16 @@ describe("V1-09 Profile projections", () => {
     await resetDatabase();
   });
 
-  it("renders stage, last contact and relationship age from one engine assessment", async () => {
+  it("shows factual relationship context and only a logged interaction date", async () => {
     await seedProfile();
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Sarah Jones" })).toBeInTheDocument();
     const summary = screen.getByRole("heading", { name: "Relationship summary" }).closest("section")!;
-    expect(await within(summary).findByText("Long-term")).toBeInTheDocument();
-    expect(within(summary).getByText(/Long-term · 5 recorded conversations across about 2 years/)).toBeInTheDocument();
-    expect(within(summary).getByText(/Last contact: Meeting on 1 January 2024/)).toBeInTheDocument();
-    expect(within(summary).getByText(/Known for about 5 years/)).toBeInTheDocument();
+    expect(await within(summary).findByText("Appears in")).toBeInTheDocument();
+    expect(within(summary).getByText("Personal")).toBeInTheDocument();
+    expect(within(summary).getByText("Last logged interaction").parentElement).toHaveTextContent("Jan 1, 2024");
+    expect(within(summary).queryByText(/Last contact:/)).not.toBeInTheDocument();
+    expect(within(summary).queryByText(/Known for/)).not.toBeInTheDocument();
   });
 
   it("surfaces a safe structured Fact and never promotes private Note prose", async () => {
@@ -102,18 +103,17 @@ describe("V1-09 Profile projections", () => {
     render(<App />);
     const cue = await screen.findByLabelText("Memory cue");
     expect(within(cue).getByText("Looking for pilot sites")).toBeInTheDocument();
-    expect(within(cue).getByText(/From a memory fact you added/)).toBeInTheDocument();
     expect(within(cue).queryByText(/Private investor concern/)).not.toBeInTheDocument();
   });
 
-  it("lets a due commitment displace the Fact cue without changing the stage", async () => {
+  it("lets a due commitment displace the Fact cue without adding relationship claims", async () => {
     await seedProfile({ dueCommitment: true });
     render(<App />);
     const cue = await screen.findByLabelText("Memory cue");
     expect(within(cue).getByText("Introduce Sarah to the fellowship lead")).toBeInTheDocument();
-    expect(within(cue).getByText(/From a follow-up planned for/)).toBeInTheDocument();
     expect(within(cue).queryByText("Looking for pilot sites")).not.toBeInTheDocument();
     const summary = screen.getByRole("heading", { name: "Relationship summary" }).closest("section")!;
-    expect(await within(summary).findByText("Long-term")).toBeInTheDocument();
+    expect(await within(summary).findByText("Appears in")).toBeInTheDocument();
+    expect(within(summary).queryByText("Long-term")).not.toBeInTheDocument();
   });
 });

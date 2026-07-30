@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "./icons";
-import { followUpDetailPath, personProfilePath, reachOutDetailPath, routeFromPath, routes, type Route } from "./navigation";
+import { personProfilePath, reachOutDetailPath, routeFromPath, routes, type Route } from "./navigation";
 import { SettingsScreen } from "./screens";
+import ConversationStarterSettingsScreen from "./ConversationStarterSettingsScreen";
 import TodayScreen from "./TodayScreen";
 import {
   AddPersonScreen,
@@ -17,10 +18,8 @@ import { getDatabase } from "./data/client";
 import { ImportContactsScreen, ImportResultsScreen } from "./importScreens";
 import TimelineScreen from "./TimelineScreen";
 import GlobalAddSheet from "./GlobalAddSheet";
-import InteractionEditorSheet from "./InteractionEditorSheet";
 import MemoryFactsScreen from "./MemoryFactsScreen";
 import AffiliationsScreen from "./AffiliationsScreen";
-import FollowUpEditorSheet from "./FollowUpEditorSheet";
 import FollowUpDetailScreen from "./FollowUpDetailScreen";
 import PersonFollowUpsScreen from "./PersonFollowUpsScreen";
 import UpcomingScreen from "./UpcomingScreen";
@@ -29,9 +28,12 @@ import ReachOutDetailScreen from "./ReachOutDetailScreen";
 import ResolveProvisionalPersonScreen from "./ResolveProvisionalPersonScreen";
 import ReachOutEditorSheet from "./ReachOutEditorSheet";
 import EditPersonScreen from "./EditPersonScreen";
-import type { PersonPickerOption } from "./application/interactionQueries";
+import RelationshipSettingsScreen from "./RelationshipSettingsScreen";
 import type { ContactImportSession } from "./application/contactImport";
 import type { Person } from "./domain/schema";
+import type { ActiveRelationshipMode } from "./domain/relationshipMode";
+import { readActiveRelationshipMode, writeActiveRelationshipMode } from "./relationshipModePreference";
+import RelationshipFilter from "./RelationshipFilter";
 
 type ModalBackHandler = {
   id: string;
@@ -57,14 +59,14 @@ function resolverSuccessProfileState(route: Route): Record<string, unknown> {
 
 export default function App() {
   const [route, setRoute] = useState(() => routeFromPath(window.location.pathname));
+  const [activeRelationshipMode, setActiveRelationshipMode] = useState<ActiveRelationshipMode>(readActiveRelationshipMode);
+  const [relationshipContexts, setRelationshipContexts] = useState<Array<"personal" | "professional">>(["personal", "professional"]);
   const [storageError, setStorageError] = useState(false);
   const [importSession, setImportSession] = useState<ContactImportSession | null>(null);
   const [importedPeopleFilter, setImportedPeopleFilter] = useState<string[] | null>(null);
   const [suspendedCapture, setSuspendedCapture] = useState<ManualCaptureResumeState | null>(null);
   const [suspendedContactEditor, setSuspendedContactEditor] = useState<ContactEditorResumeState | null>(null);
   const [globalAddOpen, setGlobalAddOpen] = useState(false);
-  const [globalInteractionPerson, setGlobalInteractionPerson] = useState<PersonPickerOption | null>(null);
-  const [globalFollowUpPerson, setGlobalFollowUpPerson] = useState<PersonPickerOption | null>(null);
   const [globalReachOutOpen, setGlobalReachOutOpen] = useState(false);
   const [globalReachOutPerson, setGlobalReachOutPerson] = useState<Person | undefined>();
   const routeRef = useRef(route);
@@ -139,8 +141,24 @@ export default function App() {
   }, [setUnsavedCapture]);
 
   useEffect(() => {
-    getDatabase().catch(() => setStorageError(true));
+    getDatabase().then(async (db) => {
+      const settings = await db.get("appSettings", "app");
+      const included = settings?.relationshipContexts ?? ["personal", "professional"];
+      setRelationshipContexts([...included]);
+      if (included.length === 1) setActiveRelationshipMode(included[0]);
+    }).catch(() => setStorageError(true));
   }, []);
+
+  useEffect(() => {
+    const update = (event: Event) => {
+      const included = (event as CustomEvent<Array<"personal" | "professional">>).detail;
+      setRelationshipContexts([...included]);
+      if (included.length === 1) setActiveRelationshipMode(included[0]);
+      else if (!included.includes(activeRelationshipMode as "personal" | "professional")) setActiveRelationshipMode("all");
+    };
+    window.addEventListener("peopleos:relationship-contexts", update);
+    return () => window.removeEventListener("peopleos:relationship-contexts", update);
+  }, [activeRelationshipMode]);
 
   useEffect(() => {
     document.title = route.id === "today" ? "PeopleOS" : `${route.label} · PeopleOS`;
@@ -192,7 +210,7 @@ export default function App() {
         fromPath: typeof existingOrigin === "string" ? existingOrigin : "/people",
         ...(["person-profile", "edit-person"].includes(route.id) ? { fromProfile: true } : {})
       };
-    } else if (next.id === "edit-person") {
+    } else if (next.id === "edit-person" || next.id === "relationship-settings") {
       defaultState = {
         fromProfile: route.id === "person-profile",
         fromPath: typeof window.history.state?.fromPath === "string"
@@ -305,18 +323,30 @@ export default function App() {
   }
 
   function renderScreen() {
+    const relationshipFilter = relationshipContexts.length === 2 ? (
+      <RelationshipFilter
+        value={activeRelationshipMode}
+        onChange={(mode) => {
+          writeActiveRelationshipMode(mode);
+          setActiveRelationshipMode(mode);
+        }}
+      />
+    ) : undefined;
     switch (route.id) {
-      case "today": return <TodayScreen navigate={navigatePath} onAddFollowUp={() => setGlobalAddOpen(true)} />;
-      case "reach-out": return <ReachOutScreen navigate={navigatePath} onAdd={(opener) => openReachOutCapture(undefined, opener)} />;
+      case "today": return <TodayScreen activeMode={activeRelationshipMode} relationshipFilter={relationshipFilter} navigate={navigatePath} />;
+      case "reach-out": return <ReachOutScreen activeMode={activeRelationshipMode} relationshipFilter={relationshipFilter} navigate={navigatePath} onAdd={(opener) => openReachOutCapture(undefined, opener)} />;
       case "people": return (
         <PeopleScreen
           navigate={navigatePath}
           importedPersonIds={importedPeopleFilter}
           onClearImportedFilter={() => setImportedPeopleFilter(null)}
+          activeMode={activeRelationshipMode}
+          relationshipFilter={relationshipFilter}
         />
       );
-      case "upcoming": return <UpcomingScreen navigate={navigatePath} />;
+      case "upcoming": return <UpcomingScreen activeMode={activeRelationshipMode} relationshipFilter={relationshipFilter} navigate={navigatePath} />;
       case "settings": return <SettingsScreen navigate={navigatePath} />;
+      case "conversation-starters": return <ConversationStarterSettingsScreen navigate={navigatePath} />;
       case "add-person": return (
         <AddPersonScreen
           navigate={navigatePath}
@@ -374,6 +404,25 @@ export default function App() {
           navigate={navigatePath}
           onDirtyChange={setUnsavedCapture}
           onSavingChange={setNavigationLocked}
+          onBack={() => {
+            if (window.history.state?.fromProfile === true) {
+              window.history.back();
+              return;
+            }
+            navigatePath(personProfilePath(route.personId ?? ""), {
+              replace: true,
+              state: { fromPath: typeof window.history.state?.fromPath === "string" ? window.history.state.fromPath : "/people" }
+            });
+          }}
+        />
+      );
+      case "relationship-settings": return (
+        <RelationshipSettingsScreen
+          personId={route.personId ?? ""}
+          navigate={navigatePath}
+          onDirtyChange={setUnsavedCapture}
+          onSavingChange={setNavigationLocked}
+          onAddToReachOut={(person, opener) => openReachOutCapture(person, opener)}
           onBack={() => {
             if (window.history.state?.fromProfile === true) {
               window.history.back();
@@ -536,19 +585,10 @@ export default function App() {
   }
 
   const showGlobalAdd = ["today", "reach-out", "people", "upcoming"].includes(route.id);
+  const showPrimaryNavigation = ["today", "reach-out", "people", "upcoming", "settings"].includes(route.id);
 
   function closeGlobalAdd() {
     setGlobalAddOpen(false);
-    requestAnimationFrame(() => globalAddButtonRef.current?.focus());
-  }
-
-  function closeGlobalInteraction() {
-    setGlobalInteractionPerson(null);
-    requestAnimationFrame(() => globalAddButtonRef.current?.focus());
-  }
-
-  function closeGlobalFollowUp() {
-    setGlobalFollowUpPerson(null);
     requestAnimationFrame(() => globalAddButtonRef.current?.focus());
   }
 
@@ -569,11 +609,10 @@ export default function App() {
           )}
         </div>
       </header>
-
       {storageError && <p className="storage-error" role="alert">PeopleOS could not open local storage. Your data actions are unavailable.</p>}
       {renderScreen()}
 
-      <nav className="primary-nav" aria-label="Primary navigation">
+      {showPrimaryNavigation && <nav className="primary-nav" aria-label="Primary navigation">
         {routes.map((item) => (
           <a
             key={item.id}
@@ -590,51 +629,17 @@ export default function App() {
             <span>{item.label}</span>
           </a>
         ))}
-      </nav>
+      </nav>}
 
       {globalAddOpen && (
         <GlobalAddSheet
           onClose={closeGlobalAdd}
           onNavigate={(path) => { setGlobalAddOpen(false); navigatePath(path); }}
-          onLogInteraction={(person) => {
-            setGlobalAddOpen(false);
-            setGlobalInteractionPerson(person);
-          }}
-          onAddFollowUp={(person) => {
-            setGlobalAddOpen(false);
-            setGlobalFollowUpPerson(person);
-          }}
-          onAddReachOut={() => {
-            setGlobalAddOpen(false);
-            openReachOutCapture(undefined, globalAddButtonRef.current);
-          }}
-          preferFollowUp={route.id === "upcoming"}
-          preferReachOut={route.id === "reach-out"}
-        />
-      )}
-      {globalInteractionPerson && (
-        <InteractionEditorSheet
-          personId={globalInteractionPerson.person.id}
-          personName={globalInteractionPerson.person.displayName}
-          onClose={closeGlobalInteraction}
-          onSaved={closeGlobalInteraction}
-          onDeleted={closeGlobalInteraction}
-        />
-      )}
-      {globalFollowUpPerson && (
-        <FollowUpEditorSheet
-          mode="create"
-          personId={globalFollowUpPerson.person.id}
-          personName={globalFollowUpPerson.person.displayName}
-          onClose={closeGlobalFollowUp}
-          onSaved={(followUp) => {
-            setGlobalFollowUpPerson(null);
-            navigatePath(followUpDetailPath(followUp.id));
-          }}
         />
       )}
       {globalReachOutOpen && (
         <ReachOutEditorSheet
+          activeMode={activeRelationshipMode}
           mode="create"
           person={globalReachOutPerson}
           onClose={() => {

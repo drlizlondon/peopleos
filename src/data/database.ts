@@ -3,6 +3,7 @@ import {
   DATABASE_NAME,
   DATABASE_VERSION,
   DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS,
+  DEFAULT_CONVERSATION_STARTERS,
   DATA_STORE_NAMES,
   type AppMetadata,
   type AppSettings,
@@ -54,6 +55,8 @@ export function createDefaultSettings(now = new Date().toISOString()): AppSettin
     id: "app",
     defaultPhoneRegion: defaultPhoneRegion(),
     captureMode: "standard",
+    relationshipContexts: ["personal", "professional"],
+    conversationStarters: DEFAULT_CONVERSATION_STARTERS.map((starter) => ({ ...starter })),
     alreadyContactedDefaultReminderDays: DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS,
     revision: 1,
     createdAt: now,
@@ -63,11 +66,24 @@ export function createDefaultSettings(now = new Date().toISOString()): AppSettin
 
 function migrateAppSettings(settings: AppSettings): AppSettings {
   const legacy = settings as AppSettings & { alreadyContactedDefaultReminderDays?: unknown };
-  if (legacy.alreadyContactedDefaultReminderDays !== undefined) return settings;
   return {
     ...settings,
-    alreadyContactedDefaultReminderDays: DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS
+    ...(legacy.alreadyContactedDefaultReminderDays === undefined
+      ? { alreadyContactedDefaultReminderDays: DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS }
+      : {}),
+    ...(settings.relationshipContexts === undefined
+      ? { relationshipContexts: ["personal", "professional"] as const }
+      : {}),
+    ...(settings.conversationStarters === undefined
+      ? { conversationStarters: DEFAULT_CONVERSATION_STARTERS.map((starter) => ({ ...starter })) }
+      : {})
   };
+}
+
+function addDays(date: string, days: number): string {
+  const value = new Date(`${date}T12:00:00.000Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
 }
 
 export function createDefaultMetadata(now = new Date().toISOString()): AppMetadata {
@@ -79,7 +95,7 @@ export async function openPeopleOsDatabase(
   now = new Date().toISOString()
 ): Promise<PeopleOsDatabase> {
   const db = await openDB<PeopleOsDb>(databaseName, DATABASE_VERSION, {
-    upgrade(database, oldVersion) {
+    upgrade(database, oldVersion, _newVersion, transaction) {
       if (oldVersion < 1) {
         const people = database.createObjectStore("people", { keyPath: "id" });
         people.createIndex("by-updated", "updatedAt");
@@ -135,6 +151,24 @@ export async function openPeopleOsDatabase(
         database.createObjectStore("appSettings", { keyPath: "id" });
         database.createObjectStore("metadata", { keyPath: "id" });
       }
+      if (oldVersion < 3) {
+        const people = transaction.objectStore("people");
+        const migrationDate = now.slice(0, 10);
+        void people.openCursor().then(function migrateSchedule(cursor): Promise<void> | void {
+          if (!cursor) return;
+          const person = cursor.value;
+          const next = {
+            ...person,
+            ...(oldVersion < 2 && !person.relationshipMode
+              ? { relationshipMode: "personal" as const }
+              : {}),
+            ...(person.contactCadenceDays && !person.contactCadenceFirstDueDate
+              ? { contactCadenceFirstDueDate: addDays(migrationDate, person.contactCadenceDays) }
+              : {})
+          };
+          return cursor.update(next).then(() => cursor.continue()).then(migrateSchedule);
+        });
+      }
     }
   });
 
@@ -145,7 +179,7 @@ export async function openPeopleOsDatabase(
     await tx.objectStore("appSettings").add(createDefaultSettings(now));
   } else {
     const migratedSettings = migrateAppSettings(settings);
-    if (migratedSettings !== settings) await tx.objectStore("appSettings").put(migratedSettings);
+    if (JSON.stringify(migratedSettings) !== JSON.stringify(settings)) await tx.objectStore("appSettings").put(migratedSettings);
   }
   if (!metadata) await tx.objectStore("metadata").add(createDefaultMetadata(now));
   await tx.done;

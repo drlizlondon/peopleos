@@ -278,7 +278,11 @@ describe("V1-11 People search and filters UI", () => {
     expect(await screen.findByRole("heading", { name: "Aaron Clarke" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/people/person-aaron");
 
-    await user.click(screen.getByRole("button", { name: "Edit person" }));
+    const actions = screen.getByRole("group", { name: "Person actions" });
+    const moreActions = actions.querySelector("summary");
+    expect(moreActions).toHaveAttribute("aria-label", "More actions for Aaron Clarke");
+    await user.click(moreActions!);
+    await user.click(screen.getByRole("menuitem", { name: "Edit person" }));
     await user.click(await screen.findByRole("button", { name: "Manage contact methods" }));
     expect(await screen.findByRole("button", { name: "Add email" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "← Person" }));
@@ -316,6 +320,6 @@ describe("V1-11 People search and filters UI", () => {
 
     expect(await screen.findByRole("heading", { name: "Aaron Clarke" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "← People" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "People" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("navigation", { name: "Primary navigation" })).not.toBeInTheDocument();
   });
 });

@@ -9,7 +9,8 @@ import {
   contactNowTargetHref,
   getContactNowProjection,
   revalidateContactNowTarget,
-  resolveContactNowTargets
+  resolveContactNowTargets,
+  whatsappTargetHref
 } from "./contactNow";
 
 const now = "2026-08-14T12:00:00.000Z";
@@ -101,6 +102,7 @@ describe("V1-10 Contact now target projection", () => {
     expect(email.label).toBe("Email");
     expect(contactNowTargetHref(phone)).toBe("tel:+442079460018");
     expect(contactNowTargetHref(email)).toBe("mailto:sarah@example.com");
+    expect(whatsappTargetHref(phone, "Hello Sarah & welcome")).toBe("https://wa.me/442079460018?text=Hello%20Sarah%20%26%20welcome");
     expect(contactNowTargetHref({
       ...email,
       familiarValue: "sarah+intro?private@example.com",

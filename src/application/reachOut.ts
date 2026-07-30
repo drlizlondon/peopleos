@@ -400,6 +400,7 @@ export function prepareCreateReachOutCommand(
       id: stableId("person", idFactory),
       revision: 1,
       displayName: label,
+      relationshipMode: "personal",
       identityStatus: "provisional",
       importance: "normal",
       tags: [],

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -79,14 +79,14 @@ describe("V1-04 duplicate review and vCard import UI", () => {
   it("exposes import from first-launch Today, People, and Settings without adding it to the global action", async () => {
     const user = userEvent.setup();
     render(<App />);
-    expect(await screen.findByRole("button", { name: "Import vCard" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Import Contacts" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Import contacts" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("link", { name: "People" }));
     expect(await screen.findByRole("button", { name: "Import contacts" })).toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "Settings" }));
-    expect(screen.getByRole("link", { name: "Import contacts" })).toHaveAttribute("href", "/people/import");
-    await user.click(screen.getByRole("link", { name: "Import contacts" }));
+    expect(screen.getByRole("link", { name: "Import Contacts" })).toHaveAttribute("href", "/people/import");
+    await user.click(screen.getByRole("link", { name: "Import Contacts" }));
     expect(window.location.pathname).toBe("/people/import");
     expect(screen.getByLabelText("vCard file")).toHaveAttribute("accept", ".vcf,text/vcard,text/x-vcard");
   });
@@ -95,7 +95,7 @@ describe("V1-04 duplicate review and vCard import UI", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Import vCard" }));
+    await user.click(await screen.findByRole("button", { name: "Import Contacts" }));
     await user.click(screen.getByRole("button", { name: "← Today" }));
     await waitFor(() => expect(window.location.pathname).toBe("/"));
 
@@ -106,7 +106,7 @@ describe("V1-04 duplicate review and vCard import UI", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/people"));
 
     await user.click(screen.getByRole("link", { name: "Settings" }));
-    await user.click(screen.getByRole("link", { name: "Import contacts" }));
+    await user.click(screen.getByRole("link", { name: "Import Contacts" }));
     await user.click(await screen.findByRole("button", { name: "← Settings" }));
     await waitFor(() => expect(window.location.pathname).toBe("/settings"));
   });
@@ -116,8 +116,8 @@ describe("V1-04 duplicate review and vCard import UI", () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/people/new");
     render(<App />);
-    await user.type(await screen.findByLabelText("Name"), "Different Sarah");
-    await user.type(screen.getByLabelText("Phone number"), "+44 7900 123456");
+    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Different Sarah" } });
+    fireEvent.change(screen.getByLabelText(/^Phone or email/), { target: { value: "+44 7900 123456" } });
     await user.click(screen.getByRole("button", { name: "Save person" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Possible duplicate" });
@@ -166,8 +166,8 @@ describe("V1-04 duplicate review and vCard import UI", () => {
     const user = userEvent.setup();
     window.history.replaceState({ fromPath: "/people" }, "", "/people/new");
     render(<App />);
-    await user.type(await screen.findByLabelText("Name"), "Candidate Sarah");
-    await user.type(screen.getByLabelText("Phone number"), "+447900123456");
+    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Candidate Sarah" } });
+    fireEvent.change(screen.getByLabelText(/^Phone or email/), { target: { value: "+447900123456" } });
     await user.click(screen.getByRole("button", { name: "Save person" }));
     await user.click(await screen.findByRole("button", { name: "Open existing person Sarah Jones" }));
 
@@ -176,7 +176,7 @@ describe("V1-04 duplicate review and vCard import UI", () => {
     await user.click(screen.getByRole("button", { name: "← Continue adding person" }));
     await waitFor(() => expect(window.location.pathname).toBe("/people/new"));
     expect(await screen.findByLabelText("Name")).toHaveValue("Candidate Sarah");
-    expect(screen.getByLabelText("Phone number")).toHaveValue("+447900123456");
+    expect(screen.getByLabelText(/^Phone or email/)).toHaveValue("+447900123456");
     expect(await (await getDatabase()).count("people")).toBe(1);
   });
 
@@ -186,8 +186,8 @@ describe("V1-04 duplicate review and vCard import UI", () => {
     window.history.replaceState({}, "", "/people");
     window.history.pushState({ fromPath: "/people" }, "", "/people/new");
     render(<App />);
-    await user.type(await screen.findByLabelText("Name"), "Candidate Sarah");
-    await user.type(screen.getByLabelText("Phone number"), "+447900123456");
+    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Candidate Sarah" } });
+    fireEvent.change(screen.getByLabelText(/^Phone or email/), { target: { value: "+447900123456" } });
     await user.click(screen.getByRole("button", { name: "Save person" }));
     expect(await screen.findByRole("dialog", { name: "Possible duplicate" })).toBeInTheDocument();
 
@@ -196,7 +196,7 @@ describe("V1-04 duplicate review and vCard import UI", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Possible duplicate" })).not.toBeInTheDocument());
     expect(window.location.pathname).toBe("/people/new");
     expect(screen.getByLabelText("Name")).toHaveValue("Candidate Sarah");
-    expect(screen.getByLabelText("Phone number")).toHaveValue("+447900123456");
+    expect(screen.getByLabelText(/^Phone or email/)).toHaveValue("+447900123456");
     await waitFor(() => expect(screen.getByRole("button", { name: "Save person" })).toHaveFocus());
     expect(await (await getDatabase()).count("people")).toBe(1);
   });
@@ -206,10 +206,11 @@ describe("V1-04 duplicate review and vCard import UI", () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/people/new");
     render(<App />);
-    await user.type(await screen.findByLabelText("Name"), "Sarah Jones");
-    await user.type(screen.getByLabelText("Phone number"), "+447900123456");
+    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Sarah Jones" } });
+    fireEvent.change(screen.getByLabelText(/^Phone or email/), { target: { value: "+447900123456" } });
+    await user.click(screen.getByText("More details"));
     await user.click(screen.getByRole("button", { name: "Add email" }));
-    await user.type(screen.getByLabelText("Email address"), "sarah@example.com");
+    fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "sarah@example.com" } });
     await user.click(screen.getByRole("button", { name: "Save person" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Possible duplicate" });
@@ -232,11 +233,11 @@ describe("V1-04 duplicate review and vCard import UI", () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/people/new");
     render(<App />);
-    await user.type(await screen.findByLabelText("Name"), "Sarah Jones");
-    await user.type(screen.getByLabelText("Phone number"), "+447900123456");
-    await user.type(screen.getByLabelText(/^Organisation/), "NHS England");
+    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Sarah Jones" } });
+    fireEvent.change(screen.getByLabelText(/^Phone or email/), { target: { value: "+447900123456" } });
     await user.click(screen.getByText("More details"));
-    await user.type(screen.getByLabelText(/^Role or job title/), "Chief Information Officer");
+    fireEvent.change(screen.getByLabelText(/^Organisation/), { target: { value: "NHS England" } });
+    fireEvent.change(screen.getByLabelText(/^Role or job title/), { target: { value: "Chief Information Officer" } });
     await user.click(screen.getByRole("button", { name: "Save person" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Possible duplicate" });

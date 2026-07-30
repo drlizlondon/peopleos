@@ -2,16 +2,14 @@ import {
   useEffect,
   useRef,
   useState,
-  type FormEvent
+  type FormEvent,
+  type ReactNode
 } from "react";
 import EmptyState from "./EmptyState";
 import { Icon } from "./icons";
 import InteractionEditorSheet from "./InteractionEditorSheet";
 import FactEditorSheet from "./FactEditorSheet";
-import FollowUpEditorSheet from "./FollowUpEditorSheet";
-import CadenceEditorSheet from "./CadenceEditorSheet";
 import TimelineList from "./TimelineList";
-import ReachOutCompletionSheet from "./ReachOutCompletionSheet";
 import { ContactMethodChoiceSheet } from "./TodaySheets";
 import {
   createManualContactMethodDraft,
@@ -50,7 +48,7 @@ import {
   type PersonSearchResult
 } from "./application/personSearch";
 import { SEARCH_DEBOUNCE_MS, useDebouncedValue } from "./useDebouncedValue";
-import { restorePerson } from "./application/personLifecycle";
+import { archivePerson, restorePerson } from "./application/personLifecycle";
 import {
   getPersonHistory,
   type PersonHistory,
@@ -84,20 +82,17 @@ import {
   type ContactNowProjection,
   type ContactNowTarget
 } from "./application/contactNow";
-import {
-  prepareReachOutStatusCommand,
-  removeReachOut
-} from "./application/reachOut";
 // eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { getDatabase } from "./data/client";
 // eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { StaleRevisionError } from "./data/repositories";
 import type { ContactMethod, FollowUp, Interaction, InteractionKind, MemoryFact, Person, ReachOutEntry } from "./domain/schema";
-import { effectiveFollowUpDate, FOLLOW_UP_ACTION_OPTIONS } from "./domain/followUpPolicy";
+import type { ActiveRelationshipMode } from "./domain/relationshipMode";
+import { relationshipModeOf, RELATIONSHIP_MODE_OPTIONS } from "./domain/relationshipMode";
+import { addDaysToLocalDate, effectiveFollowUpDate, FOLLOW_UP_ACTION_OPTIONS } from "./domain/followUpPolicy";
 import type { DuplicateMatch } from "./domain/duplicates";
 import { ValidationError } from "./domain/validation";
 import {
-  formatExplanation,
   relationshipStageLabel,
   type RelationshipAssessment
 } from "./relationship-engine";
@@ -118,6 +113,7 @@ import {
   personProfilePath,
   routeFromPath,
   reachOutDetailPath,
+  relationshipSettingsPath,
   resolveProvisionalPath,
   resolvePersonPath,
   timelinePath
@@ -125,6 +121,7 @@ import {
 import DuplicateWarningSheet, { type DuplicateLinkSelection } from "./DuplicateWarningSheet";
 import { DuplicateReviewRequiredError } from "./application/duplicateReview";
 import PeopleFilterSheet from "./PeopleFilterSheet";
+import PhoneRegionSelect from "./PhoneRegionSelect";
 
 type Navigate = (path: string, options?: { replace?: boolean; state?: Record<string, unknown> }) => void;
 
@@ -206,12 +203,16 @@ function preferredProfileContacts(summary: PersonSummary, phoneRegion: string): 
 
 export function PeopleScreen({
   navigate,
+  activeMode,
   importedPersonIds = null,
-  onClearImportedFilter
+  onClearImportedFilter,
+  relationshipFilter
 }: {
   navigate: Navigate;
+  activeMode: ActiveRelationshipMode;
   importedPersonIds?: string[] | null;
   onClearImportedFilter?: () => void;
+  relationshipFilter?: ReactNode;
 }) {
   const initialStateRef = useRef(initialPeopleDirectoryState());
   const [query, setQuery] = useState(initialStateRef.current.query);
@@ -266,6 +267,7 @@ export function PeopleScreen({
     setError("");
     getDatabase().then(async (db) => getPersonSearchView(db, {
       clock: createRelationshipClock(),
+      activeMode,
       query: debouncedQuery,
       filters
     })).then((view) => {
@@ -274,27 +276,31 @@ export function PeopleScreen({
       setFilterOptions(view.filterOptions);
       setStoredPersonCount(view.totalPersonCount);
       setFallbackPeople([]);
+      setLoading(false);
     }).catch(async (caught) => {
       if (!active) return;
       if (caught instanceof PersonSearchValidationError) {
         setQueryError(caught.message);
         setResults([]);
+        setLoading(false);
         return;
       }
       setError("Context search is unavailable. Showing the name-only directory.");
       setResults(undefined);
       try {
-        const people = await listPeopleSummaries(await getDatabase());
+        const people = await listPeopleSummaries(await getDatabase(), activeMode);
         if (active) setFallbackPeople(people.filter((summary) => {
           const normalizedQuery = debouncedQuery.trim().toLocaleLowerCase("en-US");
           return !normalizedQuery || summary.person.displayName.toLocaleLowerCase("en-US").includes(normalizedQuery);
         }));
       } catch {
         if (active) setFallbackPeople([]);
+      } finally {
+        if (active) setLoading(false);
       }
-    }).finally(() => { if (active) setLoading(false); });
+    });
     return () => { active = false; };
-  }, [filters, debouncedQuery, retryVersion]);
+  }, [activeMode, filters, debouncedQuery, retryVersion]);
 
   useEffect(() => {
     if (loading || restoredScrollRef.current) return;
@@ -326,12 +332,21 @@ export function PeopleScreen({
     setFilters({ archive: "active" });
   }
 
+  if (loading && results === undefined && storedPersonCount === undefined) {
+    return (
+      <main className="screen people-screen people-screen-loading" id="main-content" tabIndex={-1} aria-busy="true">
+        <p className="screen-status" role="status">Loading people…</p>
+      </main>
+    );
+  }
+
   if (noStoredPeople) {
     return (
       <main className="screen" id="main-content" tabIndex={-1}>
         <EmptyState
           eyebrow="People"
           title="Your people will appear here."
+          filter={relationshipFilter}
           description="Add someone manually, even if all you know is enough to recognise them later."
           action={(
             <div className="empty-action-stack">
@@ -350,9 +365,7 @@ export function PeopleScreen({
         <div>
           <p className="eyebrow">People</p>
           <h2>{importedPersonIds ? "Imported people" : "Find a person"}</h2>
-          <p>{importedPersonIds
-            ? "People created or updated in the most recent import."
-            : "Search by name or by the context you remember."}</p>
+          {relationshipFilter}
         </div>
         <div className="page-actions">
           <button className="secondary-action" type="button" onClick={() => navigate("/people/import")}>Import contacts</button>
@@ -399,7 +412,7 @@ export function PeopleScreen({
           <button className="clear-filter-chip" type="button" onClick={clearFilters}>Clear all</button>
         </div>
       )}
-      {loading && <p className="screen-status" role="status">Loading people…</p>}
+      {loading && <p className="screen-status" role="status">Updating people…</p>}
       {error && (
         <div className="form-alert" role="alert">
           <p>{error}</p>
@@ -483,16 +496,15 @@ export type ManualCaptureResumeState = {
   draft: ManualPersonCaptureDraft;
   tagsText: string;
   cadenceText: string;
+  customInterval?: string;
+  firstAppearance?: "today" | "tomorrow" | "week" | "date";
+  firstAppearanceDate?: string;
 };
 
 function firstIssue(error: unknown): string {
   if (error instanceof ValidationError) return error.issues[0] ?? "Check the form and try again.";
   if (error instanceof ContactValueValidationError || error instanceof StaleRevisionError) return error.message;
   return "PeopleOS could not save this yet.";
-}
-
-function contactInputLabel(contact: ManualContactMethodDraft): string {
-  return contact.kind === "phone" ? "Phone number" : "Email address";
 }
 
 function parseTags(value: string): string[] {
@@ -529,6 +541,9 @@ export function AddPersonScreen({
   }));
   const [tagsText, setTagsText] = useState(initialCapture?.tagsText ?? "");
   const [cadenceText, setCadenceText] = useState(initialCapture?.cadenceText ?? "");
+  const [customInterval, setCustomInterval] = useState(initialCapture?.customInterval ?? "");
+  const [firstAppearance, setFirstAppearance] = useState<"today" | "tomorrow" | "week" | "date">(initialCapture?.firstAppearance ?? "today");
+  const [firstAppearanceDate, setFirstAppearanceDate] = useState(initialCapture?.firstAppearanceDate ?? "");
   const [defaultPhoneRegion, setDefaultPhoneRegion] = useState("GB");
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState("");
@@ -629,7 +644,7 @@ export function AddPersonScreen({
 
     let contactCadenceDays: number | undefined;
     if (cadenceText.trim()) {
-      contactCadenceDays = Number(cadenceText);
+      contactCadenceDays = Number(cadenceText === "custom" ? customInterval : cadenceText);
       if (!Number.isInteger(contactCadenceDays) || contactCadenceDays < 1 || contactCadenceDays > 3650) {
         nextErrors.cadence = "Enter a whole number from 1 to 3650 days.";
       }
@@ -643,7 +658,25 @@ export function AddPersonScreen({
       requestAnimationFrame(() => document.querySelector<HTMLElement>("[aria-invalid='true']")?.focus());
       return undefined;
     }
-    return { ...draft, displayName, tags, contactCadenceDays };
+    const today = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" })
+      .format(new Date()).replaceAll("/", "-");
+    const firstDueDate = firstAppearance === "today" ? today
+      : firstAppearance === "tomorrow" ? addDaysToLocalDate(today, 1)
+        : firstAppearance === "week" ? addDaysToLocalDate(today, 7)
+          : firstAppearanceDate;
+    if (contactCadenceDays && !firstDueDate) {
+      setErrors((current) => ({ ...current, start: "Pick a start date." }));
+      return undefined;
+    }
+    return {
+      ...draft,
+      displayName,
+      tags,
+      contactCadenceDays,
+      ...(contactCadenceDays ? {
+        contactCadenceFirstDueDate: firstDueDate
+      } : { contactCadenceFirstDueDate: undefined })
+    };
   }
 
   function markCaptureFinished() {
@@ -758,7 +791,7 @@ export function AddPersonScreen({
 
   function openExisting(match: DuplicateMatch) {
     const resumeDraft = validatedDraftRef.current ?? draft;
-    onOpenDuplicatePerson(match.person.id, { draft: resumeDraft, tagsText, cadenceText });
+    onOpenDuplicatePerson(match.person.id, { draft: resumeDraft, tagsText, cadenceText, customInterval, firstAppearance, firstAppearanceDate });
   }
 
   function returnToEdit() {
@@ -773,7 +806,6 @@ export function AddPersonScreen({
 
   return (
     <main className="screen form-screen" id="main-content" tabIndex={-1}>
-      <button className="back-button" type="button" onClick={dismiss} disabled={saving}>← Cancel</button>
       <header className="page-heading compact-heading">
         <p className="eyebrow">People</p>
         <h2>Add a person</h2>
@@ -781,30 +813,16 @@ export function AddPersonScreen({
       </header>
 
       <form className="person-form" onSubmit={save} noValidate>
-        <fieldset className="choice-fieldset">
-          <legend>What do you know?</legend>
-          <label>
-            <input
-              type="radio"
-              name="identity-status"
-              value="confirmed"
-              checked={draft.identityStatus === "confirmed"}
-              onChange={() => changed((current) => ({ ...current, identityStatus: "confirmed" }))}
-            />
-            Their name
-          </label>
-          <label>
-            <input
-              type="radio"
-              name="identity-status"
-              value="provisional"
-              checked={draft.identityStatus === "provisional"}
-              onChange={() => changed((current) => ({ ...current, identityStatus: "provisional" }))}
-            />
-            A description for now
-          </label>
+        <fieldset className="choice-fieldset relationship-mode-fieldset">
+          <legend>Appears in</legend>
+          <div className="segmented-control three-way" role="group" aria-label="Relationship">
+            {RELATIONSHIP_MODE_OPTIONS.map((option) => (
+              <button key={option.value} type="button" aria-pressed={draft.relationshipMode === option.value} onClick={() => changed((current) => ({ ...current, relationshipMode: option.value }))}>
+                {option.label}
+              </button>
+            ))}
+          </div>
         </fieldset>
-
         <div className="form-field">
           <label htmlFor="person-display-name">{identityLabel}</label>
           <input
@@ -824,107 +842,173 @@ export function AddPersonScreen({
           {errors.displayName && <p className="field-error" id="person-display-name-error" role="alert">{errors.displayName}</p>}
         </div>
 
-        <section className="form-section" aria-labelledby="capture-contact-heading">
-          <div className="form-section-heading">
-            <div>
-              <h3 id="capture-contact-heading">Contact details <span>Optional</span></h3>
-              <p>Add as many phone numbers or email addresses as are useful.</p>
+        {draft.contactMethods[0] && (() => {
+          const contact = draft.contactMethods[0];
+          const error = errors[`contact-${contact.id}`];
+          return (
+            <div className="form-field simple-contact-field">
+              <label htmlFor={`capture-contact-${contact.id}-value`}>Phone or email <span>Optional</span></label>
+              <div className={`simple-contact-entry${contact.kind === "phone" ? " has-region" : ""}`}>
+                {contact.kind === "phone" && (
+                  <PhoneRegionSelect
+                    id={`capture-contact-${contact.id}-region`}
+                    value={contact.region ?? defaultPhoneRegion}
+                    options={phoneRegionOptions}
+                    ariaLabel="Phone region"
+                    onChange={(region) => updateContact(contact.id, { region })}
+                  />
+                )}
+                <input
+                  id={`capture-contact-${contact.id}-value`}
+                  type="text"
+                  inputMode={contact.kind === "email" ? "email" : "text"}
+                  autoComplete={contact.kind === "email" ? "email" : "tel"}
+                  placeholder="Mobile number or email address"
+                  value={contact.value}
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? `capture-contact-${contact.id}-error` : undefined}
+                  onChange={(event) => updateContact(contact.id, {
+                    value: event.target.value,
+                    kind: event.target.value.includes("@") ? "email" : "phone"
+                  })}
+                />
+              </div>
+              {error && <p className="field-error" id={`capture-contact-${contact.id}-error`} role="alert">{error}</p>}
             </div>
-          </div>
-          <div className="contact-draft-list">
-            {draft.contactMethods.map((contact, index) => {
-              const errorId = `capture-contact-${contact.id}-error`;
-              const valueId = `capture-contact-${contact.id}-value`;
-              const error = errors[`contact-${contact.id}`];
-              return (
-                <fieldset className="contact-draft" key={contact.id}>
-                  <legend>Contact detail {index + 1}</legend>
-                  <div className={`contact-row-grid${contact.kind === "phone" ? " phone-row-grid" : ""}`}>
-                    <div className="form-field">
-                      <label htmlFor={`capture-contact-${contact.id}-kind`}>Type</label>
-                      <select
-                        id={`capture-contact-${contact.id}-kind`}
-                        value={contact.kind}
-                        onChange={(event) => updateContact(contact.id, { kind: event.target.value as "phone" | "email" })}
-                      >
-                        <option value="phone">Phone</option>
-                        <option value="email">Email</option>
-                      </select>
-                    </div>
-                    {contact.kind === "phone" && (
-                      <div className="form-field">
-                        <label htmlFor={`capture-contact-${contact.id}-region`}>Phone region</label>
-                        <select
-                          id={`capture-contact-${contact.id}-region`}
-                          value={contact.region ?? defaultPhoneRegion}
-                          onChange={(event) => updateContact(contact.id, { region: event.target.value })}
-                        >
-                          {phoneRegionOptions.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}
-                        </select>
-                      </div>
-                    )}
-                    <div className="form-field contact-value-field">
-                      <label htmlFor={valueId}>{contactInputLabel(contact)}</label>
-                      <input
-                        id={valueId}
-                        type={contact.kind === "email" ? "email" : "tel"}
-                        inputMode={contact.kind === "email" ? "email" : "tel"}
-                        autoComplete={contact.kind === "email" ? "email" : "tel"}
-                        value={contact.value}
-                        aria-invalid={Boolean(error)}
-                        aria-describedby={error ? errorId : undefined}
-                        onChange={(event) => updateContact(contact.id, { value: event.target.value })}
-                      />
-                      {error && <p className="field-error" id={errorId} role="alert">{error}</p>}
-                    </div>
-                    <div className="form-field">
-                      <label htmlFor={`capture-contact-${contact.id}-label`}>Label</label>
-                      <input
-                        id={`capture-contact-${contact.id}-label`}
-                        placeholder={contact.kind === "phone" ? "Personal mobile" : "Work email"}
-                        value={contact.label ?? ""}
-                        onChange={(event) => updateContact(contact.id, { label: event.target.value })}
-                      />
-                    </div>
-                  </div>
-                  <button className="text-action danger-text" type="button" onClick={() => removeContact(contact.id)}>
-                    Remove contact detail
-                  </button>
-                </fieldset>
-              );
-            })}
-          </div>
-          <div className="button-row compact-buttons">
-            <button type="button" onClick={() => addContact("phone")}>Add phone</button>
-            <button type="button" onClick={() => addContact("email")}>Add email</button>
-          </div>
-        </section>
+          );
+        })()}
 
-        <div className="form-field">
-          <label htmlFor="person-organisation">Organisation <span>Optional</span></label>
-          <input
-            id="person-organisation"
-            value={draft.organisationName ?? ""}
-            aria-invalid={Boolean(errors.organisation)}
-            aria-describedby={errors.organisation ? "person-organisation-error" : undefined}
-            onChange={(event) => changed((current) => ({ ...current, organisationName: event.target.value }))}
-          />
-          {errors.organisation && <p className="field-error" id="person-organisation-error" role="alert">{errors.organisation}</p>}
-        </div>
+        <fieldset className="keep-in-touch-fieldset">
+          <legend>Keep in touch</legend>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={Boolean(cadenceText)}
+              onChange={(event) => {
+                setCadenceText(event.target.checked ? "30" : "");
+                setFirstAppearance("today");
+                changed((current) => ({ ...current, contactCadenceDays: event.target.checked ? 30 : undefined }));
+              }}
+            />
+            <span>Remind me to stay in touch</span>
+          </label>
+        </fieldset>
 
-        <div className="form-field">
-          <label htmlFor="person-where-met">Where you met <span>Optional</span></label>
-          <input
-            id="person-where-met"
-            placeholder="HealthTech Fellowship"
-            value={draft.whereMet ?? ""}
-            onChange={(event) => changed((current) => ({ ...current, whereMet: event.target.value }))}
-          />
-        </div>
+        {cadenceText && <div className="form-field frequency-field">
+          <label htmlFor="person-cadence">How often?</label>
+          <select
+            id="person-cadence"
+            value={cadenceText}
+            aria-invalid={Boolean(errors.cadence)}
+            aria-describedby={errors.cadence ? "person-cadence-error" : "person-cadence-hint"}
+            onChange={(event) => {
+              preparedRef.current = null;
+              acknowledgedDuplicatePersonIdsRef.current = [];
+              setDuplicateMatches([]);
+              dirtyRef.current = true;
+              setCadenceText(event.target.value);
+              onDirtyChange(true);
+            }}
+          >
+            <option value="1">Every day</option>
+            <option value="3">Every few days</option>
+            <option value="7">Every week</option>
+            <option value="14">Every 2 weeks</option>
+            <option value="30">Every month</option>
+            <option value="90">Every few months</option>
+            <option value="custom">Custom</option>
+          </select>
+          {cadenceText === "custom" && <input aria-label="Days between reminders" type="number" inputMode="numeric" min="1" max="3650" value={customInterval} onChange={(event) => setCustomInterval(event.target.value)} />}
+          {errors.cadence && <p className="field-error" id="person-cadence-error" role="alert">{errors.cadence}</p>}
+        </div>}
+
+        {cadenceText && (
+          <div className="form-field first-appearance-fieldset">
+            <label htmlFor="person-start">Start</label>
+            <select id="person-start" value={firstAppearance} onChange={(event) => setFirstAppearance(event.target.value as typeof firstAppearance)}>
+              <option value="today">Today</option><option value="tomorrow">Tomorrow</option><option value="week">In 1 week</option><option value="date">Pick a date</option>
+            </select>
+            {firstAppearance === "date" && <input aria-label="Start date" type="date" value={firstAppearanceDate} onChange={(event) => setFirstAppearanceDate(event.target.value)} aria-invalid={Boolean(errors.start)} />}
+            {errors.start && <p className="field-error" role="alert">{errors.start}</p>}
+          </div>
+        )}
 
         <details className="more-details">
           <summary>More details</summary>
           <div className="more-details-body">
+            <fieldset className="choice-fieldset">
+              <legend>What do you know?</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="identity-status"
+                  value="confirmed"
+                  checked={draft.identityStatus === "confirmed"}
+                  onChange={() => changed((current) => ({ ...current, identityStatus: "confirmed" }))}
+                />
+                Their name
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="identity-status"
+                  value="provisional"
+                  checked={draft.identityStatus === "provisional"}
+                  onChange={() => changed((current) => ({ ...current, identityStatus: "provisional" }))}
+                />
+                A description for now
+              </label>
+            </fieldset>
+            <section className="advanced-contact-details" aria-labelledby="advanced-contact-heading">
+              <h3 id="advanced-contact-heading">Contact details</h3>
+              {draft.contactMethods.map((contact, index) => (
+                <fieldset className="contact-draft" key={contact.id}>
+                  <legend>{index === 0 ? "Primary contact" : `Additional contact ${index}`}</legend>
+                  {index > 0 && <div className="form-field">
+                    <label htmlFor={`advanced-contact-${contact.id}`}>{contact.kind === "email" ? "Email address" : "Mobile number"}</label>
+                    <input id={`advanced-contact-${contact.id}`} value={contact.value} onChange={(event) => updateContact(contact.id, { value: event.target.value })} />
+                  </div>}
+                  {contact.kind === "phone" && index > 0 && <div className="form-field phone-region-field">
+                    <label htmlFor={`capture-contact-${contact.id}-region`}>Phone region</label>
+                    <PhoneRegionSelect
+                      id={`capture-contact-${contact.id}-region`}
+                      value={contact.region ?? defaultPhoneRegion}
+                      options={phoneRegionOptions}
+                      onChange={(region) => updateContact(contact.id, { region })}
+                    />
+                  </div>}
+                  <div className="form-field">
+                    <label htmlFor={`capture-contact-${contact.id}-label`}>Label <span>Optional</span></label>
+                    <input id={`capture-contact-${contact.id}-label`} value={contact.label ?? ""} onChange={(event) => updateContact(contact.id, { label: event.target.value })} />
+                  </div>
+                  {index > 0 && <button className="text-action danger-text" type="button" onClick={() => removeContact(contact.id)}>Remove contact detail</button>}
+                </fieldset>
+              ))}
+              <div className="button-row compact-buttons">
+                <button type="button" onClick={() => addContact("phone")}>Add mobile</button>
+                <button type="button" onClick={() => addContact("email")}>Add email</button>
+              </div>
+            </section>
+            <div className="form-field">
+              <label htmlFor="person-organisation">Organisation <span>Optional</span></label>
+              <input
+                id="person-organisation"
+                value={draft.organisationName ?? ""}
+                aria-invalid={Boolean(errors.organisation)}
+                aria-describedby={errors.organisation ? "person-organisation-error" : undefined}
+                onChange={(event) => changed((current) => ({ ...current, organisationName: event.target.value }))}
+              />
+              {errors.organisation && <p className="field-error" id="person-organisation-error" role="alert">{errors.organisation}</p>}
+            </div>
+            <div className="form-field">
+              <label htmlFor="person-where-met">Where you met <span>Optional</span></label>
+              <input
+                id="person-where-met"
+                placeholder="HealthTech Fellowship"
+                value={draft.whereMet ?? ""}
+                onChange={(event) => changed((current) => ({ ...current, whereMet: event.target.value }))}
+              />
+            </div>
             <div className="form-field">
               <label htmlFor="person-role">Role or job title <span>Optional</span></label>
               <input
@@ -964,28 +1048,6 @@ export function AddPersonScreen({
               <p className="field-hint" id="person-tags-hint">Separate tags with commas.</p>
               {errors.tags && <p className="field-error" id="person-tags-error" role="alert">{errors.tags}</p>}
             </div>
-            <div className="form-field">
-              <label htmlFor="person-cadence">Contact cadence in days <span>Optional</span></label>
-              <input
-                id="person-cadence"
-                type="number"
-                inputMode="numeric"
-                min="1"
-                max="3650"
-                value={cadenceText}
-                aria-invalid={Boolean(errors.cadence)}
-                aria-describedby={errors.cadence ? "person-cadence-error" : undefined}
-                onChange={(event) => {
-                  preparedRef.current = null;
-                  acknowledgedDuplicatePersonIdsRef.current = [];
-                  setDuplicateMatches([]);
-                  dirtyRef.current = true;
-                  setCadenceText(event.target.value);
-                  onDirtyChange(true);
-                }}
-              />
-              {errors.cadence && <p className="field-error" id="person-cadence-error" role="alert">{errors.cadence}</p>}
-            </div>
           </div>
         </details>
 
@@ -1024,6 +1086,16 @@ function displayContact(contact: ContactMethod, phoneRegion: string): string {
   } catch {
     return contact.rawValue;
   }
+}
+
+function keepInTouchLabel(days: number): string {
+  if (days === 1) return "Every day";
+  if (days === 3) return "Every few days";
+  if (days === 7) return "Every week";
+  if (days === 14) return "Every 2 weeks";
+  if (days === 30) return "Every month";
+  if (days === 90) return "Every few months";
+  return `Every ${days} days`;
 }
 
 function usePerson(personId: string, refreshVersion = 0) {
@@ -1112,24 +1184,20 @@ export function PersonProfileScreen({
   const [reachOut, setReachOut] = useState<ReachOutDetail | null | undefined>(undefined);
   const [reachOutHistory, setReachOutHistory] = useState<ReachOutEntry[]>([]);
   const [reachOutError, setReachOutError] = useState("");
-  const [reachOutCompletionOpen, setReachOutCompletionOpen] = useState(false);
-  const [reachOutRemoving, setReachOutRemoving] = useState(false);
   const [restoringPerson, setRestoringPerson] = useState(false);
+  const [archivingPerson, setArchivingPerson] = useState(false);
+  const archiveAttemptTimeRef = useRef<string | null>(null);
   const restoreAttemptTimeRef = useRef<string | null>(null);
   const [personActionError, setPersonActionError] = useState("");
   const [contactChoice, setContactChoice] = useState<{ projection: ContactNowProjection; error?: string; copyValue?: string } | null>(null);
   const [contactBusy, setContactBusy] = useState(false);
   const [editor, setEditor] = useState<{ interaction?: TimelineDisplayItem["interaction"]; initialKind?: InteractionKind } | null>(null);
-  const [followUpEditorOpen, setFollowUpEditorOpen] = useState(false);
-  const [cadenceEditorOpen, setCadenceEditorOpen] = useState(false);
   const [factEditor, setFactEditor] = useState<{ sourceInteractionId?: string } | null>(null);
   const [memoryChoiceOpen, setMemoryChoiceOpen] = useState(false);
   const [promotionNoteId, setPromotionNoteId] = useState<string | null>(null);
   const editorOpenerRef = useRef<HTMLElement | null>(null);
-  const planOpenerRef = useRef<HTMLElement | null>(null);
   const profileHeadingRef = useRef<HTMLHeadingElement>(null);
   const memoryChoiceFirstRef = useRef<HTMLButtonElement>(null);
-  const reachOutOpenerRef = useRef<HTMLElement | null>(null);
   const contactOpenerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
@@ -1247,61 +1315,6 @@ export function PersonProfileScreen({
     if (item.interaction && item.editable) openInteraction(opener, undefined, item.interaction);
   }
 
-  function openFollowUpEditor(opener: HTMLElement) {
-    planOpenerRef.current = opener;
-    setFollowUpEditorOpen(true);
-  }
-
-  function openCadenceEditor(opener: HTMLElement) {
-    planOpenerRef.current = opener;
-    setCadenceEditorOpen(true);
-  }
-
-  function closePlanEditor() {
-    setFollowUpEditorOpen(false);
-    setCadenceEditorOpen(false);
-    requestAnimationFrame(() => {
-      if (planOpenerRef.current?.isConnected) planOpenerRef.current.focus();
-      else profileHeadingRef.current?.focus();
-    });
-  }
-
-  function finishPlanEditor() {
-    setFollowUpEditorOpen(false);
-    setCadenceEditorOpen(false);
-    setRefreshVersion((current) => current + 1);
-    requestAnimationFrame(() => profileHeadingRef.current?.focus());
-  }
-
-  function finishReachOutMutation() {
-    setReachOutCompletionOpen(false);
-    setRefreshVersion((current) => current + 1);
-    requestAnimationFrame(() => profileHeadingRef.current?.focus());
-  }
-
-  async function removeCurrentReachOut() {
-    if (!reachOut || !window.confirm("Remove this plan from Reach Out? Its history and Person will be kept.")) return;
-    setReachOutRemoving(true);
-    setReachOutError("");
-    try {
-      await removeReachOut(
-        await getDatabase(),
-        prepareReachOutStatusCommand(
-          reachOut.entry,
-          reachOut.person,
-          reachOut.currentFollowUp,
-          "removed"
-        )
-      );
-      finishReachOutMutation();
-    } catch {
-      setReachOutError("PeopleOS could not remove this Reach Out plan. It is unchanged.");
-      requestAnimationFrame(() => reachOutOpenerRef.current?.focus());
-    } finally {
-      setReachOutRemoving(false);
-    }
-  }
-
   async function restoreArchivedPerson() {
     if (!summary?.person.archivedAt || restoringPerson) return;
     setRestoringPerson(true);
@@ -1321,6 +1334,30 @@ export function PersonProfileScreen({
       setPersonActionError(firstIssue(caught));
     } finally {
       setRestoringPerson(false);
+    }
+  }
+
+  async function archiveCurrentPerson() {
+    if (!summary || summary.person.archivedAt || archivingPerson) return;
+    if (!window.confirm(`Archive ${summary.person.displayName}? They will leave Today, Upcoming, active Reach Out and default People results. Their history and plans will be kept.`)) return;
+    setArchivingPerson(true);
+    setPersonActionError("");
+    const occurredAt = archiveAttemptTimeRef.current ?? new Date().toISOString();
+    archiveAttemptTimeRef.current = occurredAt;
+    try {
+      await archivePerson(await getDatabase(), {
+        personId: summary.person.id,
+        expectedRevision: summary.person.revision,
+        occurredAt
+      });
+      archiveAttemptTimeRef.current = null;
+      setRefreshVersion((current) => current + 1);
+      requestAnimationFrame(() => profileHeadingRef.current?.focus());
+    } catch (caught) {
+      if (caught instanceof StaleRevisionError) archiveAttemptTimeRef.current = null;
+      setPersonActionError(firstIssue(caught));
+    } finally {
+      setArchivingPerson(false);
     }
   }
 
@@ -1429,6 +1466,17 @@ export function PersonProfileScreen({
     .find((fact) => fact.kind === "communication_preference");
   const relationshipReady = relationship !== undefined || Boolean(relationshipError);
   const preferredContacts = summary ? preferredProfileContacts(summary, phoneRegion) : [];
+  const keepInTouchDays = summary?.person.contactCadenceDays;
+  const regularKeepInTouchDate = keepInTouchDays
+    ? relationship?.lastContact
+      ? addDaysToLocalDate(relationship.lastContact.localDate, keepInTouchDays)
+      : summary?.person.contactCadenceFirstDueDate
+    : undefined;
+  const deferredKeepInTouchDate = summary?.person.contactCadenceDeferredUntilDate;
+  const nextKeepInTouchDate = deferredKeepInTouchDate
+    && (!regularKeepInTouchDate || deferredKeepInTouchDate > regularKeepInTouchDate)
+    ? deferredKeepInTouchDate
+    : regularKeepInTouchDate;
   return (
     <main className="screen person-profile-screen" id="main-content" tabIndex={-1}>
       <button
@@ -1499,30 +1547,32 @@ export function PersonProfileScreen({
           {personActionError && <p className="form-alert" role="alert">{personActionError}</p>}
           {!summary.person.archivedAt && summary.person.identityStatus !== "merged" && (
             <div className="profile-action-row" role="group" aria-label="Person actions">
-              <button className="primary-action" type="button" disabled={contactBusy} onClick={(event) => void contactFromProfile(event.currentTarget)}>
-                {contactBusy ? "Checking…" : preferredContacts.length > 0 ? "Contact now" : "Add contact details"}
-              </button>
-              <button className="secondary-action" type="button" onClick={(event) => openInteraction(event.currentTarget)}>
-                Log interaction
-              </button>
-              <button className="secondary-action" type="button" onClick={(event) => openFollowUpEditor(event.currentTarget)}>
-                Plan follow-up
-              </button>
               <button
-                className="secondary-action"
+                className="primary-action"
                 type="button"
-                aria-expanded={memoryChoiceOpen}
-                aria-controls="profile-memory-choice"
-                onClick={(event) => openMemoryChoice(event.currentTarget)}
+                aria-label={preferredContacts.length > 0 ? "Contact now" : "Add contact details"}
+                disabled={contactBusy}
+                onClick={(event) => void contactFromProfile(event.currentTarget)}
               >
-                Add memory
+                {contactBusy ? "Checking…" : "Contact"}
               </button>
-              <button className="secondary-action" type="button" onClick={(event) => openCadenceEditor(event.currentTarget)}>
-                Cadence
+              <button aria-label="Log interaction" className="secondary-action" type="button" onClick={(event) => openInteraction(event.currentTarget)}>
+                Log
               </button>
-              <button className="secondary-action" type="button" onClick={() => navigate(editPersonPath(summary.person.id))}>
-                Edit person
-              </button>
+              <details className="today-more-actions">
+                <summary aria-label={`More actions for ${summary.person.displayName}`}>•••</summary>
+                <div role="menu" aria-label={`More actions for ${summary.person.displayName}`}>
+                  <button role="menuitem" type="button" onClick={() => navigate(editPersonPath(summary.person.id))}>
+                    Edit person
+                  </button>
+                  <button role="menuitem" type="button" onClick={() => navigate(relationshipSettingsPath(summary.person.id))}>
+                    Relationship settings
+                  </button>
+                  <button className="danger-action" role="menuitem" type="button" disabled={archivingPerson} onClick={() => void archiveCurrentPerson()}>
+                    {archivingPerson ? "Archiving…" : "Archive person"}
+                  </button>
+                </div>
+              </details>
             </div>
           )}
           {summary.person.archivedAt && (
@@ -1558,91 +1608,6 @@ export function PersonProfileScreen({
               </button>
             </div>
           )}
-          {(nextPlan === undefined || planError || nextPlan?.kind !== "none" || Boolean(relationship?.today)) && (
-            <section className="profile-card profile-plan-card" aria-labelledby="profile-plan-heading">
-              <div className="card-heading-with-action">
-                <div>
-                  <h3 id="profile-plan-heading">Current plan</h3>
-                  <p>What you have deliberately planned for this relationship.</p>
-                </div>
-                <button className="secondary-action" type="button" onClick={() => navigate(personFollowUpsPath(summary.person.id))}>See all</button>
-              </div>
-              {nextPlan === undefined && !planError && <p role="status">Loading follow-up plan…</p>}
-              {planError && (
-                <div className="section-error">
-                  <p role="alert">{planError}</p>
-                  <button type="button" onClick={() => setRefreshVersion((current) => current + 1)}>Retry</button>
-                </div>
-              )}
-              {relationship?.today && (
-                <p className="current-plan-reason"><strong>Why now:</strong> {formatExplanation(relationship.today.explanation)}</p>
-              )}
-              {relationship?.today && relationship.today.additionalDueFollowUpIds.length > 0 && (
-                <p className="today-also-due">
-                  Also due: {relationship.today.additionalDueFollowUpIds.length} other {relationship.today.additionalDueFollowUpIds.length === 1 ? "plan" : "plans"}
-                </p>
-              )}
-              {nextPlan?.kind === "explicit_follow_up" && nextPlan.followUp && (
-                <div className="current-plan-summary">
-                  <span className="status-chip">{followUpTimingLabel(nextPlan.followUp, currentLocalDate())}</span>
-                  <strong>{nextPlan.followUp.reason}</strong>
-                  <p>{followUpActionLabel(nextPlan.followUp)}</p>
-                  <div className="button-row compact-buttons">
-                    <button type="button" onClick={() => navigate(followUpDetailPath(nextPlan.followUp!.id))}>Open follow-up</button>
-                    <button type="button" onClick={(event) => openFollowUpEditor(event.currentTarget)}>Add another</button>
-                  </div>
-                </div>
-              )}
-              {nextPlan?.kind === "cadence" && (
-                <div className="current-plan-summary">
-                  <strong>Every {nextPlan.cadenceDays} days</strong>
-                  {nextPlan.date
-                    ? <p>Next expected contact: {formatLocalDate(nextPlan.date)}</p>
-                    : <p>Cadence is saved. Plan the first follow-up when you are ready.</p>}
-                  <p className="muted-copy">A cadence never creates a follow-up automatically.</p>
-                  <div className="button-row compact-buttons">
-                    <button type="button" onClick={(event) => openFollowUpEditor(event.currentTarget)}>Plan follow-up</button>
-                    <button type="button" onClick={(event) => openCadenceEditor(event.currentTarget)}>Change cadence</button>
-                  </div>
-                </div>
-              )}
-              {nextPlan?.kind === "none" && relationship?.today && (
-                <div className="button-row compact-buttons">
-                  <button type="button" onClick={(event) => openFollowUpEditor(event.currentTarget)}>Plan follow-up</button>
-                </div>
-              )}
-            </section>
-          )}
-          <section className="profile-card profile-reach-out-card" aria-labelledby="profile-reach-out-heading">
-            <div className="card-heading-with-action">
-              <div>
-                <h3 id="profile-reach-out-heading">Reach Out</h3>
-                <p>The deliberate intention attached to this Person.</p>
-              </div>
-            </div>
-            {reachOut === undefined && !reachOutError && <p role="status">Loading Reach Out plan…</p>}
-            {reachOutError && <div className="section-error"><p role="alert">{reachOutError}</p><button type="button" onClick={() => setRefreshVersion((current) => current + 1)}>Retry</button></div>}
-            {reachOut && (
-              <div className="current-plan-summary">
-                <span className="status-chip">{reachOut.displayState === "active" && reachOut.relevantDate === currentLocalDate() ? "Due today" : reachOut.displayState[0].toUpperCase() + reachOut.displayState.slice(1)}</span>
-                <strong>{reachOut.entry.reason ?? "Add why"}</strong>
-                <p>{reachOut.entry.actionDetail ?? (FOLLOW_UP_ACTION_OPTIONS.find((option) => option.value === reachOut.entry.intendedActionType)?.label ?? "Choose next action")}</p>
-                {reachOut.relevantDate && <p>Reminder: {formatLocalDate(reachOut.relevantDate)}</p>}
-                <div className="button-row compact-buttons">
-                  <button type="button" onClick={() => navigate(reachOutDetailPath(reachOut.entry.id))}>Open plan</button>
-                  {!summary.person.archivedAt && reachOut.entry.intentStatus === "active" && <button type="button" onClick={(event) => { reachOutOpenerRef.current = event.currentTarget; setReachOutCompletionOpen(true); }}>Mark complete</button>}
-                  {!summary.person.archivedAt && <button className="danger-action" type="button" disabled={reachOutRemoving} onClick={(event) => { reachOutOpenerRef.current = event.currentTarget; void removeCurrentReachOut(); }}>{reachOutRemoving ? "Removing…" : "Remove"}</button>}
-                </div>
-              </div>
-            )}
-            {reachOut === null && !reachOutError && (
-              <div className="timeline-empty">
-                <p>{reachOutHistory.some((entry) => entry.intentStatus === "completed") ? "The latest outreach cycle is complete and remains in history." : "This Person is not currently in Reach Out."}</p>
-                {!summary.person.archivedAt && summary.person.identityStatus !== "merged" && <button className="text-action" type="button" onClick={(event) => onAddToReachOut(summary.person, event.currentTarget)}>Add to Reach Out</button>}
-                {reachOutHistory[0] && <button className="text-action" type="button" onClick={() => navigate(reachOutDetailPath(reachOutHistory[0].id))}>Open Reach Out history</button>}
-              </div>
-            )}
-          </section>
           <section className="profile-card profile-relationship-card" aria-labelledby="relationship-summary-heading">
             <h3 id="relationship-summary-heading">Relationship summary</h3>
             {relationship === undefined && !relationshipError && <p role="status">Calculating relationship summary…</p>}
@@ -1653,44 +1618,89 @@ export function PersonProfileScreen({
               </div>
             )}
             <dl className="profile-details">
-              {relationship && (
-                <div>
-                  <dt>Relationship stage</dt>
-                  <dd>
-                    <strong>{relationshipStageLabel(relationship.relationshipStage.value)}</strong>
-                    <span className="detail-supporting-copy">{formatExplanation(relationship.relationshipStage.explanation)}</span>
-                  </dd>
-                </div>
-              )}
               <div>
-                <dt>Last meaningful contact</dt>
-                <dd>{historyError || relationshipError
-                  ? "Unavailable"
-                  : relationship === undefined
-                    ? "Loading…"
-                  : relationship === null
-                    ? "Unavailable"
-                    : relationship.lastContact
-                      ? formatExplanation(relationship.lastContact.explanation)
-                      : "No meaningful contact recorded"}</dd>
+                <dt>Appears in</dt>
+                <dd>{relationshipModeOf(summary.person) === "both"
+                  ? "Personal and Professional"
+                  : relationshipModeOf(summary.person) === "professional" ? "Professional" : "Personal"}</dd>
               </div>
-              {relationship && (
+              {relationship?.lastContact && (
                 <div>
-                  <dt>Relationship age</dt>
-                  <dd>{formatExplanation(relationship.relationshipAge.explanation)}</dd>
+                  <dt>Last logged interaction</dt>
+                  <dd>{formatLocalDate(relationship.lastContact.localDate)}</dd>
                 </div>
               )}
-              {relationship?.suggestedReminder && (
+              {summary.currentAffiliation && (
                 <div>
-                  <dt>Suggested reminder</dt>
-                  <dd>{formatExplanation(relationship.suggestedReminder.explanation)}</dd>
+                  <dt>Work</dt>
+                  <dd>{affiliationLine(summary)}</dd>
                 </div>
               )}
-              <div>
-                <dt>Added to PeopleOS</dt>
-                <dd>{new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(summary.person.createdAt))}</dd>
-              </div>
+              {summary.person.tags.length > 0 && (
+                <div>
+                  <dt>Tags</dt>
+                  <dd>{summary.person.tags.join(", ")}</dd>
+                </div>
+              )}
             </dl>
+          </section>
+          <section className="profile-card profile-plan-card" aria-labelledby="profile-keep-in-touch-heading">
+            <div className="card-heading-with-action">
+              <div>
+                <h3 id="profile-keep-in-touch-heading">Keep in touch</h3>
+                <strong>{keepInTouchDays
+                  ? summary.person.contactCadencePausedAt
+                    ? "Paused"
+                    : keepInTouchLabel(keepInTouchDays)
+                  : "Not enabled"}</strong>
+              </div>
+              {!summary.person.archivedAt && summary.person.identityStatus !== "merged" && (
+                <button className="secondary-action" type="button" onClick={() => navigate(relationshipSettingsPath(summary.person.id))}>Change</button>
+              )}
+            </div>
+            {keepInTouchDays && !summary.person.contactCadencePausedAt && nextKeepInTouchDate && (
+              <p className="muted-copy">Next: {formatLocalDate(nextKeepInTouchDate)}</p>
+            )}
+            {nextPlan === undefined && !planError && <p role="status">Loading follow-up…</p>}
+            {planError && (
+              <div className="section-error">
+                <p role="alert">{planError}</p>
+                <button type="button" onClick={() => setRefreshVersion((current) => current + 1)}>Retry</button>
+              </div>
+            )}
+            {nextPlan?.kind === "explicit_follow_up" && nextPlan.followUp && (
+              <div className="current-plan-summary">
+                <span className="status-chip">{followUpTimingLabel(nextPlan.followUp, currentLocalDate())}</span>
+                <strong>{nextPlan.followUp.reason}</strong>
+                <p>{followUpActionLabel(nextPlan.followUp)}</p>
+                <div className="button-row compact-buttons">
+                  <button type="button" onClick={() => navigate(followUpDetailPath(nextPlan.followUp!.id))}>Open follow-up</button>
+                  <button type="button" onClick={() => navigate(personFollowUpsPath(summary.person.id))}>See all</button>
+                </div>
+              </div>
+            )}
+          </section>
+          <section className="profile-card profile-reach-out-card" aria-labelledby="profile-reach-out-heading">
+            <h3 id="profile-reach-out-heading">Reach Out</h3>
+            {reachOut === undefined && !reachOutError && <p role="status">Loading…</p>}
+            {reachOutError && <div className="section-error"><p role="alert">{reachOutError}</p><button type="button" onClick={() => setRefreshVersion((current) => current + 1)}>Retry</button></div>}
+            {reachOut && (
+              <div className="current-plan-summary">
+                <span className="status-chip">{reachOut.displayState === "active" && reachOut.relevantDate === currentLocalDate() ? "Due today" : reachOut.displayState[0].toUpperCase() + reachOut.displayState.slice(1)}</span>
+                {reachOut.entry.reason && <strong>{reachOut.entry.reason}</strong>}
+                {reachOut.relevantDate && <p>{formatLocalDate(reachOut.relevantDate)}</p>}
+                <div className="button-row compact-buttons">
+                  <button type="button" onClick={() => navigate(reachOutDetailPath(reachOut.entry.id))}>View</button>
+                </div>
+              </div>
+            )}
+            {reachOut === null && !reachOutError && (
+              <div className="timeline-empty">
+                <p>Not included</p>
+                {!summary.person.archivedAt && summary.person.identityStatus !== "merged" && <button className="text-action" type="button" onClick={(event) => onAddToReachOut(summary.person, event.currentTarget)}>Add</button>}
+                {reachOutHistory[0] && <button className="text-action" type="button" onClick={() => navigate(reachOutDetailPath(reachOutHistory[0].id))}>View history</button>}
+              </div>
+            )}
           </section>
           <section className="profile-card profile-memory-card" aria-labelledby="profile-memory-heading">
             <div className="card-heading-with-action">
@@ -1719,7 +1729,6 @@ export function PersonProfileScreen({
               <div className="memory-cue" aria-label="Memory cue">
                 <span>Memory cue</span>
                 <strong>{memoryCue.text}</strong>
-                <p>{formatExplanation(memoryCue.explanation)}</p>
               </div>
             )}
             {compactFacts.length > 0 && (
@@ -1839,31 +1848,6 @@ export function PersonProfileScreen({
               sourceInteractionId={factEditor.sourceInteractionId}
               onClose={closeFactEditor}
               onSaved={finishFact}
-            />
-          )}
-          {followUpEditorOpen && (
-            <FollowUpEditorSheet
-              mode="create"
-              personId={summary.person.id}
-              personName={summary.person.displayName}
-              onClose={closePlanEditor}
-              onSaved={finishPlanEditor}
-            />
-          )}
-          {cadenceEditorOpen && (
-            <CadenceEditorSheet
-              person={summary.person}
-              onClose={closePlanEditor}
-              onSaved={finishPlanEditor}
-            />
-          )}
-          {reachOutCompletionOpen && reachOut && (
-            <ReachOutCompletionSheet
-              entry={reachOut.entry}
-              person={reachOut.person}
-              currentFollowUp={reachOut.currentFollowUp}
-              onClose={() => { setReachOutCompletionOpen(false); requestAnimationFrame(() => reachOutOpenerRef.current?.focus()); }}
-              onCompleted={finishReachOutMutation}
             />
           )}
           {contactChoice && (
@@ -2413,15 +2397,14 @@ export function ContactMethodsScreen({
                       </select>
                     </div>
                     {editor.draft.kind === "phone" && (
-                      <div className="form-field">
+                      <div className="form-field phone-region-field">
                         <label htmlFor="contact-editor-region">Phone region</label>
-                        <select
+                        <PhoneRegionSelect
                           id="contact-editor-region"
                           value={editor.draft.region ?? phoneRegion}
-                          onChange={(event) => changeEditor({ region: event.target.value })}
-                        >
-                          {phoneRegionOptions.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}
-                        </select>
+                          options={phoneRegionOptions}
+                          onChange={(region) => changeEditor({ region })}
+                        />
                       </div>
                     )}
                     <div className="form-field contact-value-field">

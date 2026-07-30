@@ -1,7 +1,15 @@
 export const DATABASE_NAME = "peopleos-v1";
-export const DATABASE_VERSION = 1;
-export const BACKUP_SCHEMA_VERSION = 2;
+export const DATABASE_VERSION = 3;
+export const BACKUP_SCHEMA_VERSION = 4;
 export const DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS = 14;
+export const DEFAULT_CONVERSATION_STARTERS = [
+  { id: "personal-thinking-of-you", template: "Hey {name}, just thinking of you today.", relationshipMode: "personal" },
+  { id: "personal-how-have-you-been", template: "Hi {name}, how have you been lately?", relationshipMode: "personal" },
+  { id: "personal-whats-new", template: "Hey {name}, what’s new with you?", relationshipMode: "personal" },
+  { id: "professional-check-in", template: "Hi {name}, I wanted to check in and see how things are going.", relationshipMode: "professional" },
+  { id: "professional-catch-up", template: "Hi {name}, I’ve been meaning to catch up — how are things?", relationshipMode: "professional" },
+  { id: "both-how-are-things", template: "Hi {name}, how are things with you?", relationshipMode: "both" }
+] as const;
 
 export type EntityId = string;
 export type IsoInstant = string;
@@ -16,6 +24,7 @@ export type MutableRecord = {
 
 export type Person = MutableRecord & {
   displayName: string;
+  relationshipMode?: "personal" | "professional" | "both";
   identityStatus: "provisional" | "confirmed" | "merged";
   mergedIntoPersonId?: EntityId;
   mergeCommandFingerprint?: string;
@@ -23,7 +32,18 @@ export type Person = MutableRecord & {
   importance: "normal" | "high";
   tags: string[];
   contactCadenceDays?: number;
+  contactCadenceFirstDueDate?: LocalDate;
+  contactCadenceDeferredUntilDate?: LocalDate;
+  contactCadencePausedAt?: IsoInstant;
+  todayNote?: string;
+  todayNoteCompletedAt?: IsoInstant;
   archivedAt?: IsoInstant;
+};
+
+export type ConversationStarter = {
+  id: EntityId;
+  template: string;
+  relationshipMode: "personal" | "professional" | "both";
 };
 
 type ContactMethodBase = MutableRecord & {
@@ -205,6 +225,8 @@ export type AppSettings = MutableRecord & {
   captureMode: "standard" | "networking";
   alreadyContactedDefaultReminderDays: number;
   reachOutDefaultReminderDays?: 1 | 7 | 14 | 30;
+  relationshipContexts?: Array<"personal" | "professional">;
+  conversationStarters?: ConversationStarter[];
 };
 
 export type AppMetadata = {

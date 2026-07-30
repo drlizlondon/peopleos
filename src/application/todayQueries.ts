@@ -1,6 +1,8 @@
 import {
   DATA_STORE_NAMES,
   type AppMetadata,
+  DEFAULT_CONVERSATION_STARTERS,
+  type ConversationStarter,
   type FollowUp,
   type OrganisationAffiliation,
   type PeopleOsData,
@@ -19,6 +21,7 @@ import {
   type TodayResult
 } from "../relationship-engine";
 import { selectDisplayAffiliation } from "./affiliations";
+import { personMatchesActiveMode, type ActiveRelationshipMode } from "../domain/relationshipMode";
 import {
   resolveContactNowTargets,
   type ContactNowProjection
@@ -48,6 +51,7 @@ export type TodayCardProjection = {
   additionalDueFollowUps: FollowUp[];
   reachOut?: TodayReachOutProjection;
   contact: ContactNowProjection;
+  conversationStarters: ConversationStarter[];
 };
 
 export type TodayScreenProjection = {
@@ -98,7 +102,8 @@ function compareId(left: Person, right: Person): number {
 
 function assessSnapshot(
   data: PeopleOsData,
-  clock: RelationshipClock
+  clock: RelationshipClock,
+  activeMode: ActiveRelationshipMode
 ): {
   assessments: RelationshipAssessment[];
   issues: TodayEvaluationIssue[];
@@ -108,6 +113,7 @@ function assessSnapshot(
   const assessments: RelationshipAssessment[] = [];
   const issues: TodayEvaluationIssue[] = [];
   for (const person of [...data.people].sort(compareId)) {
+    if (!personMatchesActiveMode(person, activeMode)) continue;
     try {
       assessments.push(assessRelationship(relationshipBundleFromGroups(grouped, person), clock));
     } catch {
@@ -194,13 +200,18 @@ function cardFromItem(
         })
       }
     } : {}),
-    contact: resolveContactNowTargets(contactMethods, settings.defaultPhoneRegion)
+    contact: resolveContactNowTargets(contactMethods, settings.defaultPhoneRegion),
+    conversationStarters: (settings.conversationStarters ?? DEFAULT_CONVERSATION_STARTERS).filter((starter) => {
+      const mode = person.relationshipMode ?? "personal";
+      return starter.relationshipMode === "both" || mode === "both" || starter.relationshipMode === mode;
+    })
   };
 }
 
 async function buildTodayProjection(
   db: PeopleOsDatabase,
   clock: RelationshipClock,
+  activeMode: ActiveRelationshipMode = "personal",
   /**
    * When set, only this Person's card is assembled. Eligibility, global order
    * and every count still come from the complete evaluation — only the display
@@ -210,7 +221,7 @@ async function buildTodayProjection(
   onlyCardFor?: string
 ): Promise<TodayScreenProjection> {
   const { data, metadata } = await readTodaySnapshot(db);
-  const { assessments, issues, grouped } = assessSnapshot(data, clock);
+  const { assessments, issues, grouped } = assessSnapshot(data, clock, activeMode);
   const settings = data.appSettings[0];
   if (!settings) throw new Error("PeopleOS settings are missing");
   const result = buildToday({ assessments, todaySkips: data.todaySkips, clock });
@@ -224,7 +235,7 @@ async function buildTodayProjection(
     result,
     datasetRevision: metadata.datasetRevision,
     alreadyContactedDefaultReminderDays: settings.alreadyContactedDefaultReminderDays,
-    activePersonCount: data.people.filter(activePerson).length,
+    activePersonCount: data.people.filter((person) => activePerson(person) && personMatchesActiveMode(person, activeMode)).length,
     eligibleBeforeSkipsCount,
     skippedEligibleCount: Math.max(0, eligibleBeforeSkipsCount - result.totalCount),
     cards: cardItems.map((item) => cardFromItem(item, data, assessmentsByPerson, index)),
@@ -239,9 +250,10 @@ async function buildTodayProjection(
  */
 export async function getTodayScreenProjection(
   db: PeopleOsDatabase,
-  clock: RelationshipClock
+  clock: RelationshipClock,
+  activeMode: ActiveRelationshipMode = "personal"
 ): Promise<TodayScreenProjection> {
-  return buildTodayProjection(db, clock);
+  return buildTodayProjection(db, clock, activeMode);
 }
 
 /**
@@ -254,9 +266,10 @@ export async function getTodayScreenProjection(
 export async function getTodayActionContext(
   db: PeopleOsDatabase,
   personId: string,
-  clock: RelationshipClock
+  clock: RelationshipClock,
+  activeMode: ActiveRelationshipMode = "personal"
 ): Promise<TodayActionContext | undefined> {
-  const projection = await buildTodayProjection(db, clock, personId);
+  const projection = await buildTodayProjection(db, clock, activeMode, personId);
   const card = projection.cards.find((candidate) => candidate.person.id === personId);
   if (!card) return undefined;
   return {

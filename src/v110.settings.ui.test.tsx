@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import App from "./App";
@@ -11,7 +11,7 @@ async function resetDatabase() {
   await deletePeopleOsDatabase(DATABASE_NAME);
 }
 
-describe("V1-10 Already contacted default setting", () => {
+describe("simplified Settings", () => {
   beforeEach(async () => {
     await resetDatabase();
     window.history.replaceState({}, "", "/settings");
@@ -21,57 +21,55 @@ describe("V1-10 Already contacted default setting", () => {
     await resetDatabase();
   });
 
-  it("shows the 14-day default and dismisses without writing", async () => {
-    const user = userEvent.setup();
+  it("shows conversation starters as one collapsed row beside the four essential sections", async () => {
     render(<App />);
-    const opener = await screen.findByRole("button", { name: "Default “Already contacted” interval" });
-    await waitFor(() => expect(opener).toBeEnabled());
-    expect(screen.getByText("14 days", { selector: "dd" })).toBeInTheDocument();
-    const before = await (await getDatabase()).get("appSettings", "app");
 
-    await user.click(opener);
-    const dialog = screen.getByRole("dialog", { name: "Default “Already contacted” interval" });
-    expect(within(dialog).getByRole("radio", { name: "14 days" })).toBeChecked();
-    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
-
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(await (await getDatabase()).get("appSettings", "app")).toEqual(before);
-    await waitFor(() => expect(opener).toHaveFocus());
+    expect(await screen.findByRole("heading", { name: "Relationships included" })).toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual([
+      "Relationships included",
+      "Preferences",
+      "Your data",
+      "Privacy"
+    ]);
+    expect(screen.getByRole("link", { name: /Conversation starters \(\d+\)/ })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /Conversation starter/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Default “Already contacted” interval/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Current plan|Why now|reminder engine/i)).not.toBeInTheDocument();
   });
 
-  it("saves a preset immediately to the global Settings singleton", async () => {
+  it("opens a focused conversation-starter editor and adds the greeting when NAME is omitted", async () => {
     const user = userEvent.setup();
     render(<App />);
-    const opener = await screen.findByRole("button", { name: "Default “Already contacted” interval" });
-    await waitFor(() => expect(opener).toBeEnabled());
-    await user.click(opener);
-    const dialog = screen.getByRole("dialog", { name: "Default “Already contacted” interval" });
-    await user.click(within(dialog).getByRole("radio", { name: "30 days" }));
-    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
 
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(screen.getByText("30 days", { selector: "dd" })).toBeInTheDocument();
-    expect(await (await getDatabase()).get("appSettings", "app"))
-      .toMatchObject({ alreadyContactedDefaultReminderDays: 30, revision: 2 });
+    await user.click(await screen.findByRole("link", { name: /Conversation starters \(\d+\)/ }));
+    expect(window.location.pathname).toBe("/settings/conversation-starters");
+    expect(await screen.findByRole("heading", { name: "Conversation starters" })).toBeInTheDocument();
+    expect(screen.getByText("Write naturally. Use NAME only when you want to place the person’s name yourself.")).toBeInTheDocument();
+
+    const first = screen.getByRole("textbox", { name: "Conversation starter 1" });
+    expect((first as HTMLInputElement).value).not.toContain("{name}");
+    await user.clear(first);
+    await user.type(first, "Hope you are doing well.");
+    await user.click(screen.getByRole("button", { name: "Save starters" }));
+
+    expect(await screen.findByText("Conversation starters saved.")).toBeInTheDocument();
+    const saved = await (await getDatabase()).get("appSettings", "app");
+    expect(saved?.conversationStarters?.[0]?.template).toBe("Hi {name},\n\nHope you are doing well.");
   });
 
-  it("validates Custom as a whole number from 1 to 3650", async () => {
+  it("stores the friendly NAME token as the existing canonical person placeholder", async () => {
     const user = userEvent.setup();
     render(<App />);
-    const opener = await screen.findByRole("button", { name: "Default “Already contacted” interval" });
-    await waitFor(() => expect(opener).toBeEnabled());
-    await user.click(opener);
-    const dialog = screen.getByRole("dialog", { name: "Default “Already contacted” interval" });
-    await user.click(within(dialog).getByRole("radio", { name: "Custom" }));
-    const input = within(dialog).getByRole("spinbutton", { name: "Custom days Required" });
-    await user.clear(input);
-    await user.type(input, "45");
-    expect(within(dialog).getByText(/^In 45 days · /)).toBeInTheDocument();
-    await user.clear(input);
-    await user.type(input, "3651");
-    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
-    expect(within(dialog).getByRole("alert")).toHaveTextContent("Enter a whole number from 1 to 3650 days.");
-    await waitFor(() => expect(input).toHaveFocus());
-    expect((await (await getDatabase()).get("appSettings", "app"))?.alreadyContactedDefaultReminderDays).toBe(14);
+
+    await user.click(await screen.findByRole("link", { name: /Conversation starters \(\d+\)/ }));
+    const first = await screen.findByRole("textbox", { name: "Conversation starter 1" });
+    await user.clear(first);
+    await user.type(first, "Hi NAME, free this week?");
+    await user.click(screen.getByRole("button", { name: "Save starters" }));
+
+    await waitFor(async () => {
+      const saved = await (await getDatabase()).get("appSettings", "app");
+      expect(saved?.conversationStarters?.[0]?.template).toBe("Hi {name}, free this week?");
+    });
   });
 });

@@ -23,6 +23,7 @@ import {
 import { getReachOutDetail } from "./application/reachOutQueries";
 // eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { getDatabase } from "./data/client";
+import { readActiveRelationshipMode } from "./relationshipModePreference";
 import type { LocalDate, Person, ReachOutContext } from "./domain/schema";
 import {
   ContactValueValidationError,
@@ -30,6 +31,7 @@ import {
   normalizeContactValue
 } from "./integrations/contactValues";
 import { personProfilePath, reachOutDetailPath } from "./navigation";
+import PhoneRegionSelect from "./PhoneRegionSelect";
 
 type Navigate = (path: string, options?: { replace?: boolean; state?: Record<string, unknown> }) => void;
 
@@ -141,7 +143,7 @@ export default function ResolveProvisionalPersonScreen({
       if (current?.person.identityStatus === "provisional") {
         setName(current.person.displayName);
         affiliationDraftRef.current ??= createAffiliationDraft(current.person.id);
-        setPeople((await listActivePersonOptions(db, current.person.id)).filter((option) => option.person.identityStatus === "confirmed"));
+        setPeople((await listActivePersonOptions(db, current.person.id, readActiveRelationshipMode())).filter((option) => option.person.identityStatus === "confirmed"));
       }
     } catch {
       setError("PeopleOS could not load identity resolution.");
@@ -391,15 +393,14 @@ export default function ResolveProvisionalPersonScreen({
                               </select>
                             </div>
                             {draft.kind === "phone" && (
-                              <div className="form-field">
+                              <div className="form-field phone-region-field">
                                 <label htmlFor={`resolver-contact-${draft.id}-region`}>Phone region</label>
-                                <select
+                                <PhoneRegionSelect
                                   id={`resolver-contact-${draft.id}-region`}
                                   value={draft.region ?? defaultPhoneRegion}
-                                  onChange={(event) => updateContactDraft(draft.id, { region: event.target.value })}
-                                >
-                                  {phoneRegionOptions.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}
-                                </select>
+                                  options={phoneRegionOptions}
+                                  onChange={(region) => updateContactDraft(draft.id, { region })}
+                                />
                               </div>
                             )}
                             <div className="form-field contact-value-field">

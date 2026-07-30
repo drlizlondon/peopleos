@@ -4,6 +4,7 @@ import type {
   OrganisationAffiliation,
   Person
 } from "../domain/schema";
+import type { RelationshipMode } from "../domain/relationshipMode";
 import { assertValidRecord, ValidationError } from "../domain/validation";
 import { RecordConflictError } from "../data/repositories";
 import type { PeopleOsDatabase } from "../data/database";
@@ -25,10 +26,12 @@ export type ManualPersonCaptureDraft = {
   metInteractionId: string;
   createdAt: string;
   displayName: string;
+  relationshipMode: RelationshipMode;
   identityStatus: "confirmed" | "provisional";
   importance: "normal" | "high";
   tags: string[];
   contactCadenceDays?: number;
+  contactCadenceFirstDueDate?: string;
   contactMethods: ManualContactMethodDraft[];
   organisationName?: string;
   role?: string;
@@ -67,6 +70,7 @@ export function createManualPersonCaptureDraft(
     metInteractionId: createId("interaction", idFactory),
     createdAt: options.now ?? new Date().toISOString(),
     displayName: "",
+    relationshipMode: "personal",
     identityStatus: "confirmed",
     importance: "normal",
     tags: [],
@@ -99,7 +103,7 @@ function assertCaptureFields(draft: ManualPersonCaptureDraft): void {
   if (draft.tags.some((tag) => tag.trim().length > 40)) issues.push("Each tag must be 40 characters or fewer.");
   if (draft.contactCadenceDays !== undefined
     && (!Number.isInteger(draft.contactCadenceDays) || draft.contactCadenceDays < 1 || draft.contactCadenceDays > 3650)) {
-    issues.push("Contact cadence must be between 1 and 3650 days.");
+    issues.push("Choose a whole number from 1 to 3650 days.");
   }
   if (optionalTrimmed(draft.role) && !optionalTrimmed(draft.organisationName)) {
     issues.push("Add an organisation before adding a role.");
@@ -126,10 +130,12 @@ export function prepareManualPersonCapture(
     id: draft.personId,
     revision: 1,
     displayName: draft.displayName.trim(),
+    relationshipMode: draft.relationshipMode,
     identityStatus: draft.identityStatus,
     importance: draft.importance,
     tags,
     ...(draft.contactCadenceDays === undefined ? {} : { contactCadenceDays: draft.contactCadenceDays }),
+    ...(draft.contactCadenceFirstDueDate === undefined ? {} : { contactCadenceFirstDueDate: draft.contactCadenceFirstDueDate }),
     createdAt: timestamp,
     updatedAt: timestamp
   };

@@ -181,6 +181,18 @@ function sortedById<T extends { id: string }>(records: readonly T[]): T[] {
   return [...records].sort((left, right) => left.id.localeCompare(right.id, "en-US"));
 }
 
+async function chooseProfileAction(
+  user: ReturnType<typeof userEvent.setup>,
+  action: "Edit person" | "Relationship settings" | "Archive person",
+  personName = "Sarah Jones"
+) {
+  const actions = await screen.findByRole("group", { name: "Person actions" });
+  const opener = actions.querySelector("summary");
+  expect(opener).toHaveAttribute("aria-label", `More actions for ${personName}`);
+  await user.click(opener!);
+  await user.click(screen.getByRole("menuitem", { name: action }));
+}
+
 describe("V1-11 complete Profile and Person lifecycle UI", () => {
   beforeEach(async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -209,12 +221,12 @@ describe("V1-11 complete Profile and Person lifecycle UI", () => {
 
     expect(await screen.findByRole("heading", { name: "Sarah Jones" })).toBeInTheDocument();
     const main = screen.getByRole("main");
-    await screen.findByRole("heading", { name: "Current plan" });
+    await screen.findByRole("heading", { name: "Keep in touch" });
     await screen.findByText("Looking for pilot sites");
     const orderedSections = [
-      "Current plan",
-      "Reach Out",
       "Relationship summary",
+      "Keep in touch",
+      "Reach Out",
       "Memory",
       "Recent timeline",
       "Contact details",
@@ -223,6 +235,15 @@ describe("V1-11 complete Profile and Person lifecycle UI", () => {
     const positions = headingOrder(main, orderedSections);
     expect(positions.every((position) => position >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((left, right) => left - right));
+    expect(screen.queryByRole("heading", { name: "Current plan" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Why now")).not.toBeInTheDocument();
+
+    const personActions = screen.getByRole("group", { name: "Person actions" });
+    expect(within(personActions).getByRole("button", { name: "Contact now" })).toHaveTextContent("Contact");
+    expect(within(personActions).getByRole("button", { name: "Log interaction" })).toHaveTextContent("Log");
+    expect(personActions.querySelector("summary")).toHaveAttribute("aria-label", "More actions for Sarah Jones");
+    expect(within(personActions).queryByRole("button", { name: "Plan follow-up" })).not.toBeInTheDocument();
+    expect(within(personActions).queryByRole("button", { name: "Add memory" })).not.toBeInTheDocument();
 
     const header = screen.getByRole("heading", { name: "Sarah Jones" }).closest("header")!;
     expect(within(header).getByText(/Personal mobile: (?:07900|\+44 7900) 123456/)).toBeInTheDocument();
@@ -235,9 +256,12 @@ describe("V1-11 complete Profile and Person lifecycle UI", () => {
     expect(within(contacts).getByText("sarah@personal.example")).toBeInTheDocument();
     expect(within(contacts).queryByText("07911 123456")).not.toBeInTheDocument();
     expect(within(contacts).queryByText("sarah@nhs.example")).not.toBeInTheDocument();
+    const relationshipSummary = screen.getByRole("heading", { name: "Relationship summary" }).closest("section")!;
+    expect(within(relationshipSummary).getByText("Appears in").parentElement).toHaveTextContent("Personal");
+    expect(within(relationshipSummary).getByText("Last logged interaction")).toBeInTheDocument();
     expect(within(screen.getByRole("heading", { name: "Memory" }).closest("section")!).getAllByRole("term")).toHaveLength(3);
     expect(within(screen.getByRole("heading", { name: "Recent timeline" }).closest("section")!).getAllByRole("listitem")).toHaveLength(5);
-    expect(screen.getByText("Also due: 1 other plan")).toBeInTheDocument();
+    expect((await readAllData(await getDatabase())).followUps).toHaveLength(2);
   });
 
   it("recovers from an initial Profile identity read failure without a page reload", async () => {
@@ -256,14 +280,16 @@ describe("V1-11 complete Profile and Person lifecycle UI", () => {
     expect(await screen.findByRole("heading", { name: "Sarah Jones" })).toBeInTheDocument();
   });
 
-  it("validates and saves Person-level preferences without changing stable identity", async () => {
+  it("keeps identity details separate from relationship settings without changing stable identity", async () => {
     const original = await seedPerson();
     window.history.replaceState({}, "", `/people/${original.id}`);
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Edit person" }));
+    await chooseProfileAction(user, "Edit person");
 
     expect(await screen.findByRole("heading", { name: "Edit person" })).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Professional" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Remind me to stay in touch" })).not.toBeInTheDocument();
     const name = screen.getByLabelText(/Display name/);
     await user.clear(name);
     await user.click(screen.getByRole("button", { name: "Save changes" }));
@@ -273,26 +299,36 @@ describe("V1-11 complete Profile and Person lifecycle UI", () => {
     await waitFor(() => expect(name).toHaveFocus());
 
     await user.type(name, "Sarah Ahmed");
-    const cadence = screen.getByLabelText(/Contact cadence in days/);
-    await user.type(cadence, "0");
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Enter a whole number from 1 to 3650 days");
-    await waitFor(() => expect(cadence).toHaveFocus());
-    await user.clear(cadence);
     await user.selectOptions(screen.getByLabelText("Importance"), "high");
     await user.clear(screen.getByLabelText(/Tags/));
     await user.type(screen.getByLabelText(/Tags/), "mentor, NHS");
-    await user.type(cadence, "90");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(await screen.findByRole("heading", { name: "Sarah Ahmed" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe(`/people/${original.id}`);
+    await chooseProfileAction(user, "Relationship settings", "Sarah Ahmed");
+    expect(await screen.findByRole("heading", { name: "Relationship settings" })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Display name/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: "Professional" }));
+    await user.click(screen.getByRole("checkbox", { name: "Remind me to stay in touch" }));
+    await user.selectOptions(screen.getByLabelText("How often?"), "custom");
+    const cadence = screen.getByLabelText("Days between reminders");
+    await user.type(cadence, "0");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Enter a whole number from 1 to 3650 days");
+    expect(cadence).toHaveValue(0);
+    await user.selectOptions(screen.getByLabelText("How often?"), "90");
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByRole("heading", { name: "Sarah Ahmed" })).toBeInTheDocument();
     expect(window.location.pathname).toBe(`/people/${original.id}`);
     const saved = await (await getDatabase()).get("people", original.id);
     expect(saved).toMatchObject({
       id: original.id,
-      revision: 2,
+      revision: 4,
       createdAt: original.createdAt,
       displayName: "Sarah Ahmed",
+      relationshipMode: "both",
       importance: "high",
       tags: ["mentor", "NHS"],
       contactCadenceDays: 90
@@ -361,7 +397,7 @@ describe("V1-11 complete Profile and Person lifecycle UI", () => {
     expect(screen.getByRole("heading", { name: "Sarah Jones" }).closest("header")).not.toHaveTextContent("not-an-email");
 
     await user.click(within(personActions).getByRole("button", { name: "Add contact details" }));
-    expect(await screen.findByRole("heading", { name: "Contact details" })).toBeInTheDocument();
+    await waitFor(() => expect(window.location.pathname).toBe(`/people/${original.id}/contact-methods`));
     expect(await screen.findByText("not-an-email")).toBeInTheDocument();
   });
 
@@ -371,7 +407,7 @@ describe("V1-11 complete Profile and Person lifecycle UI", () => {
     const confirm = vi.spyOn(window, "confirm");
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Edit person" }));
+    await chooseProfileAction(user, "Edit person");
     const name = await screen.findByLabelText(/Display name/);
     await user.clear(name);
     await user.type(name, "Unsaved Sarah");
@@ -384,9 +420,9 @@ describe("V1-11 complete Profile and Person lifecycle UI", () => {
     confirm.mockReturnValueOnce(true);
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(await screen.findByRole("heading", { name: "Sarah Jones" })).toBeInTheDocument();
-    expect(await (await getDatabase()).get("people", original.id)).toEqual(original);
+    expect(await (await getDatabase()).get("people", original.id)).toEqual({ ...original, relationshipMode: "personal" });
 
-    await user.click(screen.getByRole("button", { name: "Edit person" }));
+    await chooseProfileAction(user, "Edit person");
     const staleDraft = await screen.findByLabelText(/Display name/);
     const db = await getDatabase();
     await createRepositories(db).people.update({ ...original, displayName: "Changed elsewhere" }, 1, "2026-07-23T12:01:00.000Z");
@@ -405,7 +441,7 @@ describe("V1-11 complete Profile and Person lifecycle UI", () => {
     const confirm = vi.spyOn(window, "confirm");
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Edit person" }));
+    await chooseProfileAction(user, "Edit person");
     const draftName = await screen.findByLabelText(/Display name/);
     await user.clear(draftName);
     await user.type(draftName, "Unsaved archived name");
@@ -467,7 +503,7 @@ describe("V1-11 complete Profile and Person lifecycle UI", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Edit person" }));
+    await chooseProfileAction(user, "Edit person");
     await user.click(await screen.findByRole("button", { name: "Archive person" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("could not save these changes");
     vi.setSystemTime(new Date("2026-07-24T12:00:00.000Z"));
