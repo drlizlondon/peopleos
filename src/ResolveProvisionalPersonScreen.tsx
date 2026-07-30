@@ -31,6 +31,7 @@ import {
   normalizeContactValue
 } from "./integrations/contactValues";
 import { personProfilePath, reachOutDetailPath } from "./navigation";
+import PhoneRegionSelect from "./PhoneRegionSelect";
 
 type Navigate = (path: string, options?: { replace?: boolean; state?: Record<string, unknown> }) => void;
 
@@ -392,15 +393,14 @@ export default function ResolveProvisionalPersonScreen({
                               </select>
                             </div>
                             {draft.kind === "phone" && (
-                              <div className="form-field">
+                              <div className="form-field phone-region-field">
                                 <label htmlFor={`resolver-contact-${draft.id}-region`}>Phone region</label>
-                                <select
+                                <PhoneRegionSelect
                                   id={`resolver-contact-${draft.id}-region`}
                                   value={draft.region ?? defaultPhoneRegion}
-                                  onChange={(event) => updateContactDraft(draft.id, { region: event.target.value })}
-                                >
-                                  {phoneRegionOptions.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}
-                                </select>
+                                  options={phoneRegionOptions}
+                                  onChange={(region) => updateContactDraft(draft.id, { region })}
+                                />
                               </div>
                             )}
                             <div className="form-field contact-value-field">

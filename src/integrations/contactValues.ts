@@ -25,6 +25,7 @@ export type NormalizedContactValue = {
 
 export type PhoneRegionOption = {
   code: CountryCode;
+  callingCode: string;
   label: string;
 };
 
@@ -36,10 +37,14 @@ export function getPhoneRegionOptions(locale = "en-GB"): PhoneRegionOption[] {
     displayNames = undefined;
   }
   return getCountries()
-    .map((code) => ({
-      code,
-      label: `${displayNames?.of(code) ?? code} (+${getCountryCallingCode(code)})`
-    }))
+    .map((code) => {
+      const callingCode = `+${getCountryCallingCode(code)}`;
+      return {
+        code,
+        callingCode,
+        label: `${displayNames?.of(code) ?? code} ${callingCode}`
+      };
+    })
     .sort((left, right) => left.label.localeCompare(right.label, locale) || left.code.localeCompare(right.code));
 }
 

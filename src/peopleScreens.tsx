@@ -121,6 +121,7 @@ import {
 import DuplicateWarningSheet, { type DuplicateLinkSelection } from "./DuplicateWarningSheet";
 import { DuplicateReviewRequiredError } from "./application/duplicateReview";
 import PeopleFilterSheet from "./PeopleFilterSheet";
+import PhoneRegionSelect from "./PhoneRegionSelect";
 
 type Navigate = (path: string, options?: { replace?: boolean; state?: Record<string, unknown> }) => void;
 
@@ -847,20 +848,31 @@ export function AddPersonScreen({
           return (
             <div className="form-field simple-contact-field">
               <label htmlFor={`capture-contact-${contact.id}-value`}>Phone or email <span>Optional</span></label>
-              <input
-                id={`capture-contact-${contact.id}-value`}
-                type="text"
-                inputMode={contact.kind === "email" ? "email" : "text"}
-                autoComplete={contact.kind === "email" ? "email" : "tel"}
-                placeholder="Mobile number or email address"
-                value={contact.value}
-                aria-invalid={Boolean(error)}
-                aria-describedby={error ? `capture-contact-${contact.id}-error` : undefined}
-                onChange={(event) => updateContact(contact.id, {
-                  value: event.target.value,
-                  kind: event.target.value.includes("@") ? "email" : "phone"
-                })}
-              />
+              <div className={`simple-contact-entry${contact.kind === "phone" ? " has-region" : ""}`}>
+                {contact.kind === "phone" && (
+                  <PhoneRegionSelect
+                    id={`capture-contact-${contact.id}-region`}
+                    value={contact.region ?? defaultPhoneRegion}
+                    options={phoneRegionOptions}
+                    ariaLabel="Phone region"
+                    onChange={(region) => updateContact(contact.id, { region })}
+                  />
+                )}
+                <input
+                  id={`capture-contact-${contact.id}-value`}
+                  type="text"
+                  inputMode={contact.kind === "email" ? "email" : "text"}
+                  autoComplete={contact.kind === "email" ? "email" : "tel"}
+                  placeholder="Mobile number or email address"
+                  value={contact.value}
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? `capture-contact-${contact.id}-error` : undefined}
+                  onChange={(event) => updateContact(contact.id, {
+                    value: event.target.value,
+                    kind: event.target.value.includes("@") ? "email" : "phone"
+                  })}
+                />
+              </div>
               {error && <p className="field-error" id={`capture-contact-${contact.id}-error`} role="alert">{error}</p>}
             </div>
           );
@@ -956,11 +968,14 @@ export function AddPersonScreen({
                     <label htmlFor={`advanced-contact-${contact.id}`}>{contact.kind === "email" ? "Email address" : "Mobile number"}</label>
                     <input id={`advanced-contact-${contact.id}`} value={contact.value} onChange={(event) => updateContact(contact.id, { value: event.target.value })} />
                   </div>}
-                  {contact.kind === "phone" && <div className="form-field phone-region-field">
+                  {contact.kind === "phone" && index > 0 && <div className="form-field phone-region-field">
                     <label htmlFor={`capture-contact-${contact.id}-region`}>Phone region</label>
-                    <select id={`capture-contact-${contact.id}-region`} value={contact.region ?? defaultPhoneRegion} onChange={(event) => updateContact(contact.id, { region: event.target.value })}>
-                      {phoneRegionOptions.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}
-                    </select>
+                    <PhoneRegionSelect
+                      id={`capture-contact-${contact.id}-region`}
+                      value={contact.region ?? defaultPhoneRegion}
+                      options={phoneRegionOptions}
+                      onChange={(region) => updateContact(contact.id, { region })}
+                    />
                   </div>}
                   <div className="form-field">
                     <label htmlFor={`capture-contact-${contact.id}-label`}>Label <span>Optional</span></label>
@@ -2382,15 +2397,14 @@ export function ContactMethodsScreen({
                       </select>
                     </div>
                     {editor.draft.kind === "phone" && (
-                      <div className="form-field">
+                      <div className="form-field phone-region-field">
                         <label htmlFor="contact-editor-region">Phone region</label>
-                        <select
+                        <PhoneRegionSelect
                           id="contact-editor-region"
                           value={editor.draft.region ?? phoneRegion}
-                          onChange={(event) => changeEditor({ region: event.target.value })}
-                        >
-                          {phoneRegionOptions.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}
-                        </select>
+                          options={phoneRegionOptions}
+                          onChange={(region) => changeEditor({ region })}
+                        />
                       </div>
                     )}
                     <div className="form-field contact-value-field">

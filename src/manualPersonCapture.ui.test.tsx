@@ -92,10 +92,12 @@ describe("V1-03 manual person capture", () => {
     await openCapture(user);
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "US contact" } });
     fireEvent.change(screen.getByLabelText(/^Phone or email/), { target: { value: "202 555 0123" } });
-    await user.click(screen.getByText("More details"));
     const region = screen.getByLabelText("Phone region");
-    await user.selectOptions(region, "GB");
+    expect(screen.getByText("+44")).toBeInTheDocument();
+    expect(within(region).getByRole("option", { name: "United Kingdom +44" })).toBeInTheDocument();
+    expect(within(region).getByRole("option", { name: "United States +1" })).toBeInTheDocument();
     await user.selectOptions(region, "US");
+    expect(screen.getByText("+1")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save person" }));
 
     expect(await screen.findByRole("heading", { name: "US contact" })).toBeInTheDocument();

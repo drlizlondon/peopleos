@@ -935,8 +935,67 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 
 .contact-row-grid.phone-row-grid {
-  grid-template-columns: minmax(90px, 0.65fr) minmax(150px, 1fr) minmax(165px, 1.35fr) minmax(120px, 0.9fr);
+  grid-template-columns: minmax(90px, 0.65fr) minmax(82px, 0.55fr) minmax(165px, 1.35fr) minmax(120px, 0.9fr);
 }
+
+.phone-region-select {
+  position: relative;
+  min-width: 82px;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #cfc4c5;
+  border-radius: 9px;
+  background: #fbfafb;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-weight: 750;
+  transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.phone-region-select:hover { background: var(--surface-soft); }
+.phone-region-select:active { background: var(--forest-light); }
+.phone-region-select:focus-within {
+  border-color: var(--forest);
+  box-shadow: 0 0 0 3px rgba(166, 30, 77, 0.14);
+}
+
+.phone-region-select select,
+.form-field .phone-region-select select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.phone-region-chevron {
+  color: var(--forest);
+  font-size: 0.9em;
+  line-height: 1;
+  transform: translateY(-1px);
+}
+
+.simple-contact-entry {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.simple-contact-entry.has-region { grid-template-columns: auto minmax(0, 1fr); }
+.simple-contact-entry.has-region .phone-region-select {
+  border-radius: 9px 0 0 9px;
+  border-right: 0;
+}
+.simple-contact-entry.has-region input { border-radius: 0 9px 9px 0; }
+.phone-region-field .phone-region-select { width: 100%; }
 
 .text-action {
   min-height: 40px;
@@ -2234,7 +2293,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .contact-draft .text-action { min-height: 32px; margin-top: 4px; padding: 4px 0; font-size: 0.8rem; }
 .phone-region-field { opacity: 0.72; }
 .phone-region-field label { font-size: 0.74rem; font-weight: 650; }
-.phone-region-field select { background: #fbfafb; color: var(--muted); font-size: 0.82rem; }
+.phone-region-field .phone-region-select { color: var(--muted); font-size: 0.82rem; }
 .frequency-field { padding: 11px 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-soft); }
 .frequency-field select { background: white; }
 .compact-buttons button { min-height: 36px; padding: 6px 10px; }
