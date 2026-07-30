@@ -33,9 +33,8 @@ describe("V1-03 manual person capture", () => {
     const user = userEvent.setup();
     const name = await openCapture(user, true);
     await waitFor(() => expect(name).toHaveFocus());
-    expect(screen.getByRole("navigation", { name: "Primary navigation" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "People" })).toHaveAttribute("aria-current", "page");
-    await user.type(name, "Simon");
+    expect(screen.queryByRole("navigation", { name: "Primary navigation" })).not.toBeInTheDocument();
+    fireEvent.change(name, { target: { value: "Simon" } });
     const replace = vi.spyOn(window.history, "replaceState");
 
     const form = screen.getByRole("button", { name: "Save person" }).closest("form");
@@ -61,7 +60,7 @@ describe("V1-03 manual person capture", () => {
     window.history.replaceState({}, "", "/");
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "Add your first person" }));
-    await user.type(screen.getByLabelText("Name"), "Today person");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Today person" } });
     await user.click(screen.getByRole("button", { name: "Save person" }));
 
     expect(await screen.findByRole("heading", { name: "Today person" })).toBeInTheDocument();
@@ -72,14 +71,13 @@ describe("V1-03 manual person capture", () => {
   });
 
   it.each([
-    { kind: "phone" as const, label: "Phone number", value: "+447900123456", canonicalValue: "+447900123456" },
-    { kind: "email" as const, label: "Email address", value: " person@example.com ", canonicalValue: "person@example.com" }
-  ])("creates a person with one $kind contact method", async ({ kind, label, value, canonicalValue }) => {
+    { kind: "phone" as const, value: "+447900123456", canonicalValue: "+447900123456" },
+    { kind: "email" as const, value: " person@example.com ", canonicalValue: "person@example.com" }
+  ])("creates a person with one inferred $kind contact method", async ({ kind, value, canonicalValue }) => {
     const user = userEvent.setup();
     await openCapture(user);
-    await user.type(screen.getByLabelText("Name"), `${kind} person`);
-    if (kind === "email") await user.selectOptions(screen.getByLabelText("Type"), "email");
-    await user.type(screen.getByLabelText(label), value);
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: `${kind} person` } });
+    fireEvent.change(screen.getByLabelText(/^Phone or email/), { target: { value } });
     await user.click(screen.getByRole("button", { name: "Save person" }));
 
     expect(await screen.findByRole("heading", { name: `${kind} person` })).toBeInTheDocument();
@@ -92,11 +90,12 @@ describe("V1-03 manual person capture", () => {
   it("lets the user choose a phone region for an ambiguous national number", async () => {
     const user = userEvent.setup();
     await openCapture(user);
-    await user.type(screen.getByLabelText("Name"), "US contact");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "US contact" } });
+    fireEvent.change(screen.getByLabelText(/^Phone or email/), { target: { value: "202 555 0123" } });
+    await user.click(screen.getByText("More details"));
     const region = screen.getByLabelText("Phone region");
     await user.selectOptions(region, "GB");
     await user.selectOptions(region, "US");
-    await user.type(screen.getByLabelText("Phone number"), "202 555 0123");
     await user.click(screen.getByRole("button", { name: "Save person" }));
 
     expect(await screen.findByRole("heading", { name: "US contact" })).toBeInTheDocument();
@@ -112,8 +111,11 @@ describe("V1-03 manual person capture", () => {
   it("creates a provisional Person from only a descriptive label", async () => {
     const user = userEvent.setup();
     await openCapture(user);
+    await user.click(screen.getByText("More details"));
     await user.click(screen.getByRole("radio", { name: "A description for now" }));
-    await user.type(screen.getByLabelText("Temporary description"), "Chief Information Officer at Watford");
+    fireEvent.change(screen.getByLabelText("Temporary description"), {
+      target: { value: "Chief Information Officer at Watford" }
+    });
     await user.click(screen.getByRole("button", { name: "Save person" }));
 
     expect(await screen.findByRole("heading", { name: "Chief Information Officer at Watford" })).toBeInTheDocument();
@@ -129,8 +131,8 @@ describe("V1-03 manual person capture", () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     await openCapture(user);
-    await user.type(screen.getByLabelText("Name"), "Not saved");
-    await user.click(screen.getByRole("button", { name: "← Cancel" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Not saved" } });
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
 
     expect(confirm).toHaveBeenCalledWith("Discard changes?");
     await waitFor(() => expect(window.location.pathname).toBe("/people"));
@@ -141,7 +143,7 @@ describe("V1-03 manual person capture", () => {
     const user = userEvent.setup();
     await openCapture(user);
     const name = screen.getByLabelText("Name");
-    await user.type(name, "Retry me");
+    fireEvent.change(name, { target: { value: "Retry me" } });
     await (await getDatabase()).delete("metadata", "app");
     await user.click(screen.getByRole("button", { name: "Save person" }));
 
@@ -153,15 +155,15 @@ describe("V1-03 manual person capture", () => {
   it("adds and removes unsaved contact rows and validates malformed values inline", async () => {
     const user = userEvent.setup();
     await openCapture(user);
-    await user.type(screen.getByLabelText("Name"), "Aaron");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Aaron" } });
+    await user.click(screen.getByText("More details"));
     await user.click(screen.getByRole("button", { name: "Add email" }));
     expect(screen.getByLabelText("Email address")).toBeInTheDocument();
-    await user.click(screen.getAllByRole("button", { name: "Remove contact detail" })[1]);
+    await user.click(screen.getByRole("button", { name: "Remove contact detail" }));
     expect(screen.queryByLabelText("Email address")).not.toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText("Type"), "email");
-    const email = screen.getByLabelText("Email address");
-    await user.type(email, "not-an-email");
+    const email = screen.getByLabelText(/^Phone or email/);
+    fireEvent.change(email, { target: { value: "not-an-email@" } });
     await user.click(screen.getByRole("button", { name: "Save person" }));
 
     expect(await screen.findByText("Enter a valid email address, such as name@example.com.")).toBeInTheDocument();
@@ -169,10 +171,9 @@ describe("V1-03 manual person capture", () => {
     expect(email).toHaveAccessibleDescription("Enter a valid email address, such as name@example.com.");
     expect((await readAllData(await getDatabase())).people).toHaveLength(0);
 
-    await user.clear(email);
-    await user.selectOptions(screen.getByLabelText("Type"), "phone");
-    const phone = screen.getByLabelText("Phone number");
-    await user.type(phone, "123");
+    fireEvent.change(email, { target: { value: "" } });
+    const phone = screen.getByLabelText(/^Phone or email/);
+    fireEvent.change(phone, { target: { value: "123" } });
     await user.click(screen.getByRole("button", { name: "Save person" }));
     expect(await screen.findByText("Enter a valid phone number, including the country code for international numbers.")).toBeInTheDocument();
     expect(phone).toHaveAttribute("aria-invalid", "true");
@@ -181,28 +182,35 @@ describe("V1-03 manual person capture", () => {
   it("persists multiple contact methods, affiliation and met context as one capture", async () => {
     const user = userEvent.setup();
     await openCapture(user);
-    await user.type(screen.getByLabelText("Name"), "Sarah Ahmed");
-    await user.type(screen.getByLabelText("Phone number"), "+447900123456");
-    await user.type(screen.getByLabelText("Label"), "Personal mobile");
-    await user.click(screen.getByRole("button", { name: "Add phone" }));
-    await user.click(screen.getByRole("button", { name: "Add email" }));
-    const phones = screen.getAllByLabelText("Phone number");
-    await user.type(phones[1], "+44 7912 123456");
-    await user.type(screen.getByLabelText("Email address"), " Sarah@NHS.example ");
-    await user.type(screen.getByLabelText(/^Organisation/), "NHS England");
-    await user.type(screen.getByLabelText(/^Where you met/), "HealthTech Fellowship");
-    await user.click(screen.getByText("More details"));
-    await user.type(screen.getByLabelText(/^Role or job title/), "Clinical fellow");
-    await user.type(screen.getByLabelText(/^Tags/), "fellowship, clinician");
-    await user.selectOptions(screen.getByLabelText(/^Contact cadence in days/), "90");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Sarah Ahmed" } });
+    fireEvent.change(screen.getByLabelText(/^Phone or email/), { target: { value: "+447900123456" } });
+    fireEvent.click(screen.getByText("More details"));
+    fireEvent.change(screen.getByLabelText(/^Label/), { target: { value: "Personal mobile" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add mobile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add email" }));
+    fireEvent.change(screen.getByLabelText("Mobile number"), { target: { value: "+44 7912 123456" } });
+    fireEvent.change(screen.getByLabelText("Email address"), { target: { value: " Sarah@NHS.example " } });
+    fireEvent.change(screen.getByLabelText(/^Organisation/), { target: { value: "NHS England" } });
+    fireEvent.change(screen.getByLabelText(/^Where you met/), { target: { value: "HealthTech Fellowship" } });
+    fireEvent.change(screen.getByLabelText(/^Role or job title/), { target: { value: "Clinical fellow" } });
+    fireEvent.change(screen.getByLabelText(/^Tags/), { target: { value: "fellowship, clinician" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Remind me to stay in touch" }));
+    fireEvent.change(screen.getByLabelText("How often?"), { target: { value: "90" } });
+    fireEvent.change(screen.getByLabelText("Start"), { target: { value: "date" } });
+    fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2027-01-15" } });
     await user.click(screen.getByRole("button", { name: "Save person" }));
 
-    expect(await screen.findByRole("heading", { name: "Sarah Ahmed" })).toBeInTheDocument();
-    expect(screen.getByText("Clinical fellow · NHS England")).toBeInTheDocument();
+    const profileHeading = await screen.findByRole("heading", { name: "Sarah Ahmed" });
+    expect(profileHeading).toBeInTheDocument();
+    expect(within(profileHeading.closest("header")!).getByText("Clinical fellow · NHS England")).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Recent timeline" })).getByText("HealthTech Fellowship")).toBeInTheDocument();
     const data = await readAllData(await getDatabase());
     expect(data.people).toHaveLength(1);
-    expect(data.people[0]).toMatchObject({ tags: ["fellowship", "clinician"], contactCadenceDays: 90 });
+    expect(data.people[0]).toMatchObject({
+      tags: ["fellowship", "clinician"],
+      contactCadenceDays: 90,
+      contactCadenceFirstDueDate: "2027-01-15"
+    });
     expect(data.contactMethods).toHaveLength(3);
     expect(data.contactMethods.filter((contact) => contact.kind === "phone")).toHaveLength(2);
     expect(data.contactMethods.find((contact) => contact.kind === "email")).toMatchObject({
@@ -217,13 +225,13 @@ describe("V1-03 manual person capture", () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     await openCapture(user);
-    await user.type(screen.getByLabelText("Name"), "Mina");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Mina" } });
     await user.click(screen.getByRole("button", { name: "Save person" }));
     await screen.findByRole("heading", { name: "Mina" });
     await user.click(within(screen.getByRole("region", { name: "Contact details" })).getByRole("button", { name: "See all" }));
 
     await user.click(screen.getByRole("button", { name: "Add email" }));
-    await user.type(screen.getByLabelText("Email address"), "discard@example.com");
+    fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "discard@example.com" } });
     confirm.mockReturnValueOnce(false);
     await user.keyboard("{Escape}");
     expect(screen.getByRole("dialog", { name: "Add contact detail" })).toBeInTheDocument();
@@ -233,14 +241,14 @@ describe("V1-03 manual person capture", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Add email" })).toHaveFocus());
 
     await user.click(screen.getByRole("button", { name: "Add email" }));
-    await user.type(screen.getByLabelText("Email address"), "one@example.com");
-    await user.type(screen.getByLabelText(/^Label/), "Personal email");
+    fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "one@example.com" } });
+    fireEvent.change(screen.getByLabelText(/^Label/), { target: { value: "Personal email" } });
     await user.click(screen.getByRole("button", { name: "Save contact detail" }));
     expect(await screen.findByText("one@example.com")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: "Add email" })).toHaveFocus());
 
     await user.click(screen.getByRole("button", { name: "Add email" }));
-    await user.type(screen.getByLabelText("Email address"), "two@example.com");
+    fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "two@example.com" } });
     await user.click(screen.getByRole("button", { name: "Save contact detail" }));
     const second = (await screen.findByText("two@example.com")).closest("li");
     expect(second).not.toBeNull();
@@ -250,8 +258,7 @@ describe("V1-03 manual person capture", () => {
     const first = screen.getByText("one@example.com").closest("li");
     await user.click(within(first!).getByRole("button", { name: /Edit one@example.com/ }));
     const editorValue = screen.getByLabelText("Email address");
-    await user.clear(editorValue);
-    await user.type(editorValue, "updated@example.com");
+    fireEvent.change(editorValue, { target: { value: "updated@example.com" } });
     await user.click(screen.getByRole("button", { name: "Save contact detail" }));
     expect(await screen.findByText("updated@example.com")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: /Edit updated@example.com/ })).toHaveFocus());
@@ -308,7 +315,7 @@ describe("V1-03 manual person capture", () => {
     window.history.replaceState({ fromPath: "/people/person-sarah" }, "", "/people/person-sarah/contact-methods");
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "Add email" }));
-    await user.type(screen.getByLabelText("Email address"), " Shared@Example.com ");
+    fireEvent.change(screen.getByLabelText("Email address"), { target: { value: " Shared@Example.com " } });
     await user.click(screen.getByRole("button", { name: "Save contact detail" }));
 
     const warning = await screen.findByRole("dialog", { name: "Contact detail already used" });
@@ -344,8 +351,9 @@ describe("V1-03 manual person capture", () => {
     });
 
     await user.click(within(secondWarning).getByRole("button", { name: "Keep contact detail on Sarah Ahmed" }));
-    const concurrentWarning = await screen.findByRole("dialog", { name: "Contact detail already used" });
-    expect(within(concurrentWarning).getByRole("heading", { level: 4, name: "Concurrent colleague" })).toBeInTheDocument();
+    await waitFor(() => expect(within(screen.getByRole("dialog", { name: "Contact detail already used" }))
+      .getByRole("heading", { level: 4, name: "Concurrent colleague" })).toBeInTheDocument());
+    const concurrentWarning = screen.getByRole("dialog", { name: "Contact detail already used" });
     await user.click(within(concurrentWarning).getByRole("button", { name: "Keep contact detail on Sarah Ahmed" }));
     expect(await screen.findByText("Shared@Example.com")).toBeInTheDocument();
     expect((await readAllData(db)).contactMethods).toHaveLength(3);

@@ -14,16 +14,16 @@ export default defineConfig({
         short_name: "PeopleOS",
         description:
           "A calm relationship operating system that helps you remember people.",
-        theme_color: "#ffffff",
+        theme_color: "#a61e4d",
         background_color: "#ffffff",
         display: "standalone",
         start_url: "/",
         scope: "/",
         icons: [
-          { src: "icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
-          { src: "icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
+          { src: "icon-192.png?v=raspberry-2", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "icon-512.png?v=raspberry-2", sizes: "512x512", type: "image/png", purpose: "any maskable" },
           {
-            src: "peopleos-mark.svg",
+            src: "peopleos-mark.svg?v=raspberry-2",
             sizes: "any",
             type: "image/svg+xml",
             purpose: "any maskable"

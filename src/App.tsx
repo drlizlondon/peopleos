@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "./icons";
-import { followUpDetailPath, personProfilePath, reachOutDetailPath, routeFromPath, routes, type Route } from "./navigation";
+import { personProfilePath, reachOutDetailPath, routeFromPath, routes, type Route } from "./navigation";
 import { SettingsScreen } from "./screens";
+import ConversationStarterSettingsScreen from "./ConversationStarterSettingsScreen";
 import TodayScreen from "./TodayScreen";
 import {
   AddPersonScreen,
@@ -17,10 +18,8 @@ import { getDatabase } from "./data/client";
 import { ImportContactsScreen, ImportResultsScreen } from "./importScreens";
 import TimelineScreen from "./TimelineScreen";
 import GlobalAddSheet from "./GlobalAddSheet";
-import InteractionEditorSheet from "./InteractionEditorSheet";
 import MemoryFactsScreen from "./MemoryFactsScreen";
 import AffiliationsScreen from "./AffiliationsScreen";
-import FollowUpEditorSheet from "./FollowUpEditorSheet";
 import FollowUpDetailScreen from "./FollowUpDetailScreen";
 import PersonFollowUpsScreen from "./PersonFollowUpsScreen";
 import UpcomingScreen from "./UpcomingScreen";
@@ -29,7 +28,7 @@ import ReachOutDetailScreen from "./ReachOutDetailScreen";
 import ResolveProvisionalPersonScreen from "./ResolveProvisionalPersonScreen";
 import ReachOutEditorSheet from "./ReachOutEditorSheet";
 import EditPersonScreen from "./EditPersonScreen";
-import type { PersonPickerOption } from "./application/interactionQueries";
+import RelationshipSettingsScreen from "./RelationshipSettingsScreen";
 import type { ContactImportSession } from "./application/contactImport";
 import type { Person } from "./domain/schema";
 import type { ActiveRelationshipMode } from "./domain/relationshipMode";
@@ -68,8 +67,6 @@ export default function App() {
   const [suspendedCapture, setSuspendedCapture] = useState<ManualCaptureResumeState | null>(null);
   const [suspendedContactEditor, setSuspendedContactEditor] = useState<ContactEditorResumeState | null>(null);
   const [globalAddOpen, setGlobalAddOpen] = useState(false);
-  const [globalInteractionPerson, setGlobalInteractionPerson] = useState<PersonPickerOption | null>(null);
-  const [globalFollowUpPerson, setGlobalFollowUpPerson] = useState<PersonPickerOption | null>(null);
   const [globalReachOutOpen, setGlobalReachOutOpen] = useState(false);
   const [globalReachOutPerson, setGlobalReachOutPerson] = useState<Person | undefined>();
   const routeRef = useRef(route);
@@ -213,7 +210,7 @@ export default function App() {
         fromPath: typeof existingOrigin === "string" ? existingOrigin : "/people",
         ...(["person-profile", "edit-person"].includes(route.id) ? { fromProfile: true } : {})
       };
-    } else if (next.id === "edit-person") {
+    } else if (next.id === "edit-person" || next.id === "relationship-settings") {
       defaultState = {
         fromProfile: route.id === "person-profile",
         fromPath: typeof window.history.state?.fromPath === "string"
@@ -349,6 +346,7 @@ export default function App() {
       );
       case "upcoming": return <UpcomingScreen activeMode={activeRelationshipMode} relationshipFilter={relationshipFilter} navigate={navigatePath} />;
       case "settings": return <SettingsScreen navigate={navigatePath} />;
+      case "conversation-starters": return <ConversationStarterSettingsScreen navigate={navigatePath} />;
       case "add-person": return (
         <AddPersonScreen
           navigate={navigatePath}
@@ -406,6 +404,25 @@ export default function App() {
           navigate={navigatePath}
           onDirtyChange={setUnsavedCapture}
           onSavingChange={setNavigationLocked}
+          onBack={() => {
+            if (window.history.state?.fromProfile === true) {
+              window.history.back();
+              return;
+            }
+            navigatePath(personProfilePath(route.personId ?? ""), {
+              replace: true,
+              state: { fromPath: typeof window.history.state?.fromPath === "string" ? window.history.state.fromPath : "/people" }
+            });
+          }}
+        />
+      );
+      case "relationship-settings": return (
+        <RelationshipSettingsScreen
+          personId={route.personId ?? ""}
+          navigate={navigatePath}
+          onDirtyChange={setUnsavedCapture}
+          onSavingChange={setNavigationLocked}
+          onAddToReachOut={(person, opener) => openReachOutCapture(person, opener)}
           onBack={() => {
             if (window.history.state?.fromProfile === true) {
               window.history.back();
@@ -575,16 +592,6 @@ export default function App() {
     requestAnimationFrame(() => globalAddButtonRef.current?.focus());
   }
 
-  function closeGlobalInteraction() {
-    setGlobalInteractionPerson(null);
-    requestAnimationFrame(() => globalAddButtonRef.current?.focus());
-  }
-
-  function closeGlobalFollowUp() {
-    setGlobalFollowUpPerson(null);
-    requestAnimationFrame(() => globalAddButtonRef.current?.focus());
-  }
-
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">Skip to content</a>
@@ -626,46 +633,8 @@ export default function App() {
 
       {globalAddOpen && (
         <GlobalAddSheet
-          activeMode={activeRelationshipMode}
           onClose={closeGlobalAdd}
           onNavigate={(path) => { setGlobalAddOpen(false); navigatePath(path); }}
-          onLogInteraction={(person) => {
-            setGlobalAddOpen(false);
-            setGlobalInteractionPerson(person);
-          }}
-          onAddFollowUp={(person) => {
-            setGlobalAddOpen(false);
-            setGlobalFollowUpPerson(person);
-          }}
-          onAddReachOut={() => {
-            setGlobalAddOpen(false);
-            openReachOutCapture(undefined, globalAddButtonRef.current);
-          }}
-          preferFollowUp={route.id === "upcoming"}
-          preferReachOut={route.id === "reach-out"}
-          allowFollowUp={route.id !== "today"}
-        />
-      )}
-      {globalInteractionPerson && (
-        <InteractionEditorSheet
-          activeMode={activeRelationshipMode}
-          personId={globalInteractionPerson.person.id}
-          personName={globalInteractionPerson.person.displayName}
-          onClose={closeGlobalInteraction}
-          onSaved={closeGlobalInteraction}
-          onDeleted={closeGlobalInteraction}
-        />
-      )}
-      {globalFollowUpPerson && (
-        <FollowUpEditorSheet
-          mode="create"
-          personId={globalFollowUpPerson.person.id}
-          personName={globalFollowUpPerson.person.displayName}
-          onClose={closeGlobalFollowUp}
-          onSaved={(followUp) => {
-            setGlobalFollowUpPerson(null);
-            navigatePath(followUpDetailPath(followUp.id));
-          }}
         />
       )}
       {globalReachOutOpen && (

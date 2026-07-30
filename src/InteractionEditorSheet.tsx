@@ -325,7 +325,7 @@ export default function InteractionEditorSheet({
   async function remove() {
     if (!interaction || mutationRef.current) return;
     const confirmed = window.confirm(
-      "Delete this interaction? It will be removed from the timeline. Last contact, relationship stage and Today may change."
+      "Delete this interaction? It will be removed from the timeline and Today may change."
     );
     if (!confirmed) return;
     mutationRef.current = true;

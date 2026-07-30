@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { BACKUP_SCHEMA_VERSION, type AppSettings } from "../domain/schema";
+import { BACKUP_SCHEMA_VERSION, DEFAULT_CONVERSATION_STARTERS, type AppSettings } from "../domain/schema";
 import { createDefaultSettings, deletePeopleOsDatabase, openPeopleOsDatabase, readAllData } from "./database";
 import { createAppendOnlyRecord, createRepositories, RecordConflictError, StaleRevisionError } from "./repositories";
 import { completeData, fixedNow } from "../test/fixtures";
@@ -154,7 +154,8 @@ describe("PeopleOS IndexedDB foundation", () => {
     expect(migrated).toEqual({
       ...legacy,
       alreadyContactedDefaultReminderDays: 14,
-      relationshipContexts: ["personal", "professional"]
+      relationshipContexts: ["personal", "professional"],
+      conversationStarters: DEFAULT_CONVERSATION_STARTERS
     });
     expect(await migratedDb.get("metadata", "app")).toEqual(metadata);
     migratedDb.close();

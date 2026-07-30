@@ -244,14 +244,6 @@ export default function ReachOutEditorSheet({
     changed();
   }
 
-  function confirmTemporary() {
-    setTemporaryConfirmed(true);
-    setSelectedPerson(undefined);
-    setExistingEntryId(undefined);
-    changed();
-    requestAnimationFrame(() => reasonRef.current?.focus());
-  }
-
   function setDate(value: string) {
     setReminderDate(value);
     changed();
@@ -266,8 +258,8 @@ export default function ReachOutEditorSheet({
 
   function validate(): FieldErrors {
     const next: FieldErrors = {};
-    if (mode === "create" && !selectedPerson && !temporaryConfirmed) {
-      next.person = "Choose an existing person or use the text as a temporary description.";
+    if (mode === "create" && !selectedPerson && !identityQuery.trim()) {
+      next.person = "Add a person or a short description.";
     }
     if (!selectedPerson && identityQuery.trim().length > 120) next.person = "Temporary description must be 120 characters or fewer.";
     if (reason.trim().length > 240) next.reason = "Why you want to reach out must be 240 characters or fewer.";
@@ -363,8 +355,7 @@ export default function ReachOutEditorSheet({
   const matches = people.filter((option) => !normalized
     || option.person.displayName.toLocaleLowerCase("en-US").includes(normalized)
     || option.affiliation?.toLocaleLowerCase("en-US").includes(normalized));
-  const showTemporary = mode === "create" && !person && normalized.length > 0 && !selectedPerson && !temporaryConfirmed;
-  const planVisible = mode === "edit" || Boolean(selectedPerson || temporaryConfirmed || person);
+  const planVisible = mode === "edit" || Boolean(selectedPerson || normalized || person);
 
   return (
     <div className="sheet-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeEditor(); }}>
@@ -406,12 +397,7 @@ export default function ReachOutEditorSheet({
                     ))}
                   </ul>
                 )}
-                {showTemporary && (
-                  <button className="text-action temporary-label-action" type="button" onClick={confirmTemporary}>
-                    Use “{identityQuery.trim()}” as a temporary description
-                  </button>
-                )}
-                {temporaryConfirmed && <p className="identity-note"><span className="status-chip">Identity incomplete</span> You can complete or link this Person later.</p>}
+                {!selectedPerson && normalized && <p className="identity-note"><span className="status-chip">New person</span> PeopleOS will create this person when you save.</p>}
                 {selectedPerson && <p className="identity-note"><span className="status-chip">Existing person</span> {selectedPerson.displayName}</p>}
                 {existingEntryId && <p className="interaction-kind-readout" role="status">This person already has a current Reach Out plan. Open it instead of creating a duplicate.</p>}
               </div>

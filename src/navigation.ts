@@ -3,6 +3,7 @@ export type RouteId = PrimaryRouteId
   | "add-person"
   | "person-profile"
   | "edit-person"
+  | "relationship-settings"
   | "contact-methods"
   | "memory-facts"
   | "affiliations"
@@ -13,6 +14,7 @@ export type RouteId = PrimaryRouteId
   | "resolve-provisional"
   | "import-contacts"
   | "import-results"
+  | "conversation-starters"
   | "export-backup"
   | "restore-backup";
 
@@ -37,6 +39,7 @@ export const routes: Route[] = [
 const secondaryRoutes: Route[] = [
   { id: "import-contacts", path: "/people/import", label: "Import contacts", primaryId: "people" },
   { id: "import-results", path: "/people/import/results", label: "Import results", primaryId: "people" },
+  { id: "conversation-starters", path: "/settings/conversation-starters", label: "Conversation starters", primaryId: "settings" },
   { id: "export-backup", path: "/settings/export", label: "Export backup", primaryId: "settings" },
   { id: "restore-backup", path: "/settings/restore", label: "Restore backup", primaryId: "settings" }
 ];
@@ -53,6 +56,12 @@ export function routeFromPath(pathname: string): Route {
   if (editPerson) {
     const personId = decodePathPart(editPerson[1]);
     return { id: "edit-person", path: pathname, label: "Edit person", primaryId: "people", personId };
+  }
+
+  const relationshipSettings = pathname.match(/^\/people\/([^/]+)\/relationship-settings\/?$/);
+  if (relationshipSettings) {
+    const personId = decodePathPart(relationshipSettings[1]);
+    return { id: "relationship-settings", path: pathname, label: "Relationship settings", primaryId: "people", personId };
   }
 
   const resolvePerson = pathname.match(/^\/people\/([^/]+)\/resolve\/?$/);
@@ -136,6 +145,10 @@ export function contactMethodsPath(personId: string): string {
 
 export function editPersonPath(personId: string): string {
   return `${personProfilePath(personId)}/edit`;
+}
+
+export function relationshipSettingsPath(personId: string): string {
+  return `${personProfilePath(personId)}/relationship-settings`;
 }
 
 export function resolvePersonPath(personId: string): string {

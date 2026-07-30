@@ -221,6 +221,8 @@ describe("V1-10 Already contacted command", () => {
       idFactory: sequenceIdFactory()
     });
     const first = await alreadyContacted(db, command);
+    const nextFollowUp = first.nextFollowUp;
+    if (!nextFollowUp) throw new Error("Expected Reach Out to create its next follow-up");
     expect(first.completedPrimaryFollowUp).toMatchObject({ id: primary.id, status: "completed" });
     expect(first.nextFollowUp).toMatchObject({
       reachOutEntryId: entry!.id,
@@ -232,7 +234,7 @@ describe("V1-10 Already contacted command", () => {
       id: entry!.id,
       revision: 2,
       intentStatus: "active",
-      currentFollowUpId: first.nextFollowUp.id,
+      currentFollowUpId: nextFollowUp.id,
       lastCompletedAt: now
     });
     expect(first.reachOutCompletionEvent).toMatchObject({
@@ -243,14 +245,14 @@ describe("V1-10 Already contacted command", () => {
     });
     expect(first.reachOutLinkedEvent).toMatchObject({
       kind: "follow_up_linked",
-      followUpId: first.nextFollowUp.id
+      followUpId: nextFollowUp.id
     });
     expect(await alreadyContacted(db, command)).toEqual(first);
     expect(await db.count("reachOutEntries")).toBe(1);
     expect(await db.count("reachOutEvents")).toBe(2);
     expect((await db.getAllFromIndex("followUps", "by-reach-out", entry!.id))
       .filter((followUp) => followUp.status === "pending")
-      .map((followUp) => followUp.id)).toEqual([first.nextFollowUp.id]);
+      .map((followUp) => followUp.id)).toEqual([nextFollowUp.id]);
     expect((await db.get("metadata", "app"))?.datasetRevision).toBe(11);
     db.close();
   });

@@ -11,8 +11,7 @@ import { getDatabase } from "./data/client";
 // eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { RecordConflictError, StaleRevisionError } from "./data/repositories";
 import type { Person } from "./domain/schema";
-import { relationshipModeOf, type RelationshipMode } from "./domain/relationshipMode";
-import { addDaysToLocalDate } from "./domain/followUpPolicy";
+import { relationshipModeOf } from "./domain/relationshipMode";
 import { ValidationError } from "./domain/validation";
 import { affiliationsPath, contactMethodsPath } from "./navigation";
 
@@ -21,8 +20,6 @@ type Navigate = (path: string, options?: { replace?: boolean; state?: Record<str
 type FieldErrors = {
   displayName?: string;
   tags?: string;
-  cadence?: string;
-  start?: string;
 };
 
 function parseTags(value: string): string[] {
@@ -53,10 +50,6 @@ export default function EditPersonScreen({
   const [loadVersion, setLoadVersion] = useState(0);
   const [draft, setDraft] = useState<PersonEditDraft>({ displayName: "", relationshipMode: "personal", importance: "normal", tags: [] });
   const [tagsText, setTagsText] = useState("");
-  const [cadenceText, setCadenceText] = useState("");
-  const [customInterval, setCustomInterval] = useState("");
-  const [startChoice, setStartChoice] = useState<"today" | "tomorrow" | "week" | "date">("today");
-  const [startDate, setStartDate] = useState("");
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -68,8 +61,6 @@ export default function EditPersonScreen({
   const headingRef = useRef<HTMLHeadingElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const tagsRef = useRef<HTMLInputElement>(null);
-  const cadenceRef = useRef<HTMLSelectElement>(null);
-  const customIntervalRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -88,11 +79,6 @@ export default function EditPersonScreen({
           ...(record.contactCadenceDays ? { contactCadenceDays: record.contactCadenceDays } : {})
         });
         setTagsText(record.tags.join(", "));
-        const interval = record.contactCadenceDays ? String(record.contactCadenceDays) : "";
-        setCadenceText(interval && !["1", "3", "7", "14", "30", "90"].includes(interval) ? "custom" : interval);
-        setCustomInterval(interval && !["1", "3", "7", "14", "30", "90"].includes(interval) ? interval : "");
-        setStartDate(record.contactCadenceFirstDueDate ?? "");
-        setStartChoice(record.contactCadenceFirstDueDate ? "date" : "today");
         requestAnimationFrame(() => {
           const active = document.activeElement;
           if (active === document.body || active?.id === "main-content") headingRef.current?.focus();
@@ -137,34 +123,18 @@ export default function EditPersonScreen({
     const nextErrors: FieldErrors = {};
     const displayName = draft.displayName.trim();
     const tags = parseTags(tagsText);
-    const cadence = cadenceText.trim() ? Number(cadenceText === "custom" ? customInterval : cadenceText) : undefined;
     if (!displayName) nextErrors.displayName = "Add a name or description so you can recognise this person.";
     else if (displayName.length > 120) nextErrors.displayName = "Use 120 characters or fewer.";
     if (tags.length > 10) nextErrors.tags = "Add no more than 10 tags.";
     else if (tags.some((tag) => tag.length > 40)) nextErrors.tags = "Each tag must be 40 characters or fewer.";
-    if (cadence !== undefined && (!Number.isInteger(cadence) || cadence < 1 || cadence > 3_650)) {
-      nextErrors.cadence = "Enter a whole number from 1 to 3650 days.";
-    }
     setErrors(nextErrors);
     const first = nextErrors.displayName
       ? nameRef.current
       : nextErrors.tags
         ? tagsRef.current
-        : nextErrors.cadence
-          ? (cadenceText === "custom" ? customIntervalRef.current : cadenceRef.current)
-          : undefined;
+        : undefined;
     if (Object.keys(nextErrors).length > 0) {
       requestAnimationFrame(() => first?.focus());
-      return undefined;
-    }
-    const today = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()).replaceAll("/", "-");
-    const firstDueDate = cadence === undefined ? undefined
-      : startChoice === "today" ? today
-        : startChoice === "tomorrow" ? addDaysToLocalDate(today, 1)
-          : startChoice === "week" ? addDaysToLocalDate(today, 7)
-            : startDate || person?.contactCadenceFirstDueDate;
-    if (cadence !== undefined && !firstDueDate) {
-      setErrors((current) => ({ ...current, start: "Pick a start date." }));
       return undefined;
     }
     return {
@@ -172,19 +142,11 @@ export default function EditPersonScreen({
       relationshipMode: draft.relationshipMode,
       importance: draft.importance,
       tags,
-      ...(cadence === undefined ? {} : { contactCadenceDays: cadence, contactCadenceFirstDueDate: firstDueDate })
+      ...(person?.contactCadenceDays === undefined ? {} : {
+        contactCadenceDays: person.contactCadenceDays,
+        ...(person.contactCadenceFirstDueDate ? { contactCadenceFirstDueDate: person.contactCadenceFirstDueDate } : {})
+      })
     };
-  }
-
-  function setRelationshipContext(context: "personal" | "professional", enabled: boolean) {
-    const current = draft.relationshipMode ?? "personal";
-    const personal = current === "personal" || current === "both";
-    const professional = current === "professional" || current === "both";
-    const nextPersonal = context === "personal" ? enabled : personal;
-    const nextProfessional = context === "professional" ? enabled : professional;
-    if (!nextPersonal && !nextProfessional) return;
-    const next: RelationshipMode = nextPersonal && nextProfessional ? "both" : nextPersonal ? "personal" : "professional";
-    changed({ relationshipMode: next });
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -307,7 +269,7 @@ export default function EditPersonScreen({
             <h2 ref={headingRef} tabIndex={-1}>{person.archivedAt ? "Archived person" : "Edit person"}</h2>
             <p>{person.archivedAt
               ? "History and plans are preserved. Restore this person before making changes."
-              : "Change identity and relationship preferences. Detailed history stays in its own sections."}</p>
+              : "Change their name and saved details."}</p>
           </header>
           {formError && <p className="form-alert" role="alert">{formError}</p>}
           {person.archivedAt ? (
@@ -320,14 +282,6 @@ export default function EditPersonScreen({
             </section>
           ) : (
             <form className="person-edit-form" onSubmit={save} noValidate>
-              <fieldset className="choice-fieldset relationship-mode-fieldset">
-                <legend>Appears in</legend>
-                {(["personal", "professional"] as const).map((context) => {
-                  const mode = draft.relationshipMode ?? "personal";
-                  const checked = mode === context || mode === "both";
-                  return <label key={context}><input type="checkbox" checked={checked} onChange={(event) => setRelationshipContext(context, event.target.checked)} /> {context === "personal" ? "Personal" : "Professional"}</label>;
-                })}
-              </fieldset>
               <div className="form-field">
                 <label htmlFor={`${prefix}-name`}>{person.identityStatus === "provisional" ? "Temporary description" : "Display name"} <span>Required</span></label>
                 <input
@@ -369,39 +323,6 @@ export default function EditPersonScreen({
                 <p id={`${prefix}-tags-hint`} className="field-hint">Separate up to ten tags with commas.</p>
                 {errors.tags && <p id={`${prefix}-tags-error`} className="field-error" role="alert">{errors.tags}</p>}
               </div>
-              <fieldset className="keep-in-touch-fieldset">
-                <legend>Keep in touch</legend>
-                <label className="checkbox-row"><input type="checkbox" checked={Boolean(cadenceText)} onChange={(event) => { setCadenceText(event.target.checked ? "30" : ""); changed({ contactCadenceDays: event.target.checked ? 30 : undefined }); }} /> Remind me to stay in touch</label>
-              </fieldset>
-              {cadenceText && <div className="form-field">
-                <label htmlFor={`${prefix}-cadence`}>How often?</label>
-                <select
-                  ref={cadenceRef}
-                  id={`${prefix}-cadence`}
-                  value={cadenceText}
-                  aria-invalid={Boolean(errors.cadence) || undefined}
-                  aria-describedby={errors.cadence ? `${prefix}-cadence-error` : `${prefix}-cadence-hint`}
-                  onChange={(event) => {
-                    setCadenceText(event.target.value);
-                    changed({ contactCadenceDays: event.target.value ? Number(event.target.value) : undefined });
-                  }}
-                >
-                  {cadenceText && !["1", "3", "7", "14", "30", "90", "custom"].includes(cadenceText) && (
-                    <option value={cadenceText}>Every {cadenceText} days</option>
-                  )}
-                  <option value="1">Every day</option><option value="3">Every few days</option><option value="7">Every week</option>
-                  <option value="14">Every 2 weeks</option><option value="30">Every month</option><option value="90">Every few months</option><option value="custom">Custom</option>
-                </select>
-                {cadenceText === "custom" && <input ref={customIntervalRef} aria-label="Days between reminders" type="number" inputMode="numeric" min="1" max="3650" value={customInterval} onChange={(event) => setCustomInterval(event.target.value)} />}
-                {errors.cadence && <p id={`${prefix}-cadence-error`} className="field-error" role="alert">{errors.cadence}</p>}
-              </div>}
-              {cadenceText && <div className="form-field first-appearance-fieldset">
-                <label htmlFor={`${prefix}-start`}>Start</label>
-                <select id={`${prefix}-start`} value={startChoice} onChange={(event) => setStartChoice(event.target.value as typeof startChoice)}>
-                  <option value="today">Today</option><option value="tomorrow">Tomorrow</option><option value="week">In 1 week</option><option value="date">Pick a date</option>
-                </select>
-                {startChoice === "date" && <input aria-label="Start date" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />}
-              </div>}
               <section className="profile-card edit-person-related" aria-labelledby={`${prefix}-details`}>
                 <h3 id={`${prefix}-details`}>Detailed information</h3>
                 <p>Contact details and organisation history have their own records.</p>

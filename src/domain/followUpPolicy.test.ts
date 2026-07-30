@@ -47,7 +47,7 @@ describe("follow-up policy", () => {
       "send_update", "research_contact_route", "other"
     ]);
     expect(CADENCE_PRESET_OPTIONS.map((option) => option.value)).toEqual([
-      undefined, 30, 90, 180, 365
+      undefined, 1, 3, 7, 14, 30, 90
     ]);
   });
 

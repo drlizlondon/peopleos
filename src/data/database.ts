@@ -151,24 +151,21 @@ export async function openPeopleOsDatabase(
         database.createObjectStore("appSettings", { keyPath: "id" });
         database.createObjectStore("metadata", { keyPath: "id" });
       }
-      if (oldVersion < 2) {
-        const people = transaction.objectStore("people");
-        void people.openCursor().then(function migrate(cursor): Promise<void> | void {
-          if (!cursor) return;
-          const person = cursor.value;
-          const next = person.relationshipMode ? person : { ...person, relationshipMode: "personal" as const };
-          return cursor.update(next).then(() => cursor.continue()).then(migrate);
-        });
-      }
       if (oldVersion < 3) {
         const people = transaction.objectStore("people");
         const migrationDate = now.slice(0, 10);
         void people.openCursor().then(function migrateSchedule(cursor): Promise<void> | void {
           if (!cursor) return;
           const person = cursor.value;
-          const next = person.contactCadenceDays && !person.contactCadenceFirstDueDate
-            ? { ...person, contactCadenceFirstDueDate: addDays(migrationDate, person.contactCadenceDays) }
-            : person;
+          const next = {
+            ...person,
+            ...(oldVersion < 2 && !person.relationshipMode
+              ? { relationshipMode: "personal" as const }
+              : {}),
+            ...(person.contactCadenceDays && !person.contactCadenceFirstDueDate
+              ? { contactCadenceFirstDueDate: addDays(migrationDate, person.contactCadenceDays) }
+              : {})
+          };
           return cursor.update(next).then(() => cursor.continue()).then(migrateSchedule);
         });
       }

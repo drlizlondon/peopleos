@@ -7,6 +7,7 @@ import { NextReminderSheet } from "./TodaySheets";
 import { closeDatabase, getDatabase } from "./data/client";
 import { deletePeopleOsDatabase } from "./data/database";
 import { createRepositories } from "./data/repositories";
+import { listUpcomingCadences } from "./application/followUpQueries";
 import { createRelationshipClock } from "./application/relationshipEngineQueries";
 import * as todayQueries from "./application/todayQueries";
 import type { ContactMethod, FollowUp, Person } from "./domain/schema";
@@ -99,6 +100,13 @@ function contact(
   };
 }
 
+function moreActions(card: HTMLElement, personName: string): HTMLElement {
+  const control = card.querySelector<HTMLElement>(".today-more-actions > summary");
+  expect(control).not.toBeNull();
+  expect(control).toHaveAccessibleName(`More actions for ${personName}`);
+  return control!;
+}
+
 describe("V1-10 Today experience", () => {
   beforeEach(async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -125,7 +133,7 @@ describe("V1-10 Today experience", () => {
     render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
     expect(await screen.findByRole("heading", { name: "Nothing needs your attention today." })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Find someone in People" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add follow-up" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add follow-up" })).not.toBeInTheDocument();
   });
 
   it("shows the cleared state when every eligible person was deferred today", async () => {
@@ -141,17 +149,19 @@ describe("V1-10 Today experience", () => {
     expect(screen.queryByRole("button", { name: "Add follow-up" })).not.toBeInTheDocument();
   });
 
-  it("renders the engine reason and exactly the three standard actions in order", async () => {
+  it("leads with Message, keeps Call and Not today visible, and moves completion into an accessible menu", async () => {
     await seedDuePerson();
     render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
     const card = await screen.findByRole("article", { name: "Sarah Jones" });
     expect(within(card).getByText(/Hi Sarah Jones, how are things with you/)).toBeInTheDocument();
+    expect(within(card).queryByText(/Why (now|this person)/i)).not.toBeInTheDocument();
     const actionGroup = within(card).getByRole("group", { name: "Actions for Sarah Jones" });
     expect(Array.from(actionGroup.querySelectorAll(":scope > button"), (button) => button.textContent)).toEqual([
-      "Call",
       "Message",
+      "Call",
       "Not today"
     ]);
+    expect(moreActions(card, "Sarah Jones")).toHaveTextContent("•••");
     expect(within(card).getByRole("button", { name: "Add phone number" })).toBeInTheDocument();
     expect(within(card).queryByRole("checkbox")).not.toBeInTheDocument();
   });
@@ -164,24 +174,34 @@ describe("V1-10 Today experience", () => {
     render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
     let card = await screen.findByRole("article", { name: "Sarah Jones" });
     const firstStarter = within(card).getByText(/Sarah Jones.*you/).textContent;
-    await user.click(within(card).getByRole("button", { name: "Another one" }));
+    const anotherSuggestion = within(card).getByRole("button", { name: "Show another conversation suggestion for Sarah Jones" });
+    expect(anotherSuggestion).toHaveTextContent("Another suggestion");
+    await user.click(anotherSuggestion);
     expect(within(card).getByText(/Sarah Jones.*you/).textContent).not.toBe(firstStarter);
     const note = within(card).getByRole("checkbox", { name: "Mark note complete: Ask how the appointment went" });
     await user.click(note);
-    card = await screen.findByRole("article", { name: "Sarah Jones" });
-    expect(within(card).getByRole("checkbox", { name: "Mark note complete: Ask how the appointment went" })).toBeChecked();
+    await waitFor(() => {
+      card = screen.getByRole("article", { name: "Sarah Jones" });
+      expect(within(card).getByRole("checkbox", { name: "Mark note complete: Ask how the appointment went" })).toBeChecked();
+    });
     expect(await (await getDatabase()).getAll("interactions")).toEqual([]);
     expect(await (await getDatabase()).get("followUps", "follow-up-person-sarah-0")).toMatchObject({ status: "pending" });
     await user.click(within(card).getByRole("checkbox", { name: "Mark note complete: Ask how the appointment went" }));
-    card = await screen.findByRole("article", { name: "Sarah Jones" });
-    expect(within(card).getByRole("checkbox", { name: "Mark note complete: Ask how the appointment went" })).not.toBeChecked();
+    await waitFor(() => {
+      card = screen.getByRole("article", { name: "Sarah Jones" });
+      expect(within(card).getByRole("checkbox", { name: "Mark note complete: Ask how the appointment went" })).not.toBeChecked();
+    });
     await user.click(within(card).getByRole("checkbox", { name: "Mark note complete: Ask how the appointment went" }));
     card = await screen.findByRole("article", { name: "Sarah Jones" });
     await user.click(within(card).getByRole("button", { name: "Not today" }));
     await waitFor(() => expect(screen.queryByRole("article", { name: "Sarah Jones" })).not.toBeInTheDocument());
     expect((await (await getDatabase()).get("people", "person-sarah"))?.todayNoteCompletedAt).toBeDefined();
-    expect((await (await getDatabase()).getAllFromIndex("followUps", "by-person", "person-sarah"))
-      .some((followUp) => followUp.status === "pending" && followUp.dueDate === "2026-07-24" && followUp.reason === "Reconnect with person-sarah")).toBe(true);
+    expect(await (await getDatabase()).get("followUps", "follow-up-person-sarah-0")).toMatchObject({
+      status: "pending",
+      dueDate: "2026-07-10",
+      snoozedUntilDate: "2026-07-24",
+      reason: "Reconnect with person-sarah"
+    });
   });
 
   it("opens a deterministic chooser, launches the chosen target and records nothing", async () => {
@@ -201,11 +221,11 @@ describe("V1-10 Today experience", () => {
     const methods = within(dialog).getAllByRole("button").filter((button) => /NHS email|Work mobile/.test(button.textContent ?? ""));
     expect(methods.map((button) => button.textContent)).toEqual([
       expect.stringContaining("Email · NHS email"),
-      expect.stringContaining("Call · Work mobile")
+      expect.stringContaining("WhatsApp · Work mobile")
     ]);
     expect(within(dialog).getByText("Preferred")).toBeInTheDocument();
     await user.click(methods[0]);
-    expect(handoff).toHaveBeenCalledWith("mailto:sarah@example.com");
+    await waitFor(() => expect(handoff).toHaveBeenCalledWith("mailto:sarah@example.com"));
     const refreshedCard = screen.getByRole("article", { name: "Sarah Jones" });
     await waitFor(() => expect(within(refreshedCard).getByRole("button", { name: "Message" })).toHaveFocus());
     expect(await (await getDatabase()).getAll("interactions")).toHaveLength(0);
@@ -236,6 +256,19 @@ describe("V1-10 Today experience", () => {
     await user.click(within(card).getByRole("button", { name: "Call" }));
     await waitFor(() => expect(handoff).toHaveBeenCalledWith("tel:+447900123456"));
     expect(within(card).queryByRole("button", { name: "Add phone number" })).not.toBeInTheDocument();
+    expect(await (await getDatabase()).getAll("interactions")).toHaveLength(0);
+  });
+
+  it("opens WhatsApp with the conversation starter and keeps the person in Today", async () => {
+    const id = "person-sarah";
+    await seedDuePerson({ contacts: [contact(id, "phone-only", "phone", { label: "Mobile" })] });
+    const handoff = vi.fn();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<TodayScreen navigate={vi.fn()} handoff={handoff} />);
+    const card = await screen.findByRole("article", { name: "Sarah Jones" });
+    await user.click(within(card).getByRole("button", { name: "Message" }));
+    await waitFor(() => expect(handoff).toHaveBeenCalledWith(expect.stringMatching(/^https:\/\/wa\.me\/447900123456\?text=.+/)));
+    expect(screen.getByRole("article", { name: "Sarah Jones" })).toBeInTheDocument();
     expect(await (await getDatabase()).getAll("interactions")).toHaveLength(0);
   });
 
@@ -296,28 +329,42 @@ describe("V1-10 Today experience", () => {
     expect(created).toEqual([expect.objectContaining({ dueDate: "2026-07-24", reason: "Reconnect with New Person", status: "pending" })]);
   });
 
-  it("dismisses Already contacted without writes, then retains other due plans when saving", async () => {
+  it("completes a one-off contact without asking for or creating another reminder", async () => {
     await seedDuePerson({ extraFollowUp: true });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
-    let card = await screen.findByRole("article", { name: "Sarah Jones" });
+    const card = await screen.findByRole("article", { name: "Sarah Jones" });
+    await user.click(moreActions(card, "Sarah Jones"));
     await user.click(within(card).getByRole("button", { name: "Contacted" }));
-    let dialog = screen.getByRole("dialog", { name: "When should I remind you again?" });
-    expect(within(dialog).getByRole("button", { name: "14 days" })).toHaveAttribute("aria-pressed", "true");
-    expect(within(dialog).getByText("1 other plan remains due and may bring Sarah Jones back sooner.")).toBeInTheDocument();
-    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    expect(await (await getDatabase()).getAll("interactions")).toHaveLength(0);
-    card = screen.getByRole("article", { name: "Sarah Jones" });
-    await user.click(within(card).getByRole("button", { name: "Contacted" }));
-    dialog = screen.getByRole("dialog", { name: "When should I remind you again?" });
-    await user.click(within(dialog).getByRole("button", { name: "7 days" }));
     await waitFor(() => expect(screen.queryByRole("article", { name: "Sarah Jones" })).not.toBeInTheDocument());
+    expect(screen.queryByRole("dialog", { name: "When should I remind you again?" })).not.toBeInTheDocument();
     const db = await getDatabase();
     expect(await db.getAll("interactions")).toEqual([expect.objectContaining({ personId: "person-sarah", kind: "contacted" })]);
     const records = await db.getAllFromIndex("followUps", "by-person", "person-sarah");
     expect(records.filter((record) => record.status === "completed")).toHaveLength(1);
-    expect(records.filter((record) => record.status === "pending" && record.dueDate === "2026-07-30")).toHaveLength(1);
+    expect(records.filter((record) => record.status === "pending")).toHaveLength(1);
     expect(records.find((record) => record.id === "follow-up-person-sarah-extra")).toMatchObject({ status: "pending" });
+  });
+
+  it("moves a contacted regular reminder to Upcoming using the saved Keep in touch interval", async () => {
+    const regular = {
+      ...person("person-regular", "Regular Person"),
+      contactCadenceDays: 14,
+      contactCadenceFirstDueDate: "2026-07-23" as const
+    };
+    await createRepositories(await getDatabase()).people.create(regular);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<TodayScreen navigate={vi.fn()} />);
+    const card = await screen.findByRole("article", { name: "Regular Person" });
+    await user.click(moreActions(card, "Regular Person"));
+    await user.click(within(card).getByRole("button", { name: "Contacted" }));
+    await waitFor(() => expect(screen.queryByRole("article", { name: "Regular Person" })).not.toBeInTheDocument());
+    expect(screen.queryByRole("dialog", { name: "When should I remind you again?" })).not.toBeInTheDocument();
+    const db = await getDatabase();
+    expect(await db.getAllFromIndex("followUps", "by-person", regular.id)).toEqual([]);
+    expect(await listUpcomingCadences(db, { localDate: "2026-07-23", activeMode: "personal" })).toEqual([
+      expect.objectContaining({ person: expect.objectContaining({ id: regular.id }), effectiveDate: "2026-08-06", cadenceDays: 14 })
+    ]);
   });
 
   it("opens one focused unsaved phone row and returns to refreshed Today after save", async () => {
@@ -370,7 +417,7 @@ describe("V1-10 Today experience", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/"));
     expect(await screen.findAllByRole("article")).toHaveLength(6);
     await waitFor(() => {
-      expect(within(screen.getByRole("article", { name: "Person 6" })).getByRole("button", { name: "Call" })).toHaveFocus();
+      expect(within(screen.getByRole("article", { name: "Person 6" })).getByRole("button", { name: "Message" })).toHaveFocus();
     });
   });
 

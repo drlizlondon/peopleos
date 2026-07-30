@@ -30,6 +30,13 @@ export type PersonArchiveCommand = {
   occurredAt: string;
 };
 
+export type PersonRelationshipModeCommand = {
+  personId: string;
+  expectedRevision: number;
+  relationshipMode: RelationshipMode;
+  occurredAt: string;
+};
+
 function normalizeDraft(draft: PersonEditDraft): PersonEditDraft {
   const displayName = draft.displayName.trim();
   const tags = draft.tags.map((tag) => tag.trim()).filter(Boolean);
@@ -94,7 +101,9 @@ export async function updatePerson(
     delete updated.contactCadenceFirstDueDate;
     delete updated.contactCadenceDeferredUntilDate;
     delete updated.contactCadencePausedAt;
-  } else if (draft.contactCadenceFirstDueDate) {
+  } else if (draft.contactCadenceFirstDueDate
+    && (draft.contactCadenceDays !== current.contactCadenceDays
+      || draft.contactCadenceFirstDueDate !== current.contactCadenceFirstDueDate)) {
     updated.contactCadenceFirstDueDate = draft.contactCadenceFirstDueDate;
     delete updated.contactCadenceDeferredUntilDate;
     delete updated.contactCadencePausedAt;
@@ -106,6 +115,30 @@ export async function updatePerson(
     delete updated.contactCadencePausedAt;
   }
   return createRepositories(db).people.update(updated, command.expectedRevision, command.occurredAt);
+}
+
+export async function updatePersonRelationshipMode(
+  db: PeopleOsDatabase,
+  command: PersonRelationshipModeCommand
+): Promise<Person> {
+  if (!(command.relationshipMode === "personal"
+    || command.relationshipMode === "professional"
+    || command.relationshipMode === "both")) {
+    throw new ValidationError(["Choose where this person should appear."]);
+  }
+  const current = requireEditable(await db.get("people", command.personId));
+  if (current.revision !== command.expectedRevision) {
+    if (current.revision === command.expectedRevision + 1
+      && current.relationshipMode === command.relationshipMode
+      && current.updatedAt === command.occurredAt) return current;
+    throw new StaleRevisionError();
+  }
+  if ((current.relationshipMode ?? "personal") === command.relationshipMode) return current;
+  return createRepositories(db).people.update(
+    { ...current, relationshipMode: command.relationshipMode },
+    command.expectedRevision,
+    command.occurredAt
+  );
 }
 
 export async function archivePerson(

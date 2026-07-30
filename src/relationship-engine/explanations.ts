@@ -69,7 +69,7 @@ export function formatExplanation(explanation: Explanation, locale = "en-GB"): s
     const interval = requiredFact(explanation, "cadenceDays");
     const elapsed = fact(explanation, "elapsedDays");
     return elapsed
-      ? `You chose to keep in touch every ${interval} days. Your last contact was ${elapsed} days ago.`
+      ? `You chose to keep in touch every ${interval} days. Your last logged interaction was ${elapsed} days ago.`
       : `You chose to keep in touch every ${interval} days.`;
   }
   if (key === "intended_action.follow_up") {
@@ -108,7 +108,7 @@ export function formatExplanation(explanation: Explanation, locale = "en-GB"): s
   }
   if (key === "last_contact.recorded") {
     const kind = requiredFact(explanation, "interactionKind") as InteractionKind;
-    return `Last contact: ${interactionKindLabel(kind)} on ${formatEngineLocalDate(requiredFact(explanation, "contactDate"), locale)}.`;
+    return `Last logged interaction: ${interactionKindLabel(kind)} on ${formatEngineLocalDate(requiredFact(explanation, "contactDate"), locale)}.`;
   }
 
   if (key === "memory_cue.follow_up") {

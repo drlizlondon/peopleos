@@ -10,7 +10,6 @@ import { deletePeopleOsDatabase, readAllData } from "./data/database";
 import { createRepositories } from "./data/repositories";
 import {
   DATABASE_NAME,
-  type OrganisationAffiliation,
   type Person,
   type RelationshipEvent
 } from "./domain/schema";
@@ -95,7 +94,7 @@ async function openProfileInteraction(user: ReturnType<typeof userEvent.setup>) 
 }
 
 async function openProfileNote(user: ReturnType<typeof userEvent.setup>) {
-  const opener = within(profileActions()).getByRole("button", { name: "Add memory" });
+  const opener = screen.getByRole("button", { name: "Add memory" });
   await user.click(opener);
   const choices = await screen.findByLabelText("Choose memory type");
   await user.click(within(choices).getByRole("button", { name: "Note" }));
@@ -138,7 +137,9 @@ describe("V1-05 interactions and timeline UI", () => {
     const user = userEvent.setup();
     await renderProfile();
 
-    expect(screen.getByText("No meaningful contact recorded")).toBeInTheDocument();
+    const summary = screen.getByRole("heading", { name: "Relationship summary" }).closest("section")!;
+    expect(within(summary).getByText("Appears in").parentElement).toHaveTextContent("Personal");
+    expect(within(summary).queryByText("Last logged interaction")).not.toBeInTheDocument();
     expect(await screen.findByText("No interactions recorded yet.")).toBeInTheDocument();
     expect((await readAllData(await getDatabase())).interactions).toEqual([]);
 
@@ -173,8 +174,7 @@ describe("V1-05 interactions and timeline UI", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save interaction" }));
 
     expect(await screen.findByRole("heading", { level: 5, name: "Phone call" })).toBeInTheDocument();
-    const lastContactRow = screen.getByText("Last meaningful contact").parentElement;
-    expect(lastContactRow).not.toHaveTextContent("No meaningful contact recorded");
+    const lastContactRow = screen.getByText("Last logged interaction").parentElement;
     const contactBeforeNote = lastContactRow?.textContent;
 
     const { dialog: noteDialog } = await openProfileNote(user);
@@ -187,7 +187,7 @@ describe("V1-05 interactions and timeline UI", () => {
     await user.click(within(noteDialog).getByRole("button", { name: "Save note" }));
 
     expect(await screen.findByRole("heading", { level: 5, name: "Note added" })).toBeInTheDocument();
-    expect(screen.getByText("Last meaningful contact").parentElement?.textContent).toBe(contactBeforeNote);
+    expect(screen.getByText("Last logged interaction").parentElement?.textContent).toBe(contactBeforeNote);
     const data = await readAllData(await getDatabase());
     expect(data.interactions.map((record) => record.kind).sort()).toEqual(["note_added", "phone_call"]);
     expect(data.memoryFacts).toEqual([]);
@@ -210,7 +210,7 @@ describe("V1-05 interactions and timeline UI", () => {
     await user.click(within(opened.dialog).getByRole("button", { name: "Save interaction" }));
 
     expect(await screen.findByRole("heading", { level: 5, name: "Introduction made" })).toBeInTheDocument();
-    expect(screen.getByText("Last meaningful contact").parentElement).toHaveTextContent("No meaningful contact recorded");
+    expect(screen.queryByText("Last logged interaction")).not.toBeInTheDocument();
 
     opened = await openProfileInteraction(user);
     kind = within(opened.dialog).getByLabelText(/^Interaction type/);
@@ -219,7 +219,7 @@ describe("V1-05 interactions and timeline UI", () => {
     await user.type(within(opened.dialog).getByLabelText("Summary"), "James introduced us at the fellowship");
     await user.click(within(opened.dialog).getByRole("button", { name: "Save interaction" }));
 
-    await waitFor(() => expect(screen.getByText("Last meaningful contact").parentElement).not.toHaveTextContent("No meaningful contact recorded"));
+    await screen.findByText("Last logged interaction");
     const interactions = (await readAllData(await getDatabase())).interactions;
     expect(interactions.find((record) => record.kind === "introduction_made")?.relatedPersonId).toBe("person-aaron");
     expect((await getPersonHistory(await getDatabase(), "person-sarah"))?.lastContact?.kind).toBe("introduction_received");
@@ -337,7 +337,7 @@ describe("V1-05 interactions and timeline UI", () => {
     const confirm = vi.spyOn(window, "confirm");
     const user = userEvent.setup();
     await renderProfile();
-    const initialLastContact = screen.getByText("Last meaningful contact").parentElement?.textContent;
+    const initialLastContact = screen.getByText("Last logged interaction").parentElement?.textContent;
 
     await user.click(within(interactionArticle("Newest email")).getByRole("button", { name: "Edit interaction" }));
     let editor = await screen.findByRole("dialog", { name: "Edit interaction" });
@@ -351,7 +351,7 @@ describe("V1-05 interactions and timeline UI", () => {
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit interaction" })).not.toBeInTheDocument());
     expect(await screen.findByText("Edited email")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText("Last meaningful contact").parentElement?.textContent).not.toBe(initialLastContact));
+    await waitFor(() => expect(screen.getByText("Last logged interaction").parentElement?.textContent).not.toBe(initialLastContact));
     expect((await getPersonHistory(db, "person-sarah"))?.lastContact?.id).toBe("interaction-phone");
 
     await user.click(within(interactionArticle("Edited email")).getByRole("button", { name: "Edit interaction" }));
@@ -364,7 +364,7 @@ describe("V1-05 interactions and timeline UI", () => {
 
     await waitFor(() => expect(screen.queryByText("Edited email")).not.toBeInTheDocument());
     await waitFor(() => expect(screen.getByRole("heading", { name: "Sarah Jones" })).toHaveFocus());
-    expect(confirm).toHaveBeenCalledWith("Delete this interaction? It will be removed from the timeline. Last contact, relationship stage and Today may change.");
+    expect(confirm).toHaveBeenCalledWith("Delete this interaction? It will be removed from the timeline and Today may change.");
     expect((await readAllData(db)).interactions.map((record) => record.id)).toEqual(["interaction-phone"]);
   });
 
@@ -387,14 +387,14 @@ describe("V1-05 interactions and timeline UI", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
     await renderProfile();
-    expect(screen.getByText("Last meaningful contact").parentElement).not.toHaveTextContent("Unavailable");
+    expect(screen.getByText("Last logged interaction")).toBeInTheDocument();
 
     await user.click(within(interactionArticle("Contact that will be removed")).getByRole("button", { name: "Edit interaction" }));
     const editor = await screen.findByRole("dialog", { name: "Edit interaction" });
     await user.click(within(editor).getByRole("button", { name: "Delete interaction" }));
 
     expect(await screen.findByText("PeopleOS could not load recent history.")).toHaveAttribute("role", "alert");
-    expect(screen.getByText("Last meaningful contact").parentElement).toHaveTextContent("Unavailable");
+    expect(screen.queryByText("Last logged interaction")).not.toBeInTheDocument();
     expect(screen.queryByText("Contact that will be removed")).not.toBeInTheDocument();
   });
 
@@ -458,54 +458,18 @@ describe("V1-05 interactions and timeline UI", () => {
     expect(window.location.pathname).toBe("/");
   });
 
-  it("logs through the global Add person picker and restores focus to Add", async () => {
+  it("keeps global Add focused on creating a person", async () => {
     await seedPerson();
-    await seedPerson("person-aaron", "Aaron Patel");
-    const affiliation: OrganisationAffiliation = {
-      id: "affiliation-aaron",
-      revision: 1,
-      personId: "person-aaron",
-      organisationName: "Watford Health",
-      role: "Digital lead",
-      isCurrent: true,
-      createdAt: personCreatedAt,
-      updatedAt: personCreatedAt
-    };
-    await createRepositories(await getDatabase()).affiliations.create(affiliation);
     const user = userEvent.setup();
     render(<App />);
 
     const add = await screen.findByRole("button", { name: "Add" });
     await user.click(add);
-    let sheet = await screen.findByRole("dialog", { name: "Add to PeopleOS" });
+    const sheet = await screen.findByRole("dialog", { name: "Add to PeopleOS" });
     await waitFor(() => expect(within(sheet).getByRole("button", { name: "Close Add menu" })).toHaveFocus());
-    await user.click(within(sheet).getByRole("button", { name: "Log interaction" }));
-    sheet = await screen.findByRole("dialog", { name: "Choose a person" });
-    let search = within(sheet).getByLabelText("Find a person");
-    await waitFor(() => expect(search).toHaveFocus());
-    await user.keyboard("{Escape}");
-    sheet = await screen.findByRole("dialog", { name: "Add to PeopleOS" });
-    const logInteraction = within(sheet).getByRole("button", { name: "Log interaction" });
-    await waitFor(() => expect(logInteraction).toHaveFocus());
-    await user.click(logInteraction);
-    sheet = await screen.findByRole("dialog", { name: "Choose a person" });
-    search = within(sheet).getByLabelText("Find a person");
-    await waitFor(() => expect(search).toHaveFocus());
-    await user.type(search, "aar");
-    expect(within(sheet).queryByRole("button", { name: /Sarah Jones/ })).not.toBeInTheDocument();
-    await user.click(within(sheet).getByRole("button", { name: /Aaron Patel.*Digital lead.*Watford Health/ }));
-
-    const editor = await screen.findByRole("dialog", { name: "Log interaction" });
-    await user.selectOptions(within(editor).getByLabelText(/^Interaction type/), "email");
-    await user.type(within(editor).getByLabelText("Summary"), "Sent the fellowship agenda");
-    await user.click(within(editor).getByRole("button", { name: "Save interaction" }));
-
-    await waitFor(() => expect(add).toHaveFocus());
-    expect((await readAllData(await getDatabase())).interactions).toMatchObject([{
-      personId: "person-aaron",
-      kind: "email",
-      summary: "Sent the fellowship agenda"
-    }]);
+    expect(within(sheet).getByRole("button", { name: "Add person" })).toBeInTheDocument();
+    expect(within(sheet).queryByRole("button", { name: "Log interaction" })).not.toBeInTheDocument();
+    expect((await readAllData(await getDatabase())).interactions).toEqual([]);
   });
 
   it("traps keyboard focus, announces validation, and restores focus after discarding", async () => {

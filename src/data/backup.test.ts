@@ -72,7 +72,8 @@ describe("PeopleOS backup and restore", () => {
     expect(first.envelope.schemaVersion).toBe(BACKUP_SCHEMA_VERSION);
     expect(first.envelope.data.appSettings[0]).toEqual({
       ...legacySettings,
-      alreadyContactedDefaultReminderDays: 14
+      alreadyContactedDefaultReminderDays: 14,
+      relationshipContexts: ["personal", "professional"]
     });
     expect("alreadyContactedDefaultReminderDays" in legacy.data.appSettings[0]).toBe(false);
 

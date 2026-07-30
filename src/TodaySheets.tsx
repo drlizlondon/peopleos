@@ -18,6 +18,7 @@ type ContactMethodChoiceSheetProps = ModalProps & {
   onCopy?: () => void;
   onAddPhone: () => void;
   onManage: () => void;
+  requestedChannel?: "call" | "message";
 };
 
 type ExplanationSheetProps = ModalProps & {
@@ -104,6 +105,7 @@ export function ContactMethodChoiceSheet({
   onCopy,
   onAddPhone,
   onManage,
+  requestedChannel,
   onClose
 }: ContactMethodChoiceSheetProps) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -121,7 +123,7 @@ export function ContactMethodChoiceSheet({
             {targets.map((target) => (
               <li key={target.id}>
                 <button type="button" onClick={() => onChoose(target.id)}>
-                  <span>{target.channel === "phone_call" ? "Call" : "Email"} · {target.label}</span>
+                  <span>{target.channel === "phone_call" ? (requestedChannel === "message" ? "WhatsApp" : "Call") : "Email"} · {target.label}</span>
                   <strong>{target.familiarValue}</strong>
                   {target.isPreferred && <small>Preferred</small>}
                 </button>

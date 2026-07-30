@@ -173,7 +173,7 @@ describe("V1-06 memory facts and affiliations UI", () => {
     await screen.findByRole("heading", { name: "Sarah Jones" });
     await waitFor(() => expect(screen.queryByText("Loading memory…")).not.toBeInTheDocument());
 
-    await user.click(within(screen.getByLabelText("Person actions")).getByRole("button", { name: "Add memory" }));
+    await user.click(screen.getByRole("button", { name: "Add memory" }));
     const choices = await screen.findByLabelText("Choose memory type");
     await user.click(within(choices).getByRole("button", { name: "Note" }));
     const noteDialog = await screen.findByRole("dialog", { name: "Add note" });

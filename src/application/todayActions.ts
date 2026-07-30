@@ -47,6 +47,7 @@ export type AlreadyContactedCommand = {
   localDate: LocalDate;
   timeZone: string;
   nextDate: LocalDate;
+  suppressNextFollowUp?: boolean;
   occurredAt: string;
   interactionId: string;
   followUpCompletionEventId: string;
@@ -58,8 +59,8 @@ export type AlreadyContactedCommand = {
 
 export type AlreadyContactedResult = {
   interaction: Interaction;
-  nextFollowUp: FollowUp;
-  nextFollowUpEvent: FollowUpEvent;
+  nextFollowUp?: FollowUp;
+  nextFollowUpEvent?: FollowUpEvent;
   todaySkip: TodaySkip;
   completedPrimaryFollowUp?: FollowUp;
   primaryCompletionEvent?: FollowUpEvent;
@@ -164,7 +165,7 @@ export function prepareNotTodayFromContext(
 export function prepareAlreadyContactedCommand(
   context: TodayActionContext,
   nextDate: LocalDate,
-  options: { now?: string; idFactory?: () => string } = {}
+  options: { now?: string; idFactory?: () => string; suppressNextFollowUp?: boolean } = {}
 ): AlreadyContactedCommand {
   requirePreparedContext(context);
   const { card, projection } = context;
@@ -192,6 +193,7 @@ export function prepareAlreadyContactedCommand(
     localDate: projection.result.localDate,
     timeZone: projection.result.timeZone,
     nextDate,
+    ...(options.suppressNextFollowUp ? { suppressNextFollowUp: true } : {}),
     occurredAt,
     interactionId: stableId("interaction", idFactory),
     followUpCompletionEventId: stableId("follow-up-event", idFactory),
@@ -267,8 +269,8 @@ function buildArtifacts(command: AlreadyContactedCommand): AlreadyContactedArtif
     reachOutEntry = {
       ...withoutCurrent,
       revision: reachOut.revision + 1,
-      intentStatus: "active",
-      currentFollowUpId: nextFollowUp.id,
+      intentStatus: command.suppressNextFollowUp ? "completed" : "active",
+      ...(!command.suppressNextFollowUp ? { currentFollowUpId: nextFollowUp.id } : {}),
       lastCompletedAt: command.occurredAt,
       updatedAt: command.occurredAt
     };
@@ -281,7 +283,7 @@ function buildArtifacts(command: AlreadyContactedCommand): AlreadyContactedArtif
       interactionId: interaction.id,
       commandFingerprint: command.commandFingerprint
     };
-    reachOutLinkedEvent = {
+    reachOutLinkedEvent = command.suppressNextFollowUp ? undefined : {
       id: command.reachOutLinkedEventId,
       reachOutEntryId: reachOut.id,
       kind: "follow_up_linked",
@@ -291,8 +293,10 @@ function buildArtifacts(command: AlreadyContactedCommand): AlreadyContactedArtif
   }
 
   assertValidRecord("interactions", interaction);
-  assertValidRecord("followUps", nextFollowUp);
-  assertValidRecord("followUpEvents", nextFollowUpEvent);
+  if (!command.suppressNextFollowUp) {
+    assertValidRecord("followUps", nextFollowUp);
+    assertValidRecord("followUpEvents", nextFollowUpEvent);
+  }
   assertValidRecord("todaySkips", todaySkip);
   if (completedPrimaryFollowUp) assertValidRecord("followUps", completedPrimaryFollowUp);
   if (primaryCompletionEvent) assertValidRecord("followUpEvents", primaryCompletionEvent);
@@ -301,8 +305,7 @@ function buildArtifacts(command: AlreadyContactedCommand): AlreadyContactedArtif
   if (reachOutLinkedEvent) assertValidRecord("reachOutEvents", reachOutLinkedEvent);
   return {
     interaction,
-    nextFollowUp,
-    nextFollowUpEvent,
+    ...(!command.suppressNextFollowUp ? { nextFollowUp, nextFollowUpEvent } : {}),
     todaySkip,
     ...(completedPrimaryFollowUp ? { completedPrimaryFollowUp } : {}),
     ...(primaryCompletionEvent ? { primaryCompletionEvent } : {}),
@@ -493,8 +496,10 @@ export async function alreadyContacted(
       await reachOutEvents.add(expected.reachOutLinkedEvent!);
     }
     await interactions.add(expected.interaction);
-    await followUps.add(expected.nextFollowUp);
-    await followUpEvents.add(expected.nextFollowUpEvent);
+    if (expected.nextFollowUp && expected.nextFollowUpEvent) {
+      await followUps.add(expected.nextFollowUp);
+      await followUpEvents.add(expected.nextFollowUpEvent);
+    }
     await todaySkips.add(expected.todaySkip);
     hooks.beforeCommit?.();
     await tx.done;
