@@ -82,6 +82,16 @@ function importAction(navigate: Navigate) {
   return <button className="secondary-action" type="button" onClick={() => navigate("/people/import")}>Import Contacts</button>;
 }
 
+function TodayHeading({ loading = false, relationshipFilter }: { loading?: boolean; relationshipFilter?: ReactNode }) {
+  return (
+    <header className="page-heading compact-heading today-heading" aria-hidden={loading || undefined}>
+      <p className="eyebrow">Today</p>
+      <h2>Who should I contact today?</h2>
+      {!loading && relationshipFilter}
+    </header>
+  );
+}
+
 export default function TodayScreen({ activeMode = "personal", navigate, handoff = openContactHandoff, relationshipFilter }: TodayScreenProps) {
   const [projection, setProjection] = useState<TodayScreenProjection>();
   const [loading, setLoading] = useState(true);
@@ -452,12 +462,18 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
   }
 
   if (loading && !projection) {
-    return <main className="screen today-screen" id="main-content" tabIndex={-1}><p className="screen-status" role="status">Loading Today…</p></main>;
+    return (
+      <main className="screen today-screen" id="main-content" tabIndex={-1} aria-busy="true">
+        <TodayHeading loading relationshipFilter={relationshipFilter} />
+        <p className="screen-status" role="status">Loading Today…</p>
+      </main>
+    );
   }
 
   if (!projection) {
     return (
       <main className="screen today-screen" id="main-content" tabIndex={-1}>
+        <TodayHeading relationshipFilter={relationshipFilter} />
         <div className="section-error"><p role="alert">{pageError}</p><button type="button" onClick={() => void load(true)}>Retry</button></div>
       </main>
     );
@@ -516,11 +532,7 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
 
   return (
     <main className="screen today-screen" id="main-content" tabIndex={-1}>
-      <header className="page-heading compact-heading today-heading">
-        <p className="eyebrow">Today</p>
-        <h2>Who should I contact today?</h2>
-        {relationshipFilter}
-      </header>
+      <TodayHeading relationshipFilter={relationshipFilter} />
       {pageError && <div className="section-error"><p role="alert">{pageError}</p><button type="button" onClick={() => void load()}>Retry</button></div>}
       {projection.evaluationIssues.length > 0 && (
         <div className="today-evaluation-notice">
