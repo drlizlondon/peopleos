@@ -562,8 +562,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .contact-methods-screen,
 .form-screen { padding-top: 28px; }
 
-.people-screen-loading { background: var(--canvas); }
-
 .page-heading-with-action {
   display: flex;
   align-items: flex-end;

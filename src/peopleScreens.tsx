@@ -335,6 +335,12 @@ export function PeopleScreen({
   if (loading && results === undefined && storedPersonCount === undefined) {
     return (
       <main className="screen people-screen people-screen-loading" id="main-content" tabIndex={-1} aria-busy="true">
+        <header className="page-heading page-heading-with-action" aria-hidden="true">
+          <div>
+            <p className="eyebrow">People</p>
+            <h2>{importedPersonIds ? "Imported people" : "Find a person"}</h2>
+          </div>
+        </header>
         <p className="screen-status" role="status">Loading people…</p>
       </main>
     );
@@ -360,7 +366,7 @@ export function PeopleScreen({
   }
 
   return (
-    <main className="screen people-screen" id="main-content" tabIndex={-1}>
+    <main className="screen people-screen" id="main-content" tabIndex={-1} aria-busy={loading || undefined}>
       <header className="page-heading page-heading-with-action">
         <div>
           <p className="eyebrow">People</p>

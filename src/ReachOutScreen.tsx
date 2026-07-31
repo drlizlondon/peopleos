@@ -204,20 +204,20 @@ export default function ReachOutScreen({ activeMode = "personal", navigate, onAd
     setContextId("");
   }
 
-  const heading = (
-    <header className="page-heading page-heading-with-action">
+  const heading = (loading = false) => (
+    <header className="page-heading page-heading-with-action" aria-hidden={loading || undefined}>
       <div>
         <p className="eyebrow">Reach Out</p>
         <h2>People you mean to contact</h2>
-        {relationshipFilter}
+        {!loading && relationshipFilter}
       </div>
-      <button className="primary-action" type="button" onClick={(event) => onAdd(event.currentTarget)}>Add someone</button>
+      {!loading && <button className="primary-action" type="button" onClick={(event) => onAdd(event.currentTarget)}>Add someone</button>}
     </header>
   );
 
   return (
     <main className="screen reach-out-screen" id="main-content" tabIndex={-1}>
-      {hasEntries && heading}
+      {hasEntries !== false && heading(hasEntries === undefined)}
       {hasEntries && (
         <section className="reach-out-retrieval" aria-label="Find Reach Out plans">
           <div className="reach-out-search-row">

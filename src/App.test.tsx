@@ -1,10 +1,22 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import App from "./App";
 import { RELATIONSHIP_MODE_PREFERENCE_KEY } from "./relationshipModePreference";
 
 describe("PeopleOS shell", () => {
+  it("keeps destination headings visible while primary routes load", () => {
+    render(<App />);
+
+    expect(screen.getByText("Who should I contact today?").closest(".page-heading")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("link", { name: "People" }));
+    expect(screen.getByText("Find a person").closest(".page-heading")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("link", { name: "Reach Out" }));
+    expect(screen.getByText("People you mean to contact").closest(".page-heading")).toBeInTheDocument();
+  });
+
   it("keeps the selected relationship view while navigating", async () => {
     const values = new Map<string, string>();
     Object.defineProperty(window, "localStorage", {
