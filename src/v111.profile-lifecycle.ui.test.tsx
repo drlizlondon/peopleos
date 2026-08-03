@@ -190,7 +190,8 @@ async function chooseProfileAction(
   const opener = actions.querySelector("summary");
   expect(opener).toHaveAttribute("aria-label", `More actions for ${personName}`);
   await user.click(opener!);
-  await user.click(screen.getByRole("menuitem", { name: action }));
+  const overflow = screen.getByRole("group", { name: `More actions for ${personName}` });
+  await user.click(within(overflow).getByRole("button", { name: action }));
 }
 
 describe("V1-11 complete Profile and Person lifecycle UI", () => {
@@ -262,6 +263,63 @@ describe("V1-11 complete Profile and Person lifecycle UI", () => {
     expect(within(screen.getByRole("heading", { name: "Memory" }).closest("section")!).getAllByRole("term")).toHaveLength(3);
     expect(within(screen.getByRole("heading", { name: "Recent timeline" }).closest("section")!).getAllByRole("listitem")).toHaveLength(5);
     expect((await readAllData(await getDatabase())).followUps).toHaveLength(2);
+  });
+
+  it("pauses and resumes only regular Keep in touch reminders from the person profile", async () => {
+    const savedPerson = await seedPerson(person({
+      contactCadenceDays: 14,
+      contactCadenceFirstDueDate: "2026-07-23"
+    }));
+    window.history.replaceState({}, "", `/people/${savedPerson.id}`);
+    const user = userEvent.setup();
+    render(<App />);
+
+    const keepInTouch = (await screen.findByRole("heading", { name: "Keep in touch" })).closest("section")!;
+    expect(within(keepInTouch).getByText("Every 2 weeks")).toBeInTheDocument();
+    await user.click(within(keepInTouch).getByRole("button", { name: "Pause reminders" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Pause reminders" });
+    const amount = within(dialog).getByRole("spinbutton", { name: "For" });
+    const resumeDate = within(dialog).getByRole("status");
+    expect(amount).toHaveAttribute("max", "521");
+    expect(amount).toHaveAttribute("aria-describedby", resumeDate.id);
+    expect(within(dialog).getByRole("combobox", { name: "Unit" })).toHaveAttribute("aria-describedby", resumeDate.id);
+    expect(resumeDate).toHaveTextContent("Resume on: 30/07/2026");
+    await user.click(within(dialog).getByRole("button", { name: "Pause reminders" }));
+
+    await waitFor(async () => {
+      expect(await (await getDatabase()).get("people", savedPerson.id)).toMatchObject({
+        contactCadenceDays: 14,
+        contactCadenceDeferredUntilDate: "2026-07-30"
+      });
+    });
+    expect(await screen.findByText("Resume on: 30/07/2026")).toBeInTheDocument();
+    expect((await readAllData(await getDatabase())).interactions).toHaveLength(0);
+
+    await user.click(screen.getByRole("button", { name: "Resume reminders" }));
+    await waitFor(async () => {
+      const resumed = await (await getDatabase()).get("people", savedPerson.id);
+      expect(resumed).not.toHaveProperty("contactCadenceDeferredUntilDate");
+      expect(resumed?.contactCadenceDays).toBe(14);
+    });
+    expect((await readAllData(await getDatabase())).interactions).toHaveLength(0);
+  });
+
+  it("ignores stale pause metadata when Keep in touch is not enabled", async () => {
+    const savedPerson = await seedPerson(person({
+      contactCadenceDeferredUntilDate: "2026-08-14",
+      contactCadencePausedAt: "2026-07-20T09:00:00.000Z"
+    }));
+    window.history.replaceState({}, "", `/people/${savedPerson.id}`);
+
+    render(<App />);
+
+    const keepInTouch = (await screen.findByRole("heading", { name: "Keep in touch" })).closest("section")!;
+    expect(within(keepInTouch).getByText("Not enabled")).toBeInTheDocument();
+    expect(within(keepInTouch).queryByText(/Resume on:/)).not.toBeInTheDocument();
+    expect(within(keepInTouch).queryByText("Paused")).not.toBeInTheDocument();
+    expect(within(keepInTouch).queryByRole("button", { name: "Pause reminders" })).not.toBeInTheDocument();
+    expect(within(keepInTouch).queryByRole("button", { name: "Resume reminders" })).not.toBeInTheDocument();
   });
 
   it("recovers from an initial Profile identity read failure without a page reload", async () => {

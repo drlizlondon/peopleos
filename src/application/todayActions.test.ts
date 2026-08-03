@@ -257,6 +257,100 @@ describe("V1-10 Already contacted command", () => {
     db.close();
   });
 
+  it("completes a one-off Reach Out without creating a replacement reminder and is idempotent on retry", async () => {
+    const db = await openDatabase();
+    const { primary, entry } = await seedExplicit(db, { reachOut: true });
+    const command = prepareAlreadyContactedCommand(await actionContext(db), "2026-08-30", {
+      now,
+      idFactory: sequenceIdFactory(),
+      suppressNextFollowUp: true
+    });
+
+    const first = await alreadyContacted(db, command);
+
+    expect(first.interaction).toMatchObject({
+      kind: "contacted",
+      followUpId: primary.id
+    });
+    expect(first.completedPrimaryFollowUp).toMatchObject({
+      id: primary.id,
+      status: "completed"
+    });
+    expect(first.reachOutEntry).toMatchObject({
+      id: entry!.id,
+      revision: 2,
+      intentStatus: "completed",
+      lastCompletedAt: now
+    });
+    expect(first.reachOutEntry).not.toHaveProperty("currentFollowUpId");
+    expect(first.reachOutCompletionEvent).toMatchObject({
+      kind: "completed",
+      followUpId: primary.id,
+      interactionId: first.interaction.id,
+      commandFingerprint: command.commandFingerprint
+    });
+    expect(first.nextFollowUp).toBeUndefined();
+    expect(first.nextFollowUpEvent).toBeUndefined();
+    expect(first.reachOutLinkedEvent).toBeUndefined();
+
+    expect(await alreadyContacted(db, command)).toEqual(first);
+    expect(await db.count("interactions")).toBe(1);
+    expect(await db.count("followUps")).toBe(1);
+    expect(await db.count("followUpEvents")).toBe(1);
+    expect(await db.count("reachOutEvents")).toBe(1);
+    expect((await db.getAllFromIndex("followUps", "by-reach-out", entry!.id))
+      .filter((followUp) => followUp.status === "pending")).toEqual([]);
+    expect((await db.get("metadata", "app"))?.datasetRevision).toBe(11);
+    db.close();
+  });
+
+  it("restarts a paused Keep in touch interval from a genuine Contacted action", async () => {
+    const db = await openDatabase();
+    const person = makePerson({
+      contactCadenceDays: 14,
+      contactCadenceFirstDueDate: "2026-08-01",
+      contactCadenceDeferredUntilDate: "2026-09-30",
+      contactCadencePausedAt: "2026-08-01T12:00:00.000Z"
+    });
+    const primary = makeFollowUp();
+    const tx = db.transaction(["people", "followUps"], "readwrite");
+    await tx.objectStore("people").add(person);
+    await tx.objectStore("followUps").add(primary);
+    await tx.done;
+    await setDatasetRevision(db, 10);
+    const command = prepareAlreadyContactedCommand(await actionContext(db), "2026-08-28", {
+      now,
+      idFactory: sequenceIdFactory(),
+      suppressNextFollowUp: true
+    });
+
+    await alreadyContacted(db, command);
+
+    const saved = await db.get("people", person.id);
+    expect(saved).toMatchObject({
+      contactCadenceDays: 14,
+      contactCadenceFirstDueDate: "2026-08-01",
+      revision: 2,
+      updatedAt: now
+    });
+    expect(saved).not.toHaveProperty("contactCadenceDeferredUntilDate");
+    expect(saved).not.toHaveProperty("contactCadencePausedAt");
+    const afterContact = await getTodayScreenProjection(db, clock);
+    expect(afterContact.result.totalCount).toBe(0);
+    const nextInterval = await getTodayScreenProjection(db, {
+      ...clock,
+      now: "2026-08-28T12:00:00.000Z"
+    });
+    expect(nextInterval.cards.map((card) => card.person.id)).toEqual([person.id]);
+
+    expect(await alreadyContacted(db, command)).toEqual(expect.objectContaining({
+      interaction: expect.objectContaining({ kind: "contacted" })
+    }));
+    expect((await db.get("people", person.id))?.revision).toBe(2);
+    expect((await db.get("metadata", "app"))?.datasetRevision).toBe(11);
+    db.close();
+  });
+
   it("rolls back every generic artifact and retains no partial history on failure", async () => {
     const db = await openDatabase();
     await seedExplicit(db, { includeAdditional: true });

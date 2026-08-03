@@ -2,10 +2,9 @@
  * Ratchet: search at the 3,000-contact reference size.
  *
  * The sequence measurement is the important one. A single query understates
- * what the People screen actually does today: its effect re-runs on every
- * change to the query string with no debounce, so typing a five-letter name
- * issues five full searches. V1-R3 both debounces the input and stops search
- * running relationship assessments, and must lower both ceilings.
+ * what the People screen did before debouncing, so this remains a worst-case
+ * regression guard. The single-query measurement lives in its own file so
+ * this allocation-heavy sequence cannot influence its heap state.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createCorpusFixture, emit, reportAgainstCeiling, type CorpusFixture } from "./fixture";
@@ -46,13 +45,6 @@ describe("V1-R ratchet — search", () => {
       }
     }, 4, 1);
     const ceiling = reportAgainstCeiling("searchKeystrokeSequence", measurement, fixture.factor);
-    expect(measurement.bestMs).toBeLessThanOrEqual(ceiling);
-  }, 1_800_000);
-
-  it("handles a single keystroke within the current ceiling", async () => {
-    const measurement = await measure("searchSingleKeystroke", () =>
-      getPersonSearchView(fixture.db, { clock: fixture.clock, query: "sarah" }), 5, 1);
-    const ceiling = reportAgainstCeiling("searchSingleKeystroke", measurement, fixture.factor);
     expect(measurement.bestMs).toBeLessThanOrEqual(ceiling);
   }, 1_800_000);
 });

@@ -381,9 +381,16 @@ describe("Today eligibility", () => {
     expect(assessRelationship(bundle({
       person: person("first-later", { contactCadenceDays: 30, contactCadenceFirstDueDate: "2026-09-13" })
     }), clock).today).toBeUndefined();
-    expect(assessRelationship(bundle({
-      person: person("deferred", { contactCadenceDays: 2, contactCadenceFirstDueDate: "2026-08-14", contactCadenceDeferredUntilDate: "2026-08-28" })
-    }), clock).today).toBeUndefined();
+    const deferredPerson = person("deferred", {
+      contactCadenceDays: 2,
+      contactCadenceFirstDueDate: "2026-08-14",
+      contactCadenceDeferredUntilDate: "2026-08-28"
+    });
+    expect(assessRelationship(bundle({ person: deferredPerson }), clock).today).toBeUndefined();
+    expect(assessRelationship(bundle({ person: deferredPerson }), {
+      ...clock,
+      now: "2026-08-28T12:00:00.000Z"
+    }).today).toMatchObject({ eligibilityCode: "cadence_due", relevantDate: "2026-08-28" });
     expect(assessRelationship(bundle({
       person: person("paused", { contactCadenceDays: 2, contactCadenceFirstDueDate: "2026-08-14", contactCadencePausedAt: clock.now })
     }), clock).today).toBeUndefined();

@@ -67,7 +67,7 @@ describe("V1-03 manual person capture", () => {
     expect(window.history.state).toMatchObject({ fromPath: "/" });
     await user.click(screen.getByRole("button", { name: "← Today" }));
     expect(window.location.pathname).toBe("/");
-    expect(await screen.findByRole("heading", { name: "Nothing needs your attention today." })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "You’re all caught up." })).toBeInTheDocument();
   });
 
   it.each([

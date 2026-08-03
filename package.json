@@ -10,7 +10,7 @@
     "lint": "eslint src --max-warnings 0",
     "test": "vitest run --exclude '**/node_modules/**' --exclude '**/*.perf.test.ts'",
     "test:watch": "vitest --exclude '**/node_modules/**' --exclude '**/*.perf.test.ts'",
-    "test:perf": "vitest run perf.test.ts",
+    "test:perf": "node scripts/run-performance-tests.mjs",
     "check": "npm run lint && npm run test && npm run test:perf && npm run build"
   },
   "dependencies": {

@@ -451,7 +451,7 @@ export async function alreadyContacted(
       return expected;
     }
 
-    requireWritablePerson(person, command);
+    const writablePerson = requireWritablePerson(person, command);
     await updateMetadata(tx.objectStore("metadata"), command.expectedDatasetRevision, command.occurredAt);
     if (storedTodaySkip) throw new StaleRevisionError();
     if (storedNextFollowUp || storedNextFollowUpEvent || storedInteraction) {
@@ -486,6 +486,22 @@ export async function alreadyContacted(
       throw new RecordConflictError("The linked Reach Out entry is missing from this command.");
     }
 
+    if (writablePerson.contactCadenceDays
+      && (writablePerson.contactCadenceDeferredUntilDate || writablePerson.contactCadencePausedAt)) {
+      const {
+        contactCadenceDeferredUntilDate: _deferredUntil,
+        contactCadencePausedAt: _pausedAt,
+        ...unpausedPerson
+      } = writablePerson;
+      const resumedPerson: Person = {
+        ...unpausedPerson,
+        revision: writablePerson.revision + 1,
+        updatedAt: command.occurredAt
+      };
+      assertValidRecord("people", resumedPerson);
+      await tx.objectStore("people").put(resumedPerson);
+    }
+
     if (command.expectedPrimaryFollowUp) {
       await followUps.put(expected.completedPrimaryFollowUp!);
       await followUpEvents.add(expected.primaryCompletionEvent!);
@@ -493,7 +509,9 @@ export async function alreadyContacted(
     if (command.expectedReachOutEntry) {
       await reachOutEntries.put(expected.reachOutEntry!);
       await reachOutEvents.add(expected.reachOutCompletionEvent!);
-      await reachOutEvents.add(expected.reachOutLinkedEvent!);
+      if (expected.reachOutLinkedEvent) {
+        await reachOutEvents.add(expected.reachOutLinkedEvent);
+      }
     }
     await interactions.add(expected.interaction);
     if (expected.nextFollowUp && expected.nextFollowUpEvent) {

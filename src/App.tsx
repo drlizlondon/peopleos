@@ -383,9 +383,6 @@ export default function App() {
             navigate(routeFromPath("/"), {
               replace: true,
               state: {
-                ...(Number.isInteger(window.history.state?.todayVisibleCount)
-                  ? { todayVisibleCount: window.history.state.todayVisibleCount }
-                  : {}),
                 ...(typeof window.history.state?.todayFocusPersonId === "string"
                   ? { todayFocusPersonId: window.history.state.todayFocusPersonId }
                   : {})

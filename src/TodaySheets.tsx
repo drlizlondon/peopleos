@@ -39,7 +39,7 @@ type NextReminderSheetProps = ModalProps & {
   onRetry?: () => void;
 };
 
-function useModalSheet(
+export function useModalSheet(
   prefix: string,
   onClose: () => void,
   firstFocusRef: React.RefObject<HTMLElement>,

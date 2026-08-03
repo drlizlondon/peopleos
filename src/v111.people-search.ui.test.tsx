@@ -282,7 +282,8 @@ describe("V1-11 People search and filters UI", () => {
     const moreActions = actions.querySelector("summary");
     expect(moreActions).toHaveAttribute("aria-label", "More actions for Aaron Clarke");
     await user.click(moreActions!);
-    await user.click(screen.getByRole("menuitem", { name: "Edit person" }));
+    const overflow = screen.getByRole("group", { name: "More actions for Aaron Clarke" });
+    await user.click(within(overflow).getByRole("button", { name: "Edit person" }));
     await user.click(await screen.findByRole("button", { name: "Manage contact methods" }));
     expect(await screen.findByRole("button", { name: "Add email" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "← Person" }));

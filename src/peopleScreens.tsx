@@ -11,6 +11,8 @@ import InteractionEditorSheet from "./InteractionEditorSheet";
 import FactEditorSheet from "./FactEditorSheet";
 import TimelineList from "./TimelineList";
 import { ContactMethodChoiceSheet } from "./TodaySheets";
+import RegularReminderPauseSheet from "./RegularReminderPauseSheet";
+import { deferRegularReminder, resumeRegularReminder } from "./application/cadence";
 import {
   createManualContactMethodDraft,
   createManualPersonCaptureDraft,
@@ -1157,6 +1159,15 @@ function formatLocalDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(year, month - 1, day));
 }
 
+function formatNumericLocalDate(value: string): string {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  }).format(new Date(year, month - 1, day));
+}
+
 function followUpActionLabel(followUp: FollowUp): string {
   return FOLLOW_UP_ACTION_OPTIONS.find((option) => option.value === followUp.actionType)?.label ?? "Other";
 }
@@ -1201,10 +1212,14 @@ export function PersonProfileScreen({
   const [factEditor, setFactEditor] = useState<{ sourceInteractionId?: string } | null>(null);
   const [memoryChoiceOpen, setMemoryChoiceOpen] = useState(false);
   const [promotionNoteId, setPromotionNoteId] = useState<string | null>(null);
+  const [pauseEditorOpen, setPauseEditorOpen] = useState(false);
+  const [pauseSaving, setPauseSaving] = useState(false);
+  const [pauseError, setPauseError] = useState("");
   const editorOpenerRef = useRef<HTMLElement | null>(null);
   const profileHeadingRef = useRef<HTMLHeadingElement>(null);
   const memoryChoiceFirstRef = useRef<HTMLButtonElement>(null);
   const contactOpenerRef = useRef<HTMLButtonElement | null>(null);
+  const pauseOpenerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -1449,6 +1464,45 @@ export function PersonProfileScreen({
     }
   }
 
+  function closePauseEditor() {
+    if (pauseSaving) return;
+    setPauseEditorOpen(false);
+    setPauseError("");
+    requestAnimationFrame(() => pauseOpenerRef.current?.focus());
+  }
+
+  async function pauseKeepInTouch(resumeOn: string) {
+    if (!summary || pauseSaving) return;
+    setPauseSaving(true);
+    setPauseError("");
+    try {
+      await deferRegularReminder(await getDatabase(), summary.person.id, resumeOn, new Date().toISOString());
+      setPauseEditorOpen(false);
+      setRefreshVersion((current) => current + 1);
+      requestAnimationFrame(() => pauseOpenerRef.current?.focus());
+    } catch (caught) {
+      setPauseError(firstIssue(caught));
+    } finally {
+      setPauseSaving(false);
+    }
+  }
+
+  async function resumeKeepInTouch(opener: HTMLButtonElement) {
+    if (!summary || pauseSaving) return;
+    pauseOpenerRef.current = opener;
+    setPauseSaving(true);
+    setPauseError("");
+    try {
+      await resumeRegularReminder(await getDatabase(), summary.person.id, new Date().toISOString());
+      setRefreshVersion((current) => current + 1);
+      requestAnimationFrame(() => opener.focus());
+    } catch (caught) {
+      setPauseError(firstIssue(caught));
+    } finally {
+      setPauseSaving(false);
+    }
+  }
+
   const requestedBackRoute = routeFromPath(backPath);
   const resumesCapture = backPath === "/people/new";
   const resumesImport = backPath === "/people/import";
@@ -1479,6 +1533,9 @@ export function PersonProfileScreen({
       : summary?.person.contactCadenceFirstDueDate
     : undefined;
   const deferredKeepInTouchDate = summary?.person.contactCadenceDeferredUntilDate;
+  const todayDate = currentLocalDate();
+  const hasActiveFinitePause = Boolean(keepInTouchDays && deferredKeepInTouchDate && deferredKeepInTouchDate > todayDate);
+  const hasActiveKeepInTouchPause = Boolean(keepInTouchDays && summary?.person.contactCadencePausedAt) || hasActiveFinitePause;
   const nextKeepInTouchDate = deferredKeepInTouchDate
     && (!regularKeepInTouchDate || deferredKeepInTouchDate > regularKeepInTouchDate)
     ? deferredKeepInTouchDate
@@ -1524,7 +1581,6 @@ export function PersonProfileScreen({
       {summary && (
         <>
           <header className="profile-heading">
-            <p className="eyebrow">Person</p>
             <h2 ref={profileHeadingRef} tabIndex={-1}>{summary.person.displayName}</h2>
             {summary.person.identityStatus === "provisional" && (
               <div className="identity-note">
@@ -1567,14 +1623,14 @@ export function PersonProfileScreen({
               </button>
               <details className="today-more-actions">
                 <summary aria-label={`More actions for ${summary.person.displayName}`}>•••</summary>
-                <div role="menu" aria-label={`More actions for ${summary.person.displayName}`}>
-                  <button role="menuitem" type="button" onClick={() => navigate(editPersonPath(summary.person.id))}>
+                <div role="group" aria-label={`More actions for ${summary.person.displayName}`}>
+                  <button type="button" onClick={() => navigate(editPersonPath(summary.person.id))}>
                     Edit person
                   </button>
-                  <button role="menuitem" type="button" onClick={() => navigate(relationshipSettingsPath(summary.person.id))}>
+                  <button type="button" onClick={() => navigate(relationshipSettingsPath(summary.person.id))}>
                     Relationship settings
                   </button>
-                  <button className="danger-action" role="menuitem" type="button" disabled={archivingPerson} onClick={() => void archiveCurrentPerson()}>
+                  <button className="danger-action" type="button" disabled={archivingPerson} onClick={() => void archiveCurrentPerson()}>
                     {archivingPerson ? "Archiving…" : "Archive person"}
                   </button>
                 </div>
@@ -1655,18 +1711,38 @@ export function PersonProfileScreen({
               <div>
                 <h3 id="profile-keep-in-touch-heading">Keep in touch</h3>
                 <strong>{keepInTouchDays
-                  ? summary.person.contactCadencePausedAt
-                    ? "Paused"
-                    : keepInTouchLabel(keepInTouchDays)
+                  ? keepInTouchLabel(keepInTouchDays)
                   : "Not enabled"}</strong>
               </div>
               {!summary.person.archivedAt && summary.person.identityStatus !== "merged" && (
                 <button className="secondary-action" type="button" onClick={() => navigate(relationshipSettingsPath(summary.person.id))}>Change</button>
               )}
             </div>
-            {keepInTouchDays && !summary.person.contactCadencePausedAt && nextKeepInTouchDate && (
+            {hasActiveFinitePause && deferredKeepInTouchDate && (
+              <p className="muted-copy">Resume on: {formatNumericLocalDate(deferredKeepInTouchDate)}</p>
+            )}
+            {keepInTouchDays && summary.person.contactCadencePausedAt && (
+              <p className="muted-copy">Paused</p>
+            )}
+            {keepInTouchDays && !hasActiveKeepInTouchPause && nextKeepInTouchDate && (
               <p className="muted-copy">Next: {formatLocalDate(nextKeepInTouchDate)}</p>
             )}
+            {keepInTouchDays && !summary.person.archivedAt && summary.person.identityStatus !== "merged" && (
+              <div className="button-row compact-buttons profile-reminder-actions">
+                {hasActiveKeepInTouchPause
+                  ? <button
+                    type="button"
+                    disabled={pauseSaving}
+                    onClick={(event) => void resumeKeepInTouch(event.currentTarget)}
+                  >{pauseSaving ? "Resuming…" : "Resume reminders"}</button>
+                  : <button
+                    ref={pauseOpenerRef}
+                    type="button"
+                    onClick={() => { setPauseError(""); setPauseEditorOpen(true); }}
+                  >Pause reminders</button>}
+              </div>
+            )}
+            {pauseError && !pauseEditorOpen && <p className="form-alert" role="alert">{pauseError}</p>}
             {nextPlan === undefined && !planError && <p role="status">Loading follow-up…</p>}
             {planError && (
               <div className="section-error">
@@ -1686,6 +1762,16 @@ export function PersonProfileScreen({
               </div>
             )}
           </section>
+          {pauseEditorOpen && summary && (
+            <RegularReminderPauseSheet
+              personName={summary.person.displayName}
+              todayDate={todayDate}
+              saving={pauseSaving}
+              error={pauseError}
+              onClose={closePauseEditor}
+              onConfirm={(resumeOn) => void pauseKeepInTouch(resumeOn)}
+            />
+          )}
           <section className="profile-card profile-reach-out-card" aria-labelledby="profile-reach-out-heading">
             <h3 id="profile-reach-out-heading">Reach Out</h3>
             {reachOut === undefined && !reachOutError && <p role="status">Loading…</p>}

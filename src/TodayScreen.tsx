@@ -12,7 +12,6 @@ import {
   type ContactNowTarget
 } from "./application/contactNow";
 import { notToday, type NotTodayCommand } from "./application/followUps";
-import { deferRegularReminder, pauseRegularReminder } from "./application/cadence";
 import { removeTodayNote, saveTodayNote, setTodayNoteCompleted } from "./application/todayNotes";
 import {
   alreadyContacted,
@@ -36,7 +35,7 @@ import type { LocalDate } from "./domain/schema";
 import type { ActiveRelationshipMode } from "./domain/relationshipMode";
 import type { ContactHandoff } from "./integrations/contactHandoff";
 import { openContactHandoff } from "./integrations/contactHandoff";
-import { contactMethodsPath, personProfilePath, reachOutDetailPath, relationshipSettingsPath } from "./navigation";
+import { contactMethodsPath, personProfilePath } from "./navigation";
 
 type Navigate = (path: string, options?: { replace?: boolean; state?: Record<string, unknown> }) => void;
 
@@ -67,11 +66,6 @@ function firstIssue(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-function initialVisibleCount(): number {
-  const value = window.history.state?.todayVisibleCount;
-  return Number.isInteger(value) && value >= 5 ? value : 5;
-}
-
 function storedFocusPersonId(): string | undefined {
   return typeof window.history.state?.todayFocusPersonId === "string"
     ? window.history.state.todayFocusPersonId
@@ -82,12 +76,20 @@ function importAction(navigate: Navigate) {
   return <button className="secondary-action" type="button" onClick={() => navigate("/people/import")}>Import Contacts</button>;
 }
 
-function TodayHeading({ loading = false, relationshipFilter }: { loading?: boolean; relationshipFilter?: ReactNode }) {
+function TodayHeading({
+  loading = false,
+  relationshipFilter,
+  status = ""
+}: {
+  loading?: boolean;
+  relationshipFilter?: ReactNode;
+  status?: string;
+}) {
   return (
-    <header className="page-heading compact-heading today-heading" aria-hidden={loading || undefined}>
-      <p className="eyebrow">Today</p>
-      <h2>Who should I contact today?</h2>
+    <header className="page-heading compact-heading today-heading">
+      <h2>Today</h2>
       {!loading && relationshipFilter}
+      <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">{status}</p>
     </header>
   );
 }
@@ -96,7 +98,6 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
   const [projection, setProjection] = useState<TodayScreenProjection>();
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState("");
-  const [visibleCount, setVisibleCount] = useState(initialVisibleCount);
   const [busyPersonId, setBusyPersonId] = useState("");
   const [cardErrors, setCardErrors] = useState<Record<string, CardError>>({});
   const [contactChoice, setContactChoice] = useState<ContactChoice>();
@@ -118,7 +119,6 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
       if (!mountedRef.current) return;
       setProjection(next);
       setCommittedHiddenPersonIds(new Set());
-      setVisibleCount((current) => Math.max(5, Math.min(current, Math.max(5, next.cards.length))));
       return true;
     } catch {
       if (mountedRef.current) setPageError("PeopleOS could not load Today from this device.");
@@ -177,7 +177,7 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
 
   function rememberTodayHistory(personId: string) {
     window.history.replaceState(
-      { ...(window.history.state ?? {}), todayVisibleCount: visibleCount, todayFocusPersonId: personId },
+      { ...(window.history.state ?? {}), todayFocusPersonId: personId },
       "",
       window.location.pathname
     );
@@ -200,7 +200,6 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
         fromPath: "/",
         autoAddPhone,
         todayOriginPrepared: true,
-        todayVisibleCount: visibleCount,
         todayFocusPersonId: card.person.id
       }
     });
@@ -339,6 +338,10 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
       await notToday(await getDatabase(), command);
       notTodayCommandsRef.current.delete(card.person.id);
       setCommittedHiddenPersonIds((current) => new Set(current).add(card.person.id));
+      const completesToday = projection?.cards.filter((candidate) =>
+        !committedHiddenPersonIds.has(candidate.person.id)
+      ).length === 1 && projection.evaluationIssues.length === 0;
+      setCopiedStatus(`${card.person.displayName} is off Today until tomorrow.${completesToday ? " You’re all caught up." : ""}`);
       await load();
     } catch (error) {
       if (error instanceof StaleRevisionError) {
@@ -352,25 +355,6 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
           retry: "not_today"
         });
       }
-    } finally {
-      mutationLocksRef.current.delete(card.person.id);
-      setBusyPersonId("");
-    }
-  }
-
-  async function pauseCadence(card: TodayCardProjection, until?: LocalDate, pause = false) {
-    if (mutationLocksRef.current.size > 0) return;
-    mutationLocksRef.current.add(card.person.id);
-    setBusyPersonId(card.person.id);
-    setCardError(card.person.id);
-    try {
-      const now = new Date().toISOString();
-      if (pause) await pauseRegularReminder(await getDatabase(), card.person.id, now);
-      else if (until) await deferRegularReminder(await getDatabase(), card.person.id, until, now);
-      setCommittedHiddenPersonIds((current) => new Set(current).add(card.person.id));
-      await load();
-    } catch (error) {
-      setCardError(card.person.id, { message: firstIssue(error, "PeopleOS could not pause this reminder.") });
     } finally {
       mutationLocksRef.current.delete(card.person.id);
       setBusyPersonId("");
@@ -428,8 +412,13 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
       await alreadyContacted(await getDatabase(), prepared.command);
       alreadyCommandsRef.current.delete(card.person.id);
       setCommittedHiddenPersonIds((current) => new Set(current).add(card.person.id));
+      const completesToday = projection?.cards.filter((candidate) =>
+        !committedHiddenPersonIds.has(candidate.person.id)
+      ).length === 1 && projection.evaluationIssues.length === 0;
       if (options.announceNextReminder !== false) {
-        setCopiedStatus(`Next reminder: ${new Intl.DateTimeFormat("en-GB").format(new Date(`${nextDate}T12:00:00`))}`);
+        setCopiedStatus(`Contact recorded. Next reminder: ${new Intl.DateTimeFormat("en-GB").format(new Date(`${nextDate}T12:00:00`))}.${completesToday ? " You’re all caught up." : ""}`);
+      } else {
+        setCopiedStatus(`Contact recorded.${completesToday ? " You’re all caught up." : ""}`);
       }
       await load();
     } catch (error) {
@@ -473,7 +462,7 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
   if (!projection) {
     return (
       <main className="screen today-screen" id="main-content" tabIndex={-1}>
-        <TodayHeading relationshipFilter={relationshipFilter} />
+        <TodayHeading relationshipFilter={relationshipFilter} status={copiedStatus} />
         <div className="section-error"><p role="alert">{pageError}</p><button type="button" onClick={() => void load(true)}>Retry</button></div>
       </main>
     );
@@ -481,50 +470,48 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
 
   const visibleCards = projection.cards.filter((card) =>
     !committedHiddenPersonIds.has(card.person.id)
-  ).slice(0, visibleCount);
-  const hasMore = projection.cards.length > visibleCount;
+  );
 
-  if (projection.cards.length === 0 && projection.activePersonCount === 0) {
+  if (visibleCards.length === 0 && projection.totalActivePersonCount === 0) {
     return (
       <main className="screen today-screen" id="main-content" tabIndex={-1}>
+        <TodayHeading relationshipFilter={relationshipFilter} status={copiedStatus} />
         <EmptyState
-          eyebrow="Today"
           title="Start with one person you want to remember."
           description="PeopleOS will show who needs your attention."
-          filter={relationshipFilter}
+          headingLevel={3}
           action={<div className="empty-action-stack"><button className="primary-action" type="button" onClick={() => navigate("/people/new")}><Icon name="plus" /> Add your first person</button>{importAction(navigate)}</div>}
         />
       </main>
     );
   }
 
-  if (projection.cards.length === 0 && projection.evaluationIssues.length > 0) {
+  if (visibleCards.length === 0 && projection.evaluationIssues.length > 0) {
     return (
       <main className="screen today-screen" id="main-content" tabIndex={-1}>
+        <TodayHeading relationshipFilter={relationshipFilter} status={copiedStatus} />
         <div className="today-evaluation-notice">
           <p role="alert">{projection.evaluationIssues.length === 1 ? "One relationship could not be evaluated" : `${projection.evaluationIssues.length} relationships could not be evaluated`}</p>
           <button type="button" onClick={() => void load()}>Retry</button>
         </div>
         <EmptyState
-          eyebrow="Today"
           title="Today could not check every relationship."
           description="Retry before treating the list as complete."
-          filter={relationshipFilter}
+          headingLevel={3}
         />
       </main>
     );
   }
 
-  if (projection.cards.length === 0) {
-    const cleared = projection.skippedEligibleCount > 0;
+  if (visibleCards.length === 0) {
     return (
       <main className="screen today-screen" id="main-content" tabIndex={-1}>
+        <TodayHeading relationshipFilter={relationshipFilter} status={copiedStatus} />
+        {pageError && <div className="section-error"><p role="alert">{pageError}</p><button type="button" onClick={() => void load()}>Retry</button></div>}
         <EmptyState
-          eyebrow="Today"
-          title={cleared ? "You’ve cleared Today for now." : "Nothing needs your attention today."}
-          description={cleared ? "Your deferred plans remain available in Upcoming." : "Your people and plans are still here whenever you need them."}
-          filter={relationshipFilter}
-          action={!cleared ? <button className="primary-action" type="button" onClick={() => navigate("/people")}>Find someone in People</button> : undefined}
+          title="You’re all caught up."
+          headingLevel={3}
+          mark="check"
         />
       </main>
     );
@@ -532,7 +519,7 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
 
   return (
     <main className="screen today-screen" id="main-content" tabIndex={-1}>
-      <TodayHeading relationshipFilter={relationshipFilter} />
+      <TodayHeading relationshipFilter={relationshipFilter} status={copiedStatus} />
       {pageError && <div className="section-error"><p role="alert">{pageError}</p><button type="button" onClick={() => void load()}>Retry</button></div>}
       {projection.evaluationIssues.length > 0 && (
         <div className="today-evaluation-notice">
@@ -540,7 +527,6 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
           <button type="button" onClick={() => void load()}>Retry</button>
         </div>
       )}
-      <p className="visually-hidden" aria-live="polite">{copiedStatus}</p>
       <div className="today-list" aria-label="People to contact today">
         {visibleCards.map((card) => {
           const error = cardErrors[card.person.id];
@@ -555,19 +541,10 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
               onMessage={(draft) => void contactVia(card, "message", draft)}
               onNotToday={() => void notTodayAction(card)}
               onAlreadyContacted={() => openContacted(card)}
-              onAddPhone={() => openContactMethods(card, true)}
               onProfile={() => {
                 rememberTodayHistory(card.person.id);
                 navigate(personProfilePath(card.person.id), { state: { fromPath: "/", todayOriginPrepared: true } });
               }}
-              onReachOut={card.reachOut ? () => {
-                rememberTodayHistory(card.person.id);
-                navigate(reachOutDetailPath(card.reachOut!.entry.id), { state: { fromPath: "/" } });
-              } : undefined}
-              onPauseFor={(days) => void pauseCadence(card, addDaysToLocalDate(projection.result.localDate, days))}
-              onPauseUntil={(date) => void pauseCadence(card, date)}
-              onPauseRegular={() => void pauseCadence(card, undefined, true)}
-              onEditSchedule={() => navigate(relationshipSettingsPath(card.person.id))}
               onToggleNote={(completed) => void toggleTodayNote(card, completed)}
               onEditNote={() => void editTodayNote(card)}
               onRetry={error?.retry === "contact" ? () => void contactNow(card) : error?.retry === "not_today" ? () => void notTodayAction(card) : undefined}
@@ -576,7 +553,6 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
           );
         })}
       </div>
-      {hasMore && <button className="today-show-more" type="button" onClick={() => setVisibleCount((current) => current + 5)}>Show more due people</button>}
 
       {contactChoice && (
         <ContactMethodChoiceSheet

@@ -59,6 +59,7 @@ export type TodayScreenProjection = {
   datasetRevision: number;
   alreadyContactedDefaultReminderDays: number;
   activePersonCount: number;
+  totalActivePersonCount: number;
   eligibleBeforeSkipsCount: number;
   skippedEligibleCount: number;
   cards: TodayCardProjection[];
@@ -236,6 +237,7 @@ async function buildTodayProjection(
     datasetRevision: metadata.datasetRevision,
     alreadyContactedDefaultReminderDays: settings.alreadyContactedDefaultReminderDays,
     activePersonCount: data.people.filter((person) => activePerson(person) && personMatchesActiveMode(person, activeMode)).length,
+    totalActivePersonCount: data.people.filter(activePerson).length,
     eligibleBeforeSkipsCount,
     skippedEligibleCount: Math.max(0, eligibleBeforeSkipsCount - result.totalCount),
     cards: cardItems.map((item) => cardFromItem(item, data, assessmentsByPerson, index)),

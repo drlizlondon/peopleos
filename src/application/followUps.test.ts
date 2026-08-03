@@ -529,6 +529,34 @@ describe("Follow-up commands", () => {
     expect(await db.count("followUpEvents")).toBe(2);
   });
 
+  it("Not today defers a due Keep in touch reminder without changing its interval or recording contact", async () => {
+    const db = await openDatabase("not-today-cadence");
+    const currentPerson = (await db.get("people", "person-one"))!;
+    const cadencePerson = {
+      ...currentPerson,
+      contactCadenceDays: 14,
+      contactCadenceFirstDueDate: "2026-08-01"
+    };
+    await db.put("people", cadencePerson);
+    const metadata = (await db.get("metadata", "app"))!;
+    const command = createNotTodayCommand(cadencePerson, {
+      localDate: "2026-08-01",
+      eligibilityCode: "cadence_due",
+      expectedDatasetRevision: metadata.datasetRevision,
+      now: fixedNow,
+      idFactory: sequence("cadence-event", "cadence-plan")
+    });
+
+    const result = await notToday(db, command);
+
+    expect(result.followUp).toMatchObject({ dueDate: "2026-08-02", status: "pending" });
+    expect(await db.get("people", cadencePerson.id)).toMatchObject({
+      contactCadenceDays: 14,
+      contactCadenceFirstDueDate: "2026-08-01"
+    });
+    expect(await db.count("interactions")).toBe(0);
+  });
+
   it("Not today rejects stale assessment and rolls every child back on failure", async () => {
     const db = await openDatabase("not-today-freshness");
     const currentPerson = (await db.get("people", "person-one"))!;

@@ -3,20 +3,34 @@ import type { ReactNode } from "react";
 type Props = {
   eyebrow?: string;
   title: string;
-  description: string;
+  description?: string;
   note?: string;
   action?: ReactNode;
   filter?: ReactNode;
+  headingLevel?: 2 | 3;
+  mark?: "default" | "check";
 };
 
-export default function EmptyState({ eyebrow, title, description, note, action, filter }: Props) {
+export default function EmptyState({
+  eyebrow,
+  title,
+  description,
+  note,
+  action,
+  filter,
+  headingLevel = 2,
+  mark = "default"
+}: Props) {
+  const Heading = headingLevel === 3 ? "h3" : "h2";
   return (
-    <section className="empty-state" aria-labelledby="empty-state-title">
-      <div className="empty-mark" aria-hidden="true"><span /><span /><span /></div>
+    <section className={`empty-state${mark === "check" ? " empty-state-complete" : ""}`} aria-labelledby="empty-state-title">
+      {mark === "check"
+        ? <div className="empty-check" aria-hidden="true">✓</div>
+        : <div className="empty-mark" aria-hidden="true"><span /><span /><span /></div>}
       {eyebrow && <p className="eyebrow">{eyebrow}</p>}
-      <h2 id="empty-state-title">{title}</h2>
+      <Heading id="empty-state-title">{title}</Heading>
       {filter}
-      <p className="empty-description">{description}</p>
+      {description && <p className="empty-description">{description}</p>}
       {note && <p className="empty-note">{note}</p>}
       {action && <div className="empty-action">{action}</div>}
     </section>

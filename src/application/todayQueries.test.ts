@@ -137,6 +137,7 @@ describe("V1-10 Today application projection", () => {
     expect(projection).toMatchObject({
       datasetRevision: 42,
       activePersonCount: 1,
+      totalActivePersonCount: 1,
       eligibleBeforeSkipsCount: 1,
       skippedEligibleCount: 0,
       evaluationIssues: []
@@ -166,6 +167,18 @@ describe("V1-10 Today application projection", () => {
     expect(action?.projection.datasetRevision).toBe(42);
     expect(action?.card.item.primaryFollowUpId).toBe(primary.id);
     expect(action?.alreadyContactedDefaultReminderDays).toBe(14);
+    db.close();
+  });
+
+  it("keeps the total active Person count unfiltered while the view count follows relationship mode", async () => {
+    const db = await openDatabase();
+    await seedDuePerson(db);
+
+    const projection = await getTodayScreenProjection(db, clock, "professional");
+
+    expect(projection.activePersonCount).toBe(0);
+    expect(projection.totalActivePersonCount).toBe(1);
+    expect(projection.cards).toEqual([]);
     db.close();
   });
 

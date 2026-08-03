@@ -8,7 +8,7 @@ describe("PeopleOS shell", () => {
   it("keeps destination headings visible while primary routes load", () => {
     render(<App />);
 
-    expect(screen.getByText("Who should I contact today?").closest(".page-heading")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Today" }).closest(".page-heading")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("link", { name: "People" }));
     expect(screen.getByText("Find a person").closest(".page-heading")).toBeInTheDocument();

@@ -1,20 +1,22 @@
 :root {
   color-scheme: light;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", ui-sans-serif, sans-serif;
+  --font-interface: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", ui-sans-serif, sans-serif;
+  --font-display: ui-serif, "New York", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-family: var(--font-interface);
   font-synthesis: none;
-  --canvas: #ffffff;
-  --surface: #ffffff;
-  --surface-soft: #faedf2;
-  --ink: #2c2528;
-  --muted: #70676b;
-  --line: #eadde2;
+  --canvas: #fffbf9;
+  --surface: #fffefd;
+  --surface-soft: #f9eef1;
+  --ink: #2d2428;
+  --muted: #75696e;
+  --line: #eadcdf;
   --forest: #a61e4d;
   --forest-light: #f7e4eb;
   --gold: #c69750;
   --success: #67b37d;
   --warning: #d9a441;
   --danger: #d86a6a;
-  --shadow: 0 8px 22px rgba(83, 27, 47, 0.06), 0 1px 2px rgba(83, 27, 47, 0.07);
+  --shadow: 0 12px 30px rgba(83, 38, 52, 0.045), 0 1px 2px rgba(83, 38, 52, 0.05);
   --type-body: clamp(1rem, 0.98rem + 0.12vw, 1.0625rem);
   --type-supporting: clamp(0.875rem, 0.85rem + 0.12vw, 0.9375rem);
   --type-label: clamp(0.875rem, 0.85rem + 0.12vw, 0.9375rem);
@@ -221,9 +223,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .today-pause-date input { min-height: var(--control-height); }
 .today-conversation-starter { margin: 8px 0 4px; color: var(--ink); font-size: var(--type-body); line-height: 1.35; }
 .today-another-starter { min-height: 36px; padding-inline: 0; }
-.today-note { display: flex; align-items: flex-start; gap: 9px; margin: 7px 0; }
-.today-note input { flex: 0 0 auto; width: 20px; height: 20px; margin-top: 2px; accent-color: var(--forest); }
-.today-note button { display: -webkit-box; overflow: hidden; padding: 0; border: 0; background: transparent; color: var(--ink); text-align: left; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.today-note { display: flex; align-items: flex-start; gap: 5px; margin: 7px 0; }
+.today-note-toggle { position: relative; flex: 0 0 44px; width: 44px; height: 44px; display: grid; place-items: center; cursor: pointer; }
+.today-note-toggle input { position: absolute; inset: 0; width: 44px; height: 44px; margin: 0; opacity: 0; cursor: pointer; }
+.today-note-toggle span { width: 20px; height: 20px; border: 1.5px solid var(--line); border-radius: 6px; background: var(--surface); }
+.today-note-toggle input:checked + span { display: grid; place-items: center; border-color: var(--forest); background: var(--forest); color: white; }
+.today-note-toggle input:checked + span::after { content: "✓"; font-size: 0.78rem; font-weight: 900; line-height: 1; }
+.today-note-toggle input:focus-visible + span { outline: 3px solid rgba(166, 30, 77, 0.28); outline-offset: 3px; }
+.today-note button { min-height: 44px; display: -webkit-box; overflow: hidden; padding: 4px 0; border: 0; background: transparent; color: var(--ink); text-align: left; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .today-note.completed button { color: var(--muted); text-decoration: line-through; }
 .starter-admin-list { display: grid; gap: 9px; }
 .starter-admin-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 7px; align-items: center; }
@@ -2013,6 +2020,19 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .empty-mark span:nth-child(2) { height: 36px; background: var(--forest); }
 .empty-mark span:nth-child(3) { height: 28px; background: var(--gold); }
 .empty-state h2 { font-size: clamp(1.65rem, 7vw, 2.25rem); line-height: 1.08; }
+.empty-state h3 { margin: 0; font-size: clamp(1.35rem, 5.5vw, 1.75rem); line-height: 1.12; }
+.empty-check {
+  width: 46px;
+  height: 46px;
+  margin-bottom: 16px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface-soft);
+  color: var(--forest);
+  font-size: 1.65rem;
+  font-weight: 800;
+}
 .empty-description { margin-top: 12px; color: var(--muted); font-size: 0.92rem; line-height: 1.45; }
 .empty-note { margin-top: 8px; font-size: 0.82rem; line-height: 1.4; }
 .empty-action { margin-top: 18px; }
@@ -2095,7 +2115,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .today-heading { margin-bottom: 12px; }
 .today-card { padding: 14px; border-radius: 16px; box-shadow: 0 5px 18px rgba(119, 66, 91, 0.06); }
 .today-card-heading { gap: 10px; }
-.today-person-link { font-family: inherit; font-size: 1.12rem; line-height: 1.15; font-weight: 740; letter-spacing: -0.02em; }
+.today-card-heading > .today-more-actions { flex: none; margin: -6px -5px -6px 0; }
+.today-card-heading > .today-more-actions > div { min-width: 150px; }
+.today-person-link { min-height: 44px; display: flex; align-items: center; font-family: inherit; font-size: 1.12rem; line-height: 1.15; font-weight: 740; letter-spacing: -0.02em; }
 .today-card-heading p,
 .today-planned-date,
 .today-action-context,
@@ -2196,6 +2218,23 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   font-weight: 800;
 }
 
+.profile-reminder-actions { margin-top: 10px; }
+.profile-reminder-actions button { min-height: 44px; }
+.regular-reminder-pause-sheet { max-width: 430px; }
+.regular-reminder-pause-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 10px;
+  margin-top: 18px;
+}
+.regular-reminder-pause-fields label { display: grid; gap: 6px; color: var(--ink); font-size: var(--type-label); font-weight: 700; }
+.regular-reminder-pause-fields input,
+.regular-reminder-pause-fields select { min-width: 0; min-height: 44px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); font: inherit; }
+.regular-reminder-pause-fields input { padding: 8px 10px; }
+.regular-reminder-pause-fields select { padding: 8px 32px 8px 10px; }
+.regular-reminder-resume-date { margin: 16px 0 0; color: var(--ink); }
+.regular-reminder-pause-sheet .muted-copy { margin: 6px 0 0; }
+
 .person-profile-screen .profile-card { margin-bottom: 10px; }
 .person-profile-screen .card-heading-with-action { align-items: center; }
 .person-profile-screen .current-plan-summary { margin-top: 10px; gap: 7px; }
@@ -2209,7 +2248,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .settings-screen .relationship-settings-options label { min-height: 42px; }
 
 .today-card-actions {
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr) minmax(0, 1fr) 44px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 .today-card-actions button,
 .today-card-actions .today-more-actions summary { min-height: 44px; }
@@ -2228,7 +2267,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   outline-color: rgba(166, 30, 77, 0.28);
 }
 
-.app-shell { background: #ffffff; }
+.app-shell { background: var(--canvas); }
 .brand-mark { background: var(--forest); border-radius: 8px; }
 .brand-mark span:first-child { background: var(--gold); }
 .brand-mark span:last-child { background: white; }
@@ -2346,4 +2385,332 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .relationship-settings-form .form-actions,
 .edit-person-screen .form-actions {
   bottom: calc(8px + env(safe-area-inset-bottom));
+}
+
+/* Phase 2B: calm, warm relationship surfaces without changing interaction behaviour. */
+.app-header {
+  border-bottom-color: var(--line);
+  background: rgba(255, 254, 253, 0.96);
+}
+
+.primary-nav {
+  border-top-color: var(--line);
+  background: rgba(255, 254, 253, 0.96);
+}
+
+.today-heading h2,
+.relationship-settings-screen .page-heading h2,
+.person-profile-screen .profile-heading h2,
+.empty-state-complete h3 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+
+.today-heading h2,
+.relationship-settings-screen .page-heading h2 {
+  font-size: clamp(1.95rem, 6vw, 2.45rem);
+  line-height: 1.02;
+}
+
+.today-screen {
+  padding-top: 18px;
+}
+
+.today-heading {
+  margin-bottom: 18px;
+}
+
+.relationship-filter {
+  margin-top: 10px;
+}
+
+.relationship-filter-trigger {
+  border-radius: 14px;
+  background: var(--surface-soft);
+  box-shadow: inset 0 0 0 1px rgba(137, 49, 79, 0.045);
+}
+
+.relationship-filter-menu,
+.today-more-actions > div {
+  border-color: rgba(120, 72, 86, 0.14);
+  background: var(--surface);
+  box-shadow: 0 14px 34px rgba(78, 38, 50, 0.11);
+}
+
+.today-more-actions summary {
+  border-radius: 12px;
+  color: var(--muted);
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.today-more-actions[open] summary {
+  background: var(--surface-soft);
+  color: var(--forest);
+}
+
+.today-more-actions[open] > div {
+  transform-origin: top right;
+  animation: quiet-menu-in 150ms ease-out both;
+}
+
+.today-list {
+  gap: 14px;
+}
+
+.today-card {
+  padding: 20px;
+  border-color: rgba(120, 72, 86, 0.16);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.today-person-link {
+  font-family: var(--font-interface);
+  font-size: 1.2rem;
+  font-weight: 730;
+  letter-spacing: -0.022em;
+}
+
+.today-conversation-starter {
+  margin: 10px 0 2px;
+  color: #51454a;
+  font-size: 0.98rem;
+  line-height: 1.5;
+}
+
+.today-another-starter {
+  width: fit-content;
+  margin-top: 1px;
+  padding-inline: 0;
+  color: var(--forest);
+  font-size: 0.83rem;
+  font-weight: 650;
+}
+
+.today-card-actions {
+  margin-top: 16px;
+  gap: 8px;
+}
+
+.today-card-actions button {
+  min-height: 44px;
+  border-color: rgba(120, 72, 86, 0.17);
+  border-radius: 12px;
+  background: var(--surface);
+  color: #514147;
+  font-size: 0.82rem;
+  font-weight: 700;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 120ms ease;
+}
+
+.today-card-actions .primary-action {
+  border-color: var(--forest);
+  background: var(--forest);
+  color: white;
+  box-shadow: 0 6px 14px rgba(115, 30, 60, 0.16);
+}
+
+.today-card-actions button:active {
+  transform: translateY(1px);
+}
+
+.empty-state-complete {
+  margin-top: clamp(54px, 13vh, 104px) !important;
+  padding: 28px 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.empty-state-complete .empty-check {
+  width: auto;
+  height: auto;
+  margin: 0 auto 24px;
+  border-radius: 0;
+  background: transparent;
+  color: var(--forest);
+  font-size: clamp(4rem, 17vw, 5rem);
+  font-weight: 500;
+  line-height: 0.9;
+}
+
+.empty-state-complete h3 {
+  margin: 0;
+  font-size: clamp(1.85rem, 8vw, 2.35rem);
+  line-height: 1.05;
+}
+
+.profile-heading {
+  margin-bottom: 24px;
+}
+
+.profile-card {
+  padding: 18px;
+  border-color: rgba(120, 72, 86, 0.15);
+  border-radius: 19px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(83, 38, 52, 0.035);
+}
+
+.person-profile-screen .card-heading-with-action {
+  align-items: flex-start;
+}
+
+.profile-plan-card .card-heading-with-action {
+  flex-direction: row;
+}
+
+.profile-plan-card .card-heading-with-action > div {
+  min-width: 0;
+}
+
+.profile-plan-card .card-heading-with-action strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink);
+  font-size: 1.05rem;
+  line-height: 1.3;
+}
+
+.profile-plan-card > .muted-copy {
+  margin: 14px 0 0;
+}
+
+.profile-reminder-actions {
+  margin-top: 14px;
+}
+
+.profile-reminder-actions button {
+  border-color: rgba(120, 72, 86, 0.17);
+  background: var(--surface);
+  color: #5f5056;
+}
+
+.profile-details > div {
+  border-top-color: var(--line);
+}
+
+.sheet-backdrop {
+  background: rgba(49, 27, 35, 0.32);
+}
+
+.contact-sheet {
+  border-color: rgba(120, 72, 86, 0.15);
+  background: var(--canvas);
+  box-shadow: 0 28px 80px rgba(49, 27, 35, 0.2);
+  animation: quiet-sheet-in 180ms ease-out both;
+}
+
+.regular-reminder-pause-fields input,
+.regular-reminder-pause-fields select {
+  border-color: rgba(120, 72, 86, 0.22);
+  background: var(--surface);
+}
+
+.regular-reminder-pause-sheet .sheet-actions {
+  margin-top: 18px;
+}
+
+.back-button {
+  min-height: 44px;
+}
+
+.today-more-actions > div button {
+  padding: 9px 10px;
+  border-radius: 9px;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.today-more-actions > div .danger-action {
+  background: transparent;
+  color: #7b3030;
+}
+
+.today-more-actions > div .danger-action:disabled {
+  opacity: 0.58;
+}
+
+@media (hover: hover) {
+  .today-card-actions button:not(.primary-action):hover,
+  .today-more-actions summary:hover {
+    border-color: rgba(166, 30, 77, 0.28);
+    background: var(--surface-soft);
+    color: var(--forest);
+  }
+
+  .today-card-actions .primary-action:hover {
+    background: #92183f;
+    box-shadow: 0 8px 18px rgba(115, 30, 60, 0.2);
+  }
+
+  .today-more-actions > div button:hover {
+    background: var(--surface-soft);
+    color: var(--forest);
+  }
+
+  .today-more-actions > div .danger-action:hover {
+    background: #fff2f1;
+    color: #7b3030;
+  }
+}
+
+@media (max-width: 430px) {
+  .today-card {
+    padding: 18px;
+    border-radius: 19px;
+  }
+
+  .today-card-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .today-card-actions .primary-action {
+    grid-column: auto;
+    font-size: 0.84rem;
+  }
+
+  .today-card-actions button:not(.primary-action) {
+    font-size: 0.8rem;
+  }
+
+  .profile-plan-card .card-heading-with-action {
+    align-items: flex-start;
+  }
+
+  .profile-plan-card .secondary-action {
+    flex: none;
+  }
+
+  .contact-sheet {
+    background: var(--canvas);
+  }
+}
+
+@keyframes quiet-menu-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes quiet-sheet-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .today-card-actions button,
+  .today-more-actions summary,
+  .today-more-actions > div button,
+  .today-more-actions[open] > div,
+  .contact-sheet {
+    transition: none;
+    animation: none;
+  }
+
+  .today-card-actions button:active {
+    transform: none;
+  }
 }
