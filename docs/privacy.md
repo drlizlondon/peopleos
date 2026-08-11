@@ -22,6 +22,8 @@ The notification title is `PeopleOS`. The body contains either a current same-da
 
 PeopleOS data remains on the device until the user edits/deletes records, restores a different backup, clears the site's/app's local storage, or removes the app and its data through the operating system. JSON backups remain wherever the user chooses to save them. When iCloud Sync is enabled, copies remain in the user's private iCloud storage under Apple's controls; pausing sync stops PeopleOS from sending further changes but does not silently delete existing iCloud records.
 
+When a synced record is removed, PeopleOS retains a deletion marker rather than the removed relationship content, so an older device cannot recreate it. A marker is retained locally for at least 180 days after deletion and at least 30 days after CloudKit acknowledgement, whichever is later. Normal synchronisation represents remote deletion with the same marker rather than immediately hard-deleting it. The current app does not include a whole-zone erase control; the public policy and support route must give the final operator contact and deletion-assistance route before release.
+
 Notification permission can be revoked in iPhone Settings at any time. Turning reminders off in PeopleOS cancels the app's pending local summaries. Removing delivered notifications remains under the user's normal iOS Notification Centre controls.
 
 PeopleOS does not sell personal data, share relationship data with advertisers, or use contact data for marketing. A public support contact and operator identity must be published with the App Store release; those release details are not yet present in this repository.

@@ -337,6 +337,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .settings-section-heading p { margin: 5px 0 0; color: var(--muted); font-size: 0.86rem; line-height: 1.45; }
 .settings-section dl { margin: 0; }
 .icloud-sync-actions { padding: 12px 18px 16px; border-top: 1px solid var(--border); }
+.icloud-sync-button-row { display: flex; flex-wrap: wrap; gap: 20px; }
 .icloud-sync-actions .settings-action { color: var(--accent); font-weight: 700; }
 .icloud-sync-actions p { margin: 8px 0 0; }
 .settings-row {

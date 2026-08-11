@@ -6,9 +6,10 @@ import { getAppSettings } from "./application/peopleQueries";
 import { getDatabase } from "./data/client";
 import AlreadyContactedDefaultSheet from "./AlreadyContactedDefaultSheet";
 import type { AppSettings } from "./domain/schema";
-import { enableCloudSync, isCloudSyncSupported, subscribeToSync, syncNow } from "./sync/service";
+import { enableCloudSync, isCloudSyncSupported, pauseCloudSync, subscribeToSync, syncNow } from "./sync/service";
 import type { SyncState } from "./sync/types";
 import NotificationSettingsSection from "./notifications/NotificationSettingsSection";
+import packageMetadata from "../package.json";
 
 function PlannedAction({ children }: { children: string }) {
   return (
@@ -64,7 +65,8 @@ const settingsSections: SettingsSection[] = [
   { title: "Notifications", description: "Private, device-local Today reminders.", rows: [] },
   { title: "Privacy & Security", description: "PeopleOS is local-first and uses your device's protection.", rows: [
     { label: "Data location", value: "This device" },
-    { label: "Accounts and analytics", value: "None" }
+    { label: "Accounts and analytics", value: "None" },
+    { label: "Privacy", value: "How PeopleOS handles data", href: "/settings/privacy" }
   ]},
   { title: "Data", description: "Import, preserve, or restore your PeopleOS data.", rows: [
     { label: "Import contacts", value: "vCard file", href: "/people/import" },
@@ -72,7 +74,7 @@ const settingsSections: SettingsSection[] = [
     { label: "Restore backup", value: "Preview required", href: "/settings/restore" }
   ]},
   { title: "About", description: "Product and technical information.", rows: [
-    { label: "PeopleOS version", value: "0.1.0" },
+    { label: "PeopleOS version", value: packageMetadata.version },
     { label: "Data schema", value: "Not initialised" }
   ]}
 ];
@@ -135,10 +137,17 @@ export function SettingsScreen({ navigate }: { navigate: (path: string) => void 
     ? new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(syncState.lastSuccessfulSyncAt))
     : "Not yet synced";
 
-  async function performSyncAction(enable: boolean) {
+  async function performSyncAction(action: "enable" | "sync" | "pause") {
     setSyncActionError("");
-    try { if (enable) await enableCloudSync(); else await syncNow(); }
-    catch { setSyncActionError("PeopleOS could not sync right now. Your data remains safely stored on this iPhone."); }
+    try {
+      if (action === "enable") await enableCloudSync();
+      else if (action === "pause") await pauseCloudSync();
+      else await syncNow();
+    } catch {
+      setSyncActionError(action === "pause"
+        ? "PeopleOS could not turn off iCloud Sync right now. Your data remains safely stored; check the status and try again."
+        : "PeopleOS could not sync right now. Your data remains safely stored on this iPhone.");
+    }
   }
 
   return (
@@ -152,16 +161,26 @@ export function SettingsScreen({ navigate }: { navigate: (path: string) => void 
         <section className="settings-section icloud-sync-section" aria-labelledby="settings-icloud-sync">
           <div className="settings-section-heading">
             <h3 id="settings-icloud-sync">iCloud Sync</h3>
-            <p>Keep your PeopleOS data safely backed up and available on your Apple devices.</p>
+            <p>Keep a private iCloud copy of your PeopleOS data.</p>
           </div>
           <dl>
             <div className="settings-row"><dt>Status</dt><dd>{syncLabel}</dd></div>
             {syncState?.enabled && <div className="settings-row"><dt>Last successful sync</dt><dd>{lastSync}</dd></div>}
           </dl>
           <div className="icloud-sync-actions">
-            {cloudSupported
-              ? <button className="settings-action" type="button" disabled={syncRunning} onClick={() => void performSyncAction(!syncState?.enabled)}>{syncState?.enabled ? "Sync Now" : "Turn on iCloud Sync"}</button>
-              : <p className="muted-copy">iCloud Sync is available in the iPhone app. This version continues to store data locally.</p>}
+            {cloudSupported ? (
+              syncState?.enabled ? (
+                <>
+                  <div className="icloud-sync-button-row">
+                    <button className="settings-action" type="button" disabled={syncRunning} onClick={() => void performSyncAction("sync")}>Sync Now</button>
+                    <button className="settings-action" type="button" disabled={syncRunning} onClick={() => void performSyncAction("pause")}>Turn off iCloud Sync</button>
+                  </div>
+                  <p className="muted-copy">Turning off iCloud Sync stops future syncing on this iPhone. It does not delete copies already held in your private iCloud storage.</p>
+                </>
+              ) : (
+                <button className="settings-action" type="button" disabled={syncRunning} onClick={() => void performSyncAction("enable")}>Turn on iCloud Sync</button>
+              )
+            ) : <p className="muted-copy">iCloud Sync is available in the iPhone app. This version continues to store data locally.</p>}
             {syncState?.enabled && syncState.accountStatus !== "available" && <p className="muted-copy">Sign in to iCloud in iPhone Settings, then try again. PeopleOS does not receive your Apple account details.</p>}
             {syncActionError && <p className="error-message" role="alert">{syncActionError}</p>}
           </div>

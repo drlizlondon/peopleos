@@ -29,6 +29,7 @@ import ReachOutDetailScreen from "./ReachOutDetailScreen";
 import ResolveProvisionalPersonScreen from "./ResolveProvisionalPersonScreen";
 import ReachOutEditorSheet from "./ReachOutEditorSheet";
 import EditPersonScreen from "./EditPersonScreen";
+import PrivacyScreen from "./PrivacyScreen";
 import type { PersonPickerOption } from "./application/interactionQueries";
 import type { ContactImportSession } from "./application/contactImport";
 import type { Person } from "./domain/schema";
@@ -372,6 +373,7 @@ export default function App() {
       );
       case "upcoming": return <UpcomingScreen activeMode={activeRelationshipMode} navigate={navigatePath} />;
       case "settings": return <SettingsScreen navigate={navigatePath} />;
+      case "privacy": return <PrivacyScreen navigate={navigatePath} />;
       case "add-person": return (
         <AddPersonScreen
           navigate={navigatePath}

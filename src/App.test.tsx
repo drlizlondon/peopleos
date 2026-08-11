@@ -77,7 +77,22 @@ describe("PeopleOS shell", () => {
     ]);
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.getByText(/Local reminders are available in the iPhone app/)).toBeInTheDocument();
+    expect(screen.getByText("1.0.0")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Add person" })).not.toBeInTheDocument();
+  });
+
+  it("opens the in-app Privacy screen from Settings and returns to Settings", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("link", { name: "Settings" }));
+    await user.click(screen.getByRole("link", { name: "Privacy" }));
+    expect(window.location.pathname).toBe("/settings/privacy");
+    expect(screen.getByRole("heading", { name: "Your data stays under your control." })).toBeInTheDocument();
+    expect(screen.getByText(/private iCloud storage through Apple CloudKit/i)).toBeInTheDocument();
+    expect(screen.getByText(/Previews contain only a count or general reminder/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "← Settings" }));
+    expect(window.location.pathname).toBe("/settings");
+    expect(screen.getByRole("heading", { name: "Global application preferences" })).toBeInTheDocument();
   });
 
   it("routes a notification tap from another screen into Today", async () => {

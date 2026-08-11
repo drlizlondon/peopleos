@@ -1,7 +1,7 @@
 {
   "name": "peopleos",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,6 +14,7 @@
     "test:marketing": "node marketing/validate.mjs",
     "check": "npm run lint && npm run test && npm run test:perf && npm run test:marketing && npm run build",
     "cap:sync": "npm run build && cap sync ios",
+    "release:preflight": "npm run check && cap sync ios && node scripts/release-preflight.mjs && xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release -sdk iphonesimulator -derivedDataPath ios/DerivedData-Release CODE_SIGNING_ALLOWED=NO build",
     "ios:open": "npm run cap:sync && cap open ios",
     "ios:build": "npm run cap:sync && xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator -derivedDataPath ios/DerivedData CODE_SIGNING_ALLOWED=NO build"
   },

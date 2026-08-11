@@ -21,9 +21,11 @@ PeopleOS is not a CRM, sales pipeline, lead-management tool, or a new version of
 
 ## Current status
 
-**V1-01 through V1-09 are complete: the independent shell, local data and backup foundation, manual person capture, duplicate-aware vCard import, interactions with an automatic timeline, structured memory facts with affiliation history, deterministic follow-ups with contact cadence, the first-class Reach Out queue, and the pure explainable Relationship Engine. V1-10 and later packages remain unimplemented.**
+**PeopleOS is at chargeable iPhone MVP release-candidate stage.** V1-01 through V1-11 and the MVP notification package are implemented: local data and backup, manual capture, duplicate-aware vCard import, interactions and timeline, memory facts and affiliations, follow-ups and cadence, Reach Out, explainable Today, search and profiles, Personal/Professional views, optional private iCloud sync, and optional private local Today reminders.
 
-The inherited Real Friends codebase was reviewed from `/Users/lizzie/Documents/real-friends`. PeopleOS now has an independent React/Vite PWA shell with five primary destinations and no shared runtime, storage, or product logic. Further implementation must proceed only through the packages in [VERSION1_SCOPE.md](./VERSION1_SCOPE.md), subject to the required corrections in [IMPLEMENTATION_READINESS_REVIEW.md](./IMPLEMENTATION_READINESS_REVIEW.md).
+The repository passes its automated release preflight and an unsigned iOS Release simulator build. It is not yet ready to upload: distribution signing, the production CloudKit schema, App Store Connect commercial setup, and the signed-iPhone notification acceptance matrix remain owner actions. V1-12 batch capture and the V1-13 WhatsApp/templates/vCard-export package are deliberately outside this MVP.
+
+The inherited Real Friends codebase was reviewed from `/Users/lizzie/Documents/real-friends`. PeopleOS has an independent React/Vite PWA with five primary destinations and a Capacitor iPhone wrapper, with no shared runtime, storage, or product logic. The current package ledger is [PACKAGE_STATUS.md](./PACKAGE_STATUS.md); the release source of truth is [docs/APP_STORE_RELEASE_CHECKLIST.md](./docs/APP_STORE_RELEASE_CHECKLIST.md).
 
 ## Documentation
 
