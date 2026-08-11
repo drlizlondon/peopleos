@@ -53,6 +53,18 @@ afterEach(async () => {
 });
 
 describe("manual Person capture", () => {
+  it("stores cadence value and unit without persisting a derived day field", () => {
+    const prepared = prepareManualPersonCapture(draft({
+      contactCadence: { value: 4, unit: "weeks" }
+    }), "GB");
+    expect(prepared.person.contactCadence).toEqual({ value: 4, unit: "weeks" });
+    expect(prepared.person.contactCadenceDays).toBeUndefined();
+
+    const legacy = prepareManualPersonCapture(draft({ contactCadenceDays: 28 }), "GB");
+    expect(legacy.person.contactCadence).toEqual({ value: 28, unit: "days" });
+    expect(legacy.person.contactCadenceDays).toBeUndefined();
+  });
+
   it("rejects a labelled contact row without a value instead of silently dropping it", () => {
     expect(() => prepareManualPersonCapture(draft({
       contactMethods: [{ id: "contact-labelled-empty", kind: "phone", value: "", label: "Assistant's number" }]

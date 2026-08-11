@@ -7,6 +7,13 @@ export type EntityId = string;
 export type IsoInstant = string;
 export type LocalDate = string;
 
+export type ContactCadenceUnit = "days" | "weeks" | "months";
+
+export type ContactCadence = {
+  value: number;
+  unit: ContactCadenceUnit;
+};
+
 export type MutableRecord = {
   id: EntityId;
   revision: number;
@@ -23,6 +30,8 @@ export type Person = MutableRecord & {
   identityCompletionFingerprint?: string;
   importance: "normal" | "high";
   tags: string[];
+  contactCadence?: ContactCadence;
+  /** @deprecated Read compatibility for records written before structured cadence storage. */
   contactCadenceDays?: number;
   archivedAt?: IsoInstant;
 };

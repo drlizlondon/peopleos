@@ -459,8 +459,10 @@ export default function TodayScreen({ activeMode = "personal", navigate, onAddFo
       <main className="screen today-screen" id="main-content" tabIndex={-1}>
         <EmptyState
           eyebrow="Today"
-          title={cleared ? "You’ve cleared Today for now." : "Nothing needs your attention today."}
-          description={cleared ? "Your deferred plans remain available in Upcoming." : "Your people and plans are still here whenever you need them."}
+          title="You’re all caught up."
+          description="Everyone who needed your attention today has been looked after."
+          note={cleared ? "Your deferred plans remain available in Upcoming." : undefined}
+          mark="check"
           action={!cleared ? <div className="empty-action-stack"><button className="primary-action" type="button" onClick={() => navigate("/people")}>Find someone in People</button><button type="button" onClick={onAddFollowUp}>Add follow-up</button></div> : undefined}
         />
       </main>

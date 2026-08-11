@@ -19,6 +19,14 @@ describe("follow-up restore validation", () => {
     const excessive = completeData();
     excessive.people[0] = { ...excessive.people[0], contactCadenceDays: 3_651 };
     expect(() => validatePeopleOsData(excessive)).toThrow(/people\[0\] is invalid/);
+
+    const excessiveMonths = completeData();
+    excessiveMonths.people[0] = {
+      ...excessiveMonths.people[0],
+      contactCadence: { value: 122, unit: "months" },
+      contactCadenceDays: undefined
+    };
+    expect(() => validatePeopleOsData(excessiveMonths)).toThrow(/people\[0\] is invalid/);
   });
 
   it("rejects non-canonical reasons, invalid completion state and invalid snooze dates", () => {

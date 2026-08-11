@@ -37,6 +37,25 @@ describe("PeopleOS backup and restore", () => {
     target.close();
   });
 
+  it("round-trips a structured contact cadence without flattening its unit", async () => {
+    const data = completeData();
+    data.people[0] = {
+      ...data.people[0]!,
+      contactCadence: { value: 4, unit: "weeks" },
+      contactCadenceDays: undefined
+    };
+    const source = await openPeopleOsDatabase(name("cadence-source"), fixedNow);
+    await restoreBackup(source, previewBackup({ product: "peopleos", schemaVersion: BACKUP_SCHEMA_VERSION, exportedAt: fixedNow, data }), fixedNow);
+    const generated = await generateBackup(source, "2026-08-02T10:00:00.000Z");
+    expect(generated.envelope.data.people[0]?.contactCadence).toEqual({ value: 4, unit: "weeks" });
+
+    const target = await openPeopleOsDatabase(name("cadence-target"), fixedNow);
+    await restoreBackup(target, previewBackup(generated.json), "2026-08-03T10:00:00.000Z");
+    expect((await target.get("people", data.people[0]!.id))?.contactCadence).toEqual({ value: 4, unit: "weeks" });
+    source.close();
+    target.close();
+  });
+
   it("rejects corrupt, wrong-product, and future-version backups before writes", async () => {
     expect(() => previewBackup("not-json")).toThrow(ValidationError);
     expect(() => previewBackup({ product: "other", schemaVersion: BACKUP_SCHEMA_VERSION })).toThrow(/not a PeopleOS backup/);

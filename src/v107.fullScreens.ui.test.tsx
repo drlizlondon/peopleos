@@ -118,7 +118,7 @@ describe("V1-07 full FollowUp screens", () => {
     expect(addButtons).toHaveLength(2);
     await user.click(addButtons[0]);
     const picker = await screen.findByRole("dialog", { name: "Choose a person" });
-    await user.click(within(picker).getByRole("button", { name: /Sarah Jones/ }));
+    await user.click(await within(picker).findByRole("button", { name: /Sarah Jones/ }));
     const editor = await screen.findByRole("dialog", { name: "Plan a follow-up" });
     await user.type(within(editor).getByLabelText(/^Reason/), "Send today’s update");
     await user.click(within(editor).getByRole("button", { name: "Save follow-up" }));
@@ -207,7 +207,8 @@ describe("V1-07 full FollowUp screens", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save cadence" }));
     await waitFor(async () => {
       const data = await readAllData(await getDatabase());
-      expect(data.people[0]?.contactCadenceDays).toBe(90);
+      expect(data.people[0]?.contactCadence).toEqual({ value: 3, unit: "months" });
+      expect(data.people[0]?.contactCadenceDays).toBeUndefined();
       expect(data.followUps).toHaveLength(1);
     });
 
@@ -224,7 +225,7 @@ describe("V1-07 full FollowUp screens", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Nothing planned yet." });
 
-    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.click(screen.getByRole("button", { name: "Add person" }));
     const addSheet = await screen.findByRole("dialog", { name: "Add to PeopleOS" });
     const actionLabels = Array.from(addSheet.querySelectorAll(".global-add-actions > button"), (button) => button.textContent);
     expect(actionLabels[0]).toBe("Add follow-up");

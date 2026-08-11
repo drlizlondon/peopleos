@@ -45,7 +45,11 @@ type Person = {
   identityCompletionFingerprint?: string;
   importance: "normal" | "high";
   tags: string[];
-  contactCadenceDays?: number;
+  contactCadence?: {
+    value: number;
+    unit: "days" | "weeks" | "months";
+  };
+  contactCadenceDays?: number; // legacy read compatibility only
   createdAt: string;
   updatedAt: string;
   archivedAt?: string;
@@ -53,6 +57,8 @@ type Person = {
 ```
 
 This is intentionally small. A confirmed Person requires a name. A provisional Person requires only a descriptive `displayName`, such as “Chief Information Officer at Watford” or “Hackathon organiser.” The label is not a second identity system: the provisional record receives a normal permanent `Person.id` and can later be completed or explicitly linked to an existing confirmed Person. `importance`, tags, and cadence describe the user's current relationship preference, not identity. Numerical importance scores are rejected because they imply precision the product does not have.
+
+`contactCadence` preserves the interval exactly as the user entered it. Scheduling converts weeks to seven days and months to thirty days only at the calculation boundary. `contactCadenceDays` remains readable for older records, but all product writes use the structured field.
 
 `mergedIntoPersonId` is set only by the explicit provisional-resolution flow. A merged provisional Person becomes read-only and excluded from active queries. All Reach Out entries and other selected child records are reassigned transactionally after a preview; automatic merging remains prohibited.
 

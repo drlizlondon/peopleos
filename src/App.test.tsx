@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import App from "./App";
@@ -15,8 +15,11 @@ describe("PeopleOS shell", () => {
     });
     const user = userEvent.setup();
     const first = render(<App />);
+    const todayFilters = screen.getByRole("group", { name: "Today filters" });
+    expect(Array.from(todayFilters.querySelectorAll("button"), (button) => button.textContent)).toEqual(["All", "Personal", "Professional"]);
+    expect(todayFilters.querySelectorAll('[aria-pressed="true"]')).toHaveLength(1);
     const professional = screen.getByRole("button", { name: "Professional" });
-    expect(screen.getByRole("button", { name: "Personal" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
     await user.click(professional);
     expect(professional).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByRole("link", { name: "People" }));
@@ -38,10 +41,11 @@ describe("PeopleOS shell", () => {
       "Settings"
     ]);
     expect(screen.getByRole("link", { name: "Today" })).toHaveAttribute("aria-current", "page");
-    await user.click(screen.getByRole("button", { name: "Add" }));
-    expect(screen.getByRole("button", { name: "Add person" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add follow-up" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Log interaction" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add person" }));
+    const dialog = screen.getByRole("dialog", { name: "Add to PeopleOS" });
+    expect(within(dialog).getByRole("button", { name: "Add person" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Add follow-up" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Log interaction" })).toBeInTheDocument();
   });
 
   it("navigates to Reach Out and preserves its canonical empty-state wording", async () => {

@@ -571,23 +571,23 @@ export default function App() {
           <p>Remember people.</p>
           {showGlobalAdd && (
             <button ref={globalAddButtonRef} className="header-add-person" type="button" onClick={() => setGlobalAddOpen(true)}>
-              <Icon name="plus" /> Add
+              <Icon name="plus" /> Add person
             </button>
           )}
         </div>
       </header>
-      <div className="relationship-mode-bar">
-        <div className="segmented-control global-mode-control" role="group" aria-label="Relationship view">
-          {(["personal", "professional"] as ActiveRelationshipMode[]).map((mode) => (
+      {showGlobalAdd && <div className="relationship-mode-bar">
+        <div className="relationship-filter-pills" role="group" aria-label={route.id === "today" ? "Today filters" : "Relationship filter"}>
+          {(["all", "personal", "professional"] as ActiveRelationshipMode[]).map((mode) => (
             <button
               key={mode}
               type="button"
               aria-pressed={activeRelationshipMode === mode}
               onClick={() => { writeActiveRelationshipMode(mode); setActiveRelationshipMode(mode); }}
-            >{mode === "personal" ? "Personal" : "Professional"}</button>
+            >{mode === "all" ? "All" : mode === "personal" ? "Personal" : "Professional"}</button>
           ))}
         </div>
-      </div>
+      </div>}
 
       {storageError && <p className="storage-error" role="alert">PeopleOS could not open local storage. Your data actions are unavailable.</p>}
       {renderScreen()}

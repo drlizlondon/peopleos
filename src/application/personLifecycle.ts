@@ -4,7 +4,12 @@ import {
   StaleRevisionError,
   createRepositories
 } from "../data/repositories";
-import type { Person } from "../domain/schema";
+import {
+  contactCadenceOf,
+  contactCadencesEqual,
+  isValidContactCadence
+} from "../domain/cadence";
+import type { ContactCadence, Person } from "../domain/schema";
 import type { RelationshipMode } from "../domain/relationshipMode";
 import { ValidationError } from "../domain/validation";
 
@@ -13,6 +18,8 @@ export type PersonEditDraft = {
   relationshipMode?: RelationshipMode;
   importance: Person["importance"];
   tags: string[];
+  contactCadence?: ContactCadence;
+  /** @deprecated Temporary command compatibility; updates always write structured cadence. */
   contactCadenceDays?: number;
 };
 
@@ -39,19 +46,21 @@ function normalizeDraft(draft: PersonEditDraft): PersonEditDraft {
   if (draft.relationshipMode !== undefined && !(["personal", "professional", "both"] as const).includes(draft.relationshipMode)) issues.push("Choose a supported relationship type.");
   if (tags.length > 10) issues.push("Add no more than 10 tags.");
   if (tags.some((tag) => tag.length > 40)) issues.push("Each tag must be 40 characters or fewer.");
+  if (draft.contactCadence !== undefined && !isValidContactCadence(draft.contactCadence)) {
+    issues.push("Contact cadence must be a positive whole number no more than 3,650 days apart.");
+  }
   if (draft.contactCadenceDays !== undefined
-    && (!Number.isInteger(draft.contactCadenceDays)
-      || draft.contactCadenceDays < 1
-      || draft.contactCadenceDays > 3_650)) {
+    && !isValidContactCadence({ value: draft.contactCadenceDays, unit: "days" })) {
     issues.push("Contact cadence must be a whole number from 1 to 3650 days.");
   }
   if (issues.length) throw new ValidationError(issues);
+  const contactCadence = contactCadenceOf(draft);
   return {
     displayName,
     relationshipMode: draft.relationshipMode ?? "personal",
     importance: draft.importance,
     tags,
-    ...(draft.contactCadenceDays === undefined ? {} : { contactCadenceDays: draft.contactCadenceDays })
+    ...(contactCadence === undefined ? {} : { contactCadence })
   };
 }
 
@@ -60,7 +69,7 @@ function sameEditableValues(person: Person, draft: PersonEditDraft): boolean {
     && (person.relationshipMode ?? "personal") === (draft.relationshipMode ?? "personal")
     && person.importance === draft.importance
     && JSON.stringify(person.tags) === JSON.stringify(draft.tags)
-    && person.contactCadenceDays === draft.contactCadenceDays;
+    && contactCadencesEqual(contactCadenceOf(person), contactCadenceOf(draft));
 }
 
 function requireEditable(person: Person | undefined): Person {
@@ -79,12 +88,14 @@ export async function updatePerson(
   if (current.revision !== command.expectedRevision) {
     if (current.revision === command.expectedRevision + 1
       && current.updatedAt === command.occurredAt
+      && current.contactCadenceDays === undefined
       && sameEditableValues(current, draft)) return current;
     throw new StaleRevisionError();
   }
-  if (sameEditableValues(current, draft)) return current;
+  if (current.contactCadenceDays === undefined && sameEditableValues(current, draft)) return current;
   const updated: Person = { ...current, ...draft };
-  if (draft.contactCadenceDays === undefined) delete updated.contactCadenceDays;
+  delete updated.contactCadenceDays;
+  if (draft.contactCadence === undefined) delete updated.contactCadence;
   return createRepositories(db).people.update(updated, command.expectedRevision, command.occurredAt);
 }
 

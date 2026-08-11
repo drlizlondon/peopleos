@@ -6,12 +6,18 @@ import {
   interactionKindIsManuallySelectable
 } from "../domain/interactionPolicy";
 import {
+  contactCadenceOf,
+  contactCadencesEqual,
+  isValidContactCadence
+} from "../domain/cadence";
+import {
   addDaysToLocalDate,
   effectiveFollowUpDate,
   FOLLOW_UP_ACTION_OPTIONS,
   localDateForInstant
 } from "../domain/followUpPolicy";
 import type {
+  ContactCadence,
   FollowUp,
   FollowUpActionType,
   FollowUpEvent,
@@ -106,6 +112,8 @@ export type CompleteFollowUpWithoutContactCommand = {
 export type ContactCadenceCommand = {
   personId: string;
   expectedRevision: number;
+  cadence?: ContactCadence;
+  /** @deprecated Temporary command compatibility; updates always write structured cadence. */
   cadenceDays?: number;
   occurredAt: string;
 };
@@ -754,29 +762,42 @@ export async function updateContactCadence(
   hooks: FollowUpMutationHooks = {}
 ): Promise<Person> {
   requireInstant(command.occurredAt, "The cadence command needs a valid time.");
+  if (command.cadence !== undefined && !isValidContactCadence(command.cadence)) {
+    throw new ValidationError(["Contact cadence must be a positive whole number no more than 3,650 days apart."]);
+  }
   if (command.cadenceDays !== undefined
-    && (!Number.isInteger(command.cadenceDays) || command.cadenceDays < 1 || command.cadenceDays > 3_650)) {
+    && !isValidContactCadence({ value: command.cadenceDays, unit: "days" })) {
     throw new ValidationError(["Custom cadence must be between 1 and 3,650 days."]);
   }
+  const contactCadence = contactCadenceOf({
+    contactCadence: command.cadence,
+    contactCadenceDays: command.cadenceDays
+  });
   const tx = db.transaction(["people", "metadata"], "readwrite");
   try {
     const people = tx.objectStore("people");
     const current = requireWritablePerson(await people.get(command.personId));
-    const sameCadence = current.contactCadenceDays === command.cadenceDays;
+    const sameCadence = contactCadencesEqual(contactCadenceOf(current), contactCadence);
+    const canonicalStorage = current.contactCadenceDays === undefined
+      && contactCadencesEqual(current.contactCadence, contactCadence);
     if (current.revision === command.expectedRevision + 1
-      && sameCadence && current.updatedAt === command.occurredAt) {
+      && sameCadence && canonicalStorage && current.updatedAt === command.occurredAt) {
       await tx.done;
       return current;
     }
     if (current.revision !== command.expectedRevision) throw new StaleRevisionError();
-    if (sameCadence) {
+    if (sameCadence && canonicalStorage) {
       await tx.done;
       return current;
     }
-    const { contactCadenceDays: _oldCadence, ...withoutCadence } = current;
+    const {
+      contactCadence: _oldCadence,
+      contactCadenceDays: _legacyCadenceDays,
+      ...withoutCadence
+    } = current;
     const updated: Person = {
       ...withoutCadence,
-      ...(command.cadenceDays !== undefined ? { contactCadenceDays: command.cadenceDays } : {}),
+      ...(contactCadence === undefined ? {} : { contactCadence }),
       revision: current.revision + 1,
       updatedAt: command.occurredAt
     };

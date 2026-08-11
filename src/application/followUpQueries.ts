@@ -1,4 +1,5 @@
 import type { PeopleOsDatabase } from "../data/database";
+import { contactCadenceInDays, contactCadenceOf } from "../domain/cadence";
 import { interactionCountsAsContact } from "../domain/interactionPolicy";
 import {
   addDaysToLocalDate,
@@ -7,6 +8,7 @@ import {
   localDateForInstant
 } from "../domain/followUpPolicy";
 import type {
+  ContactCadence,
   FollowUp,
   FollowUpActionType,
   FollowUpEvent,
@@ -58,7 +60,7 @@ export type UpcomingResult = {
 
 export type NextPlanProjection =
   | { kind: "explicit_follow_up"; date: LocalDate; followUp: FollowUp }
-  | { kind: "cadence"; date?: LocalDate; cadenceDays: number }
+  | { kind: "cadence"; date?: LocalDate; cadence: ContactCadence; cadenceDays: number }
   | { kind: "none" };
 
 function activePerson(person: Person | undefined): person is Person {
@@ -189,15 +191,18 @@ export async function getNextPlanForPerson(
   if (followUp) {
     return { kind: "explicit_follow_up", date: effectiveFollowUpDate(followUp), followUp };
   }
-  if (!person.contactCadenceDays) return { kind: "none" };
+  const contactCadence = contactCadenceOf(person);
+  if (!contactCadence) return { kind: "none" };
+  const cadenceDays = contactCadenceInDays(contactCadence);
   const lastContact = interactions.filter((interaction) => interactionCountsAsContact(interaction.kind))
     .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt)
       || left.id.localeCompare(right.id))[0];
   return {
     kind: "cadence",
-    cadenceDays: person.contactCadenceDays,
+    cadence: contactCadence,
+    cadenceDays,
     ...(lastContact
-      ? { date: addDaysToLocalDate(localDateForInstant(lastContact.occurredAt, options.timeZone), person.contactCadenceDays) }
+      ? { date: addDaysToLocalDate(localDateForInstant(lastContact.occurredAt, options.timeZone), cadenceDays) }
       : {})
   };
 }

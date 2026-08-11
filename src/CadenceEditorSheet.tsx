@@ -8,11 +8,24 @@ import {
 import { updateContactCadence } from "./application/followUps";
 // eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { getDatabase } from "./data/client";
+import {
+  contactCadenceOf,
+  contactCadencesEqual,
+  isValidContactCadence,
+  maxContactCadenceValue
+} from "./domain/cadence";
 import { CADENCE_PRESET_OPTIONS } from "./domain/followUpPolicy";
-import type { Person } from "./domain/schema";
+import type { ContactCadence, ContactCadenceUnit, Person } from "./domain/schema";
 import { ValidationError } from "./domain/validation";
 
 type CadenceChoice = "none" | "30" | "90" | "180" | "365" | "custom";
+
+const PRESET_CADENCES: Readonly<Record<Exclude<CadenceChoice, "none" | "custom">, ContactCadence>> = {
+  "30": { value: 1, unit: "months" },
+  "90": { value: 3, unit: "months" },
+  "180": { value: 6, unit: "months" },
+  "365": { value: 365, unit: "days" }
+};
 
 export type CadenceEditorSheetProps = {
   person: Person;
@@ -20,9 +33,10 @@ export type CadenceEditorSheetProps = {
   onSaved: (person: Person) => void;
 };
 
-function initialChoice(days: number | undefined): CadenceChoice {
-  if (days === undefined) return "none";
-  if (days === 30 || days === 90 || days === 180 || days === 365) return String(days) as CadenceChoice;
+function initialChoice(cadence: ContactCadence | undefined): CadenceChoice {
+  if (cadence === undefined) return "none";
+  const preset = Object.entries(PRESET_CADENCES).find(([, value]) => contactCadencesEqual(value, cadence));
+  if (preset) return preset[0] as CadenceChoice;
   return "custom";
 }
 
@@ -34,10 +48,12 @@ function firstIssue(error: unknown): string {
 export default function CadenceEditorSheet({ person, onClose, onSaved }: CadenceEditorSheetProps) {
   const modalId = useId();
   const fieldId = useId();
-  const [choice, setChoice] = useState<CadenceChoice>(() => initialChoice(person.contactCadenceDays));
-  const [customDays, setCustomDays] = useState(() =>
-    initialChoice(person.contactCadenceDays) === "custom" ? String(person.contactCadenceDays) : ""
+  const initialCadence = contactCadenceOf(person);
+  const [choice, setChoice] = useState<CadenceChoice>(() => initialChoice(initialCadence));
+  const [customValue, setCustomValue] = useState(() =>
+    initialChoice(initialCadence) === "custom" ? String(initialCadence?.value ?? "") : ""
   );
+  const [customUnit, setCustomUnit] = useState<ContactCadenceUnit>(() => initialCadence?.unit ?? "days");
   const [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -126,22 +142,23 @@ export default function CadenceEditorSheet({ person, onClose, onSaved }: Cadence
     setError("");
   }
 
-  function selectedDays(): number | undefined {
+  function selectedCadence(): ContactCadence | undefined {
     if (choice === "none") return undefined;
-    if (choice === "custom") return Number(customDays);
-    return Number(choice);
+    if (choice === "custom") return { value: Number(customValue), unit: customUnit };
+    return PRESET_CADENCES[choice];
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (mutationRef.current) return;
-    const cadenceDays = selectedDays();
-    if (choice === "custom" && (!Number.isInteger(cadenceDays) || cadenceDays! < 1 || cadenceDays! > 3650)) {
-      setError("Enter a whole number from 1 to 3650 days.");
+    const cadence = selectedCadence();
+    if (cadence !== undefined && !isValidContactCadence(cadence)) {
+      setError(`Enter a whole number from 1 to ${maxContactCadenceValue(customUnit)} ${customUnit}.`);
       requestAnimationFrame(() => customRef.current?.focus());
       return;
     }
-    if (cadenceDays === person.contactCadenceDays) {
+    if (person.contactCadenceDays === undefined
+      && contactCadencesEqual(cadence, contactCadenceOf(person))) {
       setDirty(false);
       onSaved(person);
       return;
@@ -154,7 +171,7 @@ export default function CadenceEditorSheet({ person, onClose, onSaved }: Cadence
       const saved = await updateContactCadence(await getDatabase(), {
         personId: person.id,
         expectedRevision: person.revision,
-        ...(cadenceDays === undefined ? {} : { cadenceDays }),
+        ...(cadence === undefined ? {} : { cadence }),
         occurredAt: new Date().toISOString()
       });
       setDirty(false);
@@ -196,28 +213,44 @@ export default function CadenceEditorSheet({ person, onClose, onSaved }: Cadence
               {CADENCE_PRESET_OPTIONS.map((option) => (
                 <option key={option.value ?? "none"} value={option.value ?? "none"}>{option.label}</option>
               ))}
-              <option value="custom">Custom days</option>
+              <option value="custom">Custom</option>
             </select>
           </div>
 
           {choice === "custom" && (
             <div className="form-field">
-              <label htmlFor={`${fieldId}-custom`}>Days between contact <span>Required</span></label>
-              <input
-                ref={customRef}
-                id={`${fieldId}-custom`}
-                type="number"
-                inputMode="numeric"
-                min={1}
-                max={3650}
-                step={1}
-                required
-                value={customDays}
-                aria-invalid={Boolean(error) || undefined}
-                aria-describedby={error ? `${fieldId}-error` : `${fieldId}-custom-hint`}
-                onChange={(event) => { setCustomDays(event.target.value); setDirty(true); setError(""); }}
-              />
-              <p className="field-hint" id={`${fieldId}-custom-hint`}>Use a whole number from 1 to 3650.</p>
+              <label htmlFor={`${fieldId}-custom`}>Cadence interval <span>Required</span></label>
+              <div className="cadence-input-row">
+                <input
+                  ref={customRef}
+                  id={`${fieldId}-custom`}
+                  aria-label="Contact cadence value"
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={maxContactCadenceValue(customUnit)}
+                  step={1}
+                  required
+                  value={customValue}
+                  aria-invalid={Boolean(error) || undefined}
+                  aria-describedby={error ? `${fieldId}-error` : `${fieldId}-custom-hint`}
+                  onChange={(event) => { setCustomValue(event.target.value); setDirty(true); setError(""); }}
+                />
+                <select
+                  aria-label="Contact cadence unit"
+                  value={customUnit}
+                  onChange={(event) => {
+                    setCustomUnit(event.target.value as ContactCadenceUnit);
+                    setDirty(true);
+                    setError("");
+                  }}
+                >
+                  <option value="days">days</option>
+                  <option value="weeks">weeks</option>
+                  <option value="months">months</option>
+                </select>
+              </div>
+              <p className="field-hint" id={`${fieldId}-custom-hint`}>Use a positive whole number.</p>
             </div>
           )}
 

@@ -4,7 +4,8 @@ export const RELATIONSHIP_MODE_PREFERENCE_KEY = "peopleos.activeRelationshipMode
 
 export function readActiveRelationshipMode(storage?: Pick<Storage, "getItem">): ActiveRelationshipMode {
   const available = storage ?? (typeof localStorage !== "undefined" && typeof localStorage.getItem === "function" ? localStorage : undefined);
-  return available?.getItem(RELATIONSHIP_MODE_PREFERENCE_KEY) === "professional" ? "professional" : "personal";
+  const stored = available?.getItem(RELATIONSHIP_MODE_PREFERENCE_KEY);
+  return stored === "all" || stored === "personal" || stored === "professional" ? stored : "all";
 }
 
 export function writeActiveRelationshipMode(mode: ActiveRelationshipMode, storage?: Pick<Storage, "setItem">): void {

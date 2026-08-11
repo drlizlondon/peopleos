@@ -374,6 +374,23 @@ describe("Today eligibility", () => {
     if (eligible) expect(result.today?.relevantDate).toBe(addDaysToLocalDate(date, 30));
   });
 
+  it.each([
+    { contactCadence: { value: 4, unit: "weeks" as const }, cadenceDays: 28 },
+    { contactCadence: { value: 2, unit: "months" as const }, cadenceDays: 60 }
+  ])("preserves $contactCadence.value $contactCadence.unit while scheduling at $cadenceDays days", ({ contactCadence, cadenceDays }) => {
+    const contactDate = addDaysToLocalDate("2026-08-14", -cadenceDays);
+    const result = assessRelationship(bundle({
+      person: person("person-one", { contactCadence }),
+      interactions: [
+        interaction("first", "met", "2025-01-01"),
+        interaction("latest", "email", contactDate)
+      ]
+    }), clock);
+    expect(result.today?.eligibilityCode).toBe("cadence_due");
+    expect(result.today?.relevantDate).toBe("2026-08-14");
+    expect(formatExplanation(result.today!.explanation)).toContain(`every ${contactCadence.value} ${contactCadence.unit}`);
+  });
+
   it("lets a future pending FollowUp suppress New and cadence", () => {
     const newResult = assessRelationship(bundle({
       interactions: [interaction("sole", "met", "2026-08-01")],
@@ -742,6 +759,14 @@ describe("suggested reminders", () => {
       triggeringInteractionId: "earlier"
     }), clock);
     expect(explicit.suggestedReminder).toMatchObject({ dueDate: "2026-08-31", sourceInteractionId: "earlier" });
+  });
+
+  it("keeps structured cadence units in suggested-reminder explanations", () => {
+    const result = assessRelationship(bundle({
+      person: person("person-one", { contactCadence: { value: 4, unit: "weeks" } }),
+      interactions: [interaction("latest", "email", "2026-08-10")]
+    }), clock);
+    expect(formatExplanation(result.suggestedReminder!.explanation)).toContain("contact cadence of 4 weeks");
   });
 
   it("rejects an explicit trigger that is missing or not contact-counting", () => {

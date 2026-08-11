@@ -123,7 +123,8 @@ describe("V1-10 Today experience", () => {
   it("shows the nobody-due state when people exist but nobody is eligible", async () => {
     await createRepositories(await getDatabase()).people.create(person("person-calm", "Calm Person"));
     render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
-    expect(await screen.findByRole("heading", { name: "Nothing needs your attention today." })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "You’re all caught up." })).toBeInTheDocument();
+    expect(screen.getByText("Everyone who needed your attention today has been looked after.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Find someone in People" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add follow-up" })).toBeInTheDocument();
   });
@@ -137,7 +138,8 @@ describe("V1-10 Today experience", () => {
       createdAt: NOW
     });
     render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
-    expect(await screen.findByRole("heading", { name: "You’ve cleared Today for now." })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "You’re all caught up." })).toBeInTheDocument();
+    expect(screen.getByText("Everyone who needed your attention today has been looked after.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add follow-up" })).not.toBeInTheDocument();
   });
 
@@ -359,7 +361,7 @@ describe("V1-10 Today experience", () => {
     render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
     expect(await screen.findByText("One relationship could not be evaluated")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Today could not check every relationship." })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Nothing needs your attention today." })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "You’re all caught up." })).not.toBeInTheDocument();
   });
 });
 

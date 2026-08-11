@@ -59,7 +59,7 @@ describe("V1-11 Person lifecycle commands", () => {
         displayName: "  Sarah J.  ",
         importance: "high",
         tags: [" mentor ", "NHS"],
-        contactCadenceDays: 90
+        contactCadence: { value: 3, unit: "months" }
       },
       occurredAt: "2026-07-23T10:00:00.000Z"
     });
@@ -70,7 +70,7 @@ describe("V1-11 Person lifecycle commands", () => {
       displayName: "Sarah J.",
       importance: "high",
       tags: ["mentor", "NHS"],
-      contactCadenceDays: 90,
+      contactCadence: { value: 3, unit: "months" },
       createdAt: original.createdAt,
       updatedAt: "2026-07-23T10:00:00.000Z"
     });
@@ -136,6 +136,7 @@ describe("V1-11 Person lifecycle commands", () => {
     };
 
     const first = await updatePerson(db, command);
+    expect(first).not.toHaveProperty("contactCadence");
     expect(first).not.toHaveProperty("contactCadenceDays");
     const metadata = await db.get("metadata", "app");
     await expect(updatePerson(db, command)).resolves.toEqual(first);

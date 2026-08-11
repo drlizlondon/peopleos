@@ -1,4 +1,5 @@
 import { activeContactMethodsForAction } from "../domain/contactMethodPolicy";
+import { contactCadenceInDays, contactCadenceOf } from "../domain/cadence";
 import {
   addDaysToLocalDate,
   compareFollowUpsByEffectiveDate,
@@ -519,19 +520,22 @@ function buildTodayAssessment(
   }
 
   const lastContact = latestContact(contacts);
-  const cadence = bundle.person.contactCadenceDays;
-  if (lastContact && cadence) {
+  const contactCadence = contactCadenceOf(bundle.person);
+  const cadenceDays = contactCadence ? contactCadenceInDays(contactCadence) : undefined;
+  if (lastContact && contactCadence && cadenceDays) {
     const contactDate = localDateForInstant(lastContact.occurredAt, timeZone);
-    const dueDate = addDaysToLocalDate(contactDate, cadence);
+    const dueDate = addDaysToLocalDate(contactDate, cadenceDays);
     const elapsed = calendarDaysBetween(contactDate, localDate);
-    if (elapsed >= cadence) {
+    if (elapsed >= cadenceDays) {
       return {
         eligibilityCode: "cadence_due",
         dueState: "rule_due",
         relevantDate: dueDate,
         additionalDueFollowUpIds: [],
         explanation: explanation("today.cadence_due", "today.cadence_due", [
-          sourceFact("cadenceDays", String(cadence), bundle.person.id),
+          sourceFact("cadenceDays", String(cadenceDays), bundle.person.id),
+          sourceFact("cadenceValue", String(contactCadence.value), bundle.person.id),
+          sourceFact("cadenceUnit", contactCadence.unit, bundle.person.id),
           sourceFact("lastContactDate", contactDate, lastContact.id),
           sourceFact("elapsedDays", String(elapsed), lastContact.id)
         ]),
@@ -616,8 +620,10 @@ function buildSuggestedReminder(
       ])
     };
   }
-  if (bundle.person.contactCadenceDays) {
-    const dueDate = addDaysToLocalDate(triggerDate, bundle.person.contactCadenceDays);
+  const contactCadence = contactCadenceOf(bundle.person);
+  if (contactCadence) {
+    const cadenceDays = contactCadenceInDays(contactCadence);
+    const dueDate = addDaysToLocalDate(triggerDate, cadenceDays);
     return {
       dueDate,
       rule: "cadence",
@@ -625,7 +631,9 @@ function buildSuggestedReminder(
       explanation: explanation("suggested_reminder.cadence", "suggested_reminder.cadence", [
         sourceFact("dueDate", dueDate, trigger.id),
         sourceFact("triggerDate", triggerDate, trigger.id),
-        sourceFact("cadenceDays", String(bundle.person.contactCadenceDays), bundle.person.id)
+        sourceFact("cadenceDays", String(cadenceDays), bundle.person.id),
+        sourceFact("cadenceValue", String(contactCadence.value), bundle.person.id),
+        sourceFact("cadenceUnit", contactCadence.unit, bundle.person.id)
       ])
     };
   }

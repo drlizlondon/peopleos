@@ -57,6 +57,15 @@ describe("iCloud Sync reconciliation", () => {
     expect(await db.get("people", "remote")).toEqual(value);
   });
 
+  it("syncs a structured contact cadence without flattening its unit", async () => {
+    const db = await enabledDatabase();
+    const cloud = new FakeCloudKitAdapter();
+    const value = { ...person("cadence", "Cadence"), contactCadence: { value: 4, unit: "weeks" as const } };
+    cloud.records.set(cloudRecordName("people", value.id), remotePerson(value));
+    await runCloudSync(db, cloud, T2);
+    expect((await db.get("people", value.id))?.contactCadence).toEqual({ value: 4, unit: "weeks" });
+  });
+
   it("resolves concurrent scalar edits deterministically", () => {
     const local = person("same", "Local", T2) as unknown as Record<string, unknown>;
     expect(decideRecord(local, remotePerson(person("same", "Remote", T1)), "device-a")).toBe("keep-local");

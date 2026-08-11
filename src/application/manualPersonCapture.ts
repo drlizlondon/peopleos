@@ -1,9 +1,11 @@
 import type {
+  ContactCadence,
   ContactMethod,
   Interaction,
   OrganisationAffiliation,
   Person
 } from "../domain/schema";
+import { contactCadenceOf, isValidContactCadence } from "../domain/cadence";
 import type { RelationshipMode } from "../domain/relationshipMode";
 import { assertValidRecord, ValidationError } from "../domain/validation";
 import { RecordConflictError } from "../data/repositories";
@@ -30,6 +32,8 @@ export type ManualPersonCaptureDraft = {
   identityStatus: "confirmed" | "provisional";
   importance: "normal" | "high";
   tags: string[];
+  contactCadence?: ContactCadence;
+  /** @deprecated Temporary draft compatibility; preparation always writes structured cadence. */
   contactCadenceDays?: number;
   contactMethods: ManualContactMethodDraft[];
   organisationName?: string;
@@ -100,8 +104,11 @@ function assertCaptureFields(draft: ManualPersonCaptureDraft): void {
   if (displayName.length > 120) issues.push("Name or temporary description must be 120 characters or fewer.");
   if (draft.tags.length > 10) issues.push("Add no more than 10 tags.");
   if (draft.tags.some((tag) => tag.trim().length > 40)) issues.push("Each tag must be 40 characters or fewer.");
+  if (draft.contactCadence !== undefined && !isValidContactCadence(draft.contactCadence)) {
+    issues.push("Contact cadence must be a positive whole number no more than 3,650 days apart.");
+  }
   if (draft.contactCadenceDays !== undefined
-    && (!Number.isInteger(draft.contactCadenceDays) || draft.contactCadenceDays < 1 || draft.contactCadenceDays > 3650)) {
+    && !isValidContactCadence({ value: draft.contactCadenceDays, unit: "days" })) {
     issues.push("Contact cadence must be between 1 and 3650 days.");
   }
   if (optionalTrimmed(draft.role) && !optionalTrimmed(draft.organisationName)) {
@@ -125,6 +132,7 @@ export function prepareManualPersonCapture(
   assertCaptureFields(draft);
   const timestamp = draft.createdAt;
   const tags = draft.tags.map((tag) => tag.trim()).filter(Boolean);
+  const contactCadence = contactCadenceOf(draft);
   const person: Person = {
     id: draft.personId,
     revision: 1,
@@ -133,7 +141,7 @@ export function prepareManualPersonCapture(
     identityStatus: draft.identityStatus,
     importance: draft.importance,
     tags,
-    ...(draft.contactCadenceDays === undefined ? {} : { contactCadenceDays: draft.contactCadenceDays }),
+    ...(contactCadence === undefined ? {} : { contactCadence }),
     createdAt: timestamp,
     updatedAt: timestamp
   };

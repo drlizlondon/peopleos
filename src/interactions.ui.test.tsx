@@ -475,7 +475,7 @@ describe("V1-05 interactions and timeline UI", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    const add = await screen.findByRole("button", { name: "Add" });
+    const add = await screen.findByRole("button", { name: "Add person" });
     await user.click(add);
     let sheet = await screen.findByRole("dialog", { name: "Add to PeopleOS" });
     await waitFor(() => expect(within(sheet).getByRole("button", { name: "Close Add menu" })).toHaveFocus());

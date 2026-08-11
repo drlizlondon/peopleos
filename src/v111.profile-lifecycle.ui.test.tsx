@@ -273,7 +273,7 @@ describe("V1-11 complete Profile and Person lifecycle UI", () => {
     await waitFor(() => expect(name).toHaveFocus());
 
     await user.type(name, "Sarah Ahmed");
-    const cadence = screen.getByLabelText(/Contact cadence in days/);
+    const cadence = screen.getByLabelText("Contact cadence value");
     await user.type(cadence, "0");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Enter a whole number from 1 to 3650 days");
@@ -295,8 +295,9 @@ describe("V1-11 complete Profile and Person lifecycle UI", () => {
       displayName: "Sarah Ahmed",
       importance: "high",
       tags: ["mentor", "NHS"],
-      contactCadenceDays: 90
+      contactCadence: { value: 90, unit: "days" }
     });
+    expect(saved?.contactCadenceDays).toBeUndefined();
   });
 
   it("uses every active contact method for Profile Contact now while keeping only preferred values prominent", async () => {

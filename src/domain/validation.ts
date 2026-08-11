@@ -19,6 +19,7 @@ import {
   type ReachOutEvent,
   type RelationshipEvent
 } from "./schema";
+import { isValidContactCadence } from "./cadence";
 import { interactionCountsAsContact } from "./interactionPolicy";
 
 export class ValidationError extends Error {
@@ -91,6 +92,7 @@ function validatePerson(value: unknown): value is Person {
     && (value.relationshipMode === undefined || ["personal", "professional", "both"].includes(String(value.relationshipMode)))
     && ["normal", "high"].includes(String(value.importance))
     && strings(value.tags)
+    && (value.contactCadence === undefined || isValidContactCadence(value.contactCadence))
     && (value.contactCadenceDays === undefined || (Number.isInteger(value.contactCadenceDays) && Number(value.contactCadenceDays) >= 1 && Number(value.contactCadenceDays) <= 3_650))
     && optionalInstant(value.archivedAt)
     && optionalString(value.mergedIntoPersonId)

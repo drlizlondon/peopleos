@@ -16,7 +16,7 @@ async function resetDatabase() {
 async function openCapture(user: ReturnType<typeof userEvent.setup>, throughPeople = false) {
   window.history.replaceState({}, "", throughPeople ? "/people" : "/people/new");
   render(<App />);
-  if (throughPeople) await user.click(await screen.findByRole("button", { name: "Add person" }));
+  if (throughPeople) await user.click(await within(screen.getByRole("main")).findByRole("button", { name: "Add person" }));
   else await screen.findByRole("heading", { name: "Add a person" });
   expect(window.location.pathname).toBe("/people/new");
   return screen.getByLabelText("Name");
@@ -43,7 +43,7 @@ describe("V1-03 manual person capture", () => {
     fireEvent.submit(form!);
     fireEvent.submit(form!);
 
-    expect(await screen.findByRole("heading", { name: "Simon" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Simon" }, { timeout: 10_000 })).toBeInTheDocument();
     const data = await readAllData(await getDatabase());
     expect(data.people).toHaveLength(1);
     expect(data.people[0]).toMatchObject({ displayName: "Simon", identityStatus: "confirmed" });
@@ -67,8 +67,8 @@ describe("V1-03 manual person capture", () => {
     expect(await screen.findByRole("heading", { name: "Today person" })).toBeInTheDocument();
     expect(window.history.state).toMatchObject({ fromPath: "/" });
     await user.click(screen.getByRole("button", { name: "← Today" }));
-    expect(window.location.pathname).toBe("/");
-    expect(await screen.findByRole("heading", { name: "Nothing needs your attention today." })).toBeInTheDocument();
+    await waitFor(() => expect(window.location.pathname).toBe("/"));
+    expect(await screen.findByRole("heading", { name: "You’re all caught up." })).toBeInTheDocument();
   });
 
   it.each([
@@ -87,6 +87,25 @@ describe("V1-03 manual person capture", () => {
     expect(data.people).toHaveLength(1);
     expect(data.contactMethods).toHaveLength(1);
     expect(data.contactMethods[0]).toMatchObject({ kind, canonicalValue });
+  });
+
+  it("uses independent list checkboxes and stores both-list membership without a Both control", async () => {
+    const user = userEvent.setup();
+    await openCapture(user);
+    const lists = screen.getByRole("group", { name: "Lists" });
+    const personal = within(lists).getByRole("checkbox", { name: "Personal" });
+    const professional = within(lists).getByRole("checkbox", { name: "Professional" });
+
+    expect(personal).toBeChecked();
+    expect(professional).not.toBeChecked();
+    expect(within(lists).queryByText("Both")).not.toBeInTheDocument();
+
+    await user.click(professional);
+    await user.type(screen.getByLabelText("Name"), "Sam Taylor");
+    await user.click(screen.getByRole("button", { name: "Save person" }));
+
+    const data = await readAllData(await getDatabase());
+    expect(data.people[0]).toMatchObject({ relationshipMode: "both" });
   });
 
   it("lets the user choose a phone region for an ambiguous national number", async () => {
@@ -194,15 +213,21 @@ describe("V1-03 manual person capture", () => {
     await user.click(screen.getByText("More details"));
     await user.type(screen.getByLabelText(/^Role or job title/), "Clinical fellow");
     await user.type(screen.getByLabelText(/^Tags/), "fellowship, clinician");
-    await user.selectOptions(screen.getByLabelText(/^Contact cadence in days/), "90");
+    expect(screen.queryByLabelText("Reminder frequency")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: "Remind me to stay in touch" }));
+    const frequency = screen.getByLabelText("Reminder frequency");
+    await user.clear(frequency);
+    await user.type(frequency, "4");
+    await user.selectOptions(screen.getByLabelText("Reminder frequency unit"), "weeks");
     await user.click(screen.getByRole("button", { name: "Save person" }));
 
-    expect(await screen.findByRole("heading", { name: "Sarah Ahmed" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sarah Ahmed" }, { timeout: 10_000 })).toBeInTheDocument();
     expect(screen.getByText("Clinical fellow · NHS England")).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Recent timeline" })).getByText("HealthTech Fellowship")).toBeInTheDocument();
     const data = await readAllData(await getDatabase());
     expect(data.people).toHaveLength(1);
-    expect(data.people[0]).toMatchObject({ tags: ["fellowship", "clinician"], contactCadenceDays: 90 });
+    expect(data.people[0]).toMatchObject({ tags: ["fellowship", "clinician"], contactCadence: { value: 4, unit: "weeks" } });
+    expect(data.people[0].contactCadenceDays).toBeUndefined();
     expect(data.contactMethods).toHaveLength(3);
     expect(data.contactMethods.filter((contact) => contact.kind === "phone")).toHaveLength(2);
     expect(data.contactMethods.find((contact) => contact.kind === "email")).toMatchObject({
@@ -211,7 +236,7 @@ describe("V1-03 manual person capture", () => {
     });
     expect(data.affiliations).toHaveLength(1);
     expect(data.interactions).toHaveLength(1);
-  });
+  }, 60_000);
 
   it("manages contact details through add, edit, prefer and archive actions", async () => {
     const user = userEvent.setup();

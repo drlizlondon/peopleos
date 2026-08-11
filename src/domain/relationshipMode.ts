@@ -1,7 +1,7 @@
 import type { Person } from "./schema";
 
 export type RelationshipMode = "personal" | "professional" | "both";
-export type ActiveRelationshipMode = Exclude<RelationshipMode, "both">;
+export type ActiveRelationshipMode = "all" | Exclude<RelationshipMode, "both">;
 
 export const RELATIONSHIP_MODE_OPTIONS: ReadonlyArray<{ value: RelationshipMode; label: string }> = [
   { value: "personal", label: "Personal" },
@@ -15,5 +15,5 @@ export function relationshipModeOf(person: Pick<Person, "relationshipMode">): Re
 
 export function personMatchesActiveMode(person: Pick<Person, "relationshipMode">, activeMode: ActiveRelationshipMode): boolean {
   const mode = relationshipModeOf(person);
-  return mode === "both" || mode === activeMode;
+  return activeMode === "all" || mode === "both" || mode === activeMode;
 }

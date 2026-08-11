@@ -92,9 +92,9 @@ import {
 import { getDatabase } from "./data/client";
 // eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { StaleRevisionError } from "./data/repositories";
-import type { ContactMethod, FollowUp, Interaction, InteractionKind, MemoryFact, Person, ReachOutEntry } from "./domain/schema";
-import type { ActiveRelationshipMode } from "./domain/relationshipMode";
-import { RELATIONSHIP_MODE_OPTIONS } from "./domain/relationshipMode";
+import type { ContactCadence, ContactCadenceUnit, ContactMethod, FollowUp, Interaction, InteractionKind, MemoryFact, Person, ReachOutEntry } from "./domain/schema";
+import type { ActiveRelationshipMode, RelationshipMode } from "./domain/relationshipMode";
+import { contactCadenceInDays, formatContactCadence } from "./domain/cadence";
 import { effectiveFollowUpDate, FOLLOW_UP_ACTION_OPTIONS } from "./domain/followUpPolicy";
 import type { DuplicateMatch } from "./domain/duplicates";
 import { ValidationError } from "./domain/validation";
@@ -496,6 +496,7 @@ export type ManualCaptureResumeState = {
   draft: ManualPersonCaptureDraft;
   tagsText: string;
   cadenceText: string;
+  cadenceUnit?: ContactCadenceUnit;
 };
 
 function firstIssue(error: unknown): string {
@@ -517,6 +518,20 @@ function mergePersonIds(
   additional: readonly string[]
 ): string[] {
   return [...new Set([...existing, ...additional])].sort();
+}
+
+function relationshipLists(mode: RelationshipMode): { personal: boolean; professional: boolean } {
+  return {
+    personal: mode === "personal" || mode === "both",
+    professional: mode === "professional" || mode === "both"
+  };
+}
+
+function relationshipModeFromLists(personal: boolean, professional: boolean): RelationshipMode | undefined {
+  if (personal && professional) return "both";
+  if (personal) return "personal";
+  if (professional) return "professional";
+  return undefined;
 }
 
 export function AddPersonScreen({
@@ -541,7 +556,15 @@ export function AddPersonScreen({
     contactMethods: [createManualContactMethodDraft("phone")]
   }));
   const [tagsText, setTagsText] = useState(initialCapture?.tagsText ?? "");
-  const [cadenceText, setCadenceText] = useState(initialCapture?.cadenceText ?? "");
+  const initialCadence = initialCapture?.draft.contactCadence;
+  const [cadenceText, setCadenceText] = useState(
+    initialCapture?.cadenceText
+      ?? (initialCadence ? String(initialCadence.value) : initialCapture?.draft.contactCadenceDays ? String(initialCapture.draft.contactCadenceDays) : "")
+  );
+  const [cadenceUnit, setCadenceUnit] = useState<ContactCadenceUnit>(initialCapture?.cadenceUnit ?? initialCadence?.unit ?? "days");
+  const [keepInTouch, setKeepInTouch] = useState(
+    Boolean(initialCapture?.cadenceText || initialCadence || initialCapture?.draft.contactCadenceDays)
+  );
   const [defaultPhoneRegion, setDefaultPhoneRegion] = useState("GB");
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState("");
@@ -609,6 +632,17 @@ export function AddPersonScreen({
     });
   }
 
+  function changeCadence(value: string, unit: ContactCadenceUnit = cadenceUnit) {
+    preparedRef.current = null;
+    validatedDraftRef.current = null;
+    acknowledgedDuplicatePersonIdsRef.current = [];
+    setDuplicateMatches([]);
+    dirtyRef.current = true;
+    setCadenceText(value);
+    setCadenceUnit(unit);
+    onDirtyChange(true);
+  }
+
   function validate(): ManualPersonCaptureDraft | undefined {
     const nextErrors: FieldErrors = {};
     const displayName = draft.displayName.trim();
@@ -640,11 +674,13 @@ export function AddPersonScreen({
     if (tags.length > 10) nextErrors.tags = "Add no more than 10 tags.";
     else if (tags.some((tag) => tag.length > 40)) nextErrors.tags = "Each tag must be 40 characters or fewer.";
 
-    let contactCadenceDays: number | undefined;
-    if (cadenceText.trim()) {
-      contactCadenceDays = Number(cadenceText);
-      if (!Number.isInteger(contactCadenceDays) || contactCadenceDays < 1 || contactCadenceDays > 3650) {
-        nextErrors.cadence = "Enter a whole number from 1 to 3650 days.";
+    let contactCadence: ContactCadence | undefined;
+    if (keepInTouch) {
+      contactCadence = { value: Number(cadenceText), unit: cadenceUnit };
+      try {
+        contactCadenceInDays(contactCadence);
+      } catch {
+        nextErrors.cadence = "Enter a positive whole number no more than 3,650 days apart.";
       }
     }
     if (draft.role?.trim() && !draft.organisationName?.trim()) {
@@ -656,7 +692,7 @@ export function AddPersonScreen({
       requestAnimationFrame(() => document.querySelector<HTMLElement>("[aria-invalid='true']")?.focus());
       return undefined;
     }
-    return { ...draft, displayName, tags, contactCadenceDays };
+    return { ...draft, displayName, tags, contactCadence, contactCadenceDays: undefined };
   }
 
   function markCaptureFinished() {
@@ -771,7 +807,7 @@ export function AddPersonScreen({
 
   function openExisting(match: DuplicateMatch) {
     const resumeDraft = validatedDraftRef.current ?? draft;
-    onOpenDuplicatePerson(match.person.id, { draft: resumeDraft, tagsText, cadenceText });
+    onOpenDuplicatePerson(match.person.id, { draft: resumeDraft, tagsText, cadenceText, cadenceUnit });
   }
 
   function returnToEdit() {
@@ -783,6 +819,7 @@ export function AddPersonScreen({
   const identityHint = draft.identityStatus === "provisional"
     ? "Use enough detail to recognise this person later, such as “Hackathon organiser”."
     : "A first name is enough. You can add more later.";
+  const selectedLists = relationshipLists(draft.relationshipMode);
 
   return (
     <main className="screen form-screen" id="main-content" tabIndex={-1}>
@@ -794,15 +831,37 @@ export function AddPersonScreen({
       </header>
 
       <form className="person-form" onSubmit={save} noValidate>
-        <fieldset className="choice-fieldset relationship-mode-fieldset">
-          <legend>Relationship</legend>
-          <div className="segmented-control three-way" role="group" aria-label="Relationship">
-            {RELATIONSHIP_MODE_OPTIONS.map((option) => (
-              <button key={option.value} type="button" aria-pressed={draft.relationshipMode === option.value} onClick={() => changed((current) => ({ ...current, relationshipMode: option.value }))}>
-                {option.label}
-              </button>
-            ))}
+        <fieldset className="list-membership-fieldset" aria-describedby="person-lists-hint">
+          <legend>Lists</legend>
+          <div className="list-checkboxes">
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={selectedLists.personal}
+                disabled={selectedLists.personal && !selectedLists.professional}
+                onChange={(event) => changed((current) => {
+                  const lists = relationshipLists(current.relationshipMode);
+                  const relationshipMode = relationshipModeFromLists(event.target.checked, lists.professional);
+                  return relationshipMode ? { ...current, relationshipMode } : current;
+                })}
+              />
+              <span>Personal</span>
+            </label>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={selectedLists.professional}
+                disabled={selectedLists.professional && !selectedLists.personal}
+                onChange={(event) => changed((current) => {
+                  const lists = relationshipLists(current.relationshipMode);
+                  const relationshipMode = relationshipModeFromLists(lists.personal, event.target.checked);
+                  return relationshipMode ? { ...current, relationshipMode } : current;
+                })}
+              />
+              <span>Professional</span>
+            </label>
           </div>
+          <p className="field-hint" id="person-lists-hint">Choose where you’d like to find this person. You can select both.</p>
         </fieldset>
         <div className="form-field">
           <label htmlFor="person-display-name">{identityLabel}</label>
@@ -901,35 +960,56 @@ export function AddPersonScreen({
           </div>
         </section>
 
-        <div className="form-field frequency-field">
-          <label htmlFor="person-cadence">Contact frequency <span>Optional</span></label>
-          <select
-            id="person-cadence"
-            aria-label="Contact cadence in days"
-            value={cadenceText}
-            aria-invalid={Boolean(errors.cadence)}
-            aria-describedby={errors.cadence ? "person-cadence-error" : "person-cadence-hint"}
-            onChange={(event) => {
-              preparedRef.current = null;
-              acknowledgedDuplicatePersonIdsRef.current = [];
-              setDuplicateMatches([]);
-              dirtyRef.current = true;
-              setCadenceText(event.target.value);
-              onDirtyChange(true);
-            }}
-          >
-            <option value="">No regular reminder</option>
-            <option value="7">Every week</option>
-            <option value="14">Every 2 weeks</option>
-            <option value="30">Every month</option>
-            <option value="60">Every 2 months</option>
-            <option value="90">Every 3 months</option>
-            <option value="180">Every 6 months</option>
-            <option value="365">Every year</option>
-          </select>
-          <p className="field-hint" id="person-cadence-hint">This determines when they appear in Today and Upcoming.</p>
-          {errors.cadence && <p className="field-error" id="person-cadence-error" role="alert">{errors.cadence}</p>}
-        </div>
+        <fieldset className="keep-in-touch-fieldset">
+          <legend>Keep in touch</legend>
+          <label className="checkbox-row keep-in-touch-toggle">
+            <input
+              type="checkbox"
+              checked={keepInTouch}
+              aria-controls="person-cadence-controls"
+              aria-expanded={keepInTouch}
+              onChange={(event) => {
+                setKeepInTouch(event.target.checked);
+                changeCadence(event.target.checked ? "3" : "", event.target.checked ? "days" : cadenceUnit);
+              }}
+            />
+            <span>Remind me to stay in touch</span>
+          </label>
+          {keepInTouch && (
+            <div className="form-field frequency-field" id="person-cadence-controls">
+              <div className="frequency-control">
+                <span aria-hidden="true">Every</span>
+                <input
+                  id="person-cadence-value"
+                  aria-label="Reminder frequency"
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  max={cadenceUnit === "days" ? 3650 : cadenceUnit === "weeks" ? 521 : 121}
+                  step="1"
+                  value={cadenceText}
+                  aria-invalid={Boolean(errors.cadence)}
+                  aria-describedby={errors.cadence ? "person-cadence-error" : "person-cadence-hint"}
+                  onChange={(event) => changeCadence(event.target.value)}
+                />
+                <select
+                  id="person-cadence-unit"
+                  aria-label="Reminder frequency unit"
+                  value={cadenceUnit}
+                  aria-invalid={Boolean(errors.cadence)}
+                  aria-describedby={errors.cadence ? "person-cadence-error" : "person-cadence-hint"}
+                  onChange={(event) => changeCadence(cadenceText, event.target.value as ContactCadenceUnit)}
+                >
+                  <option value="days">days</option>
+                  <option value="weeks">weeks</option>
+                  <option value="months">months</option>
+                </select>
+              </div>
+              <p className="field-hint" id="person-cadence-hint">They’ll appear in Today when it’s time to reconnect.</p>
+              {errors.cadence && <p className="field-error" id="person-cadence-error" role="alert">{errors.cadence}</p>}
+            </div>
+          )}
+        </fieldset>
 
         <details className="more-details">
           <summary>More details</summary>
@@ -1625,7 +1705,7 @@ export function PersonProfileScreen({
               )}
               {nextPlan?.kind === "cadence" && (
                 <div className="current-plan-summary">
-                  <strong>Every {nextPlan.cadenceDays} days</strong>
+                  <strong>Every {formatContactCadence(nextPlan.cadence)}</strong>
                   {nextPlan.date
                     ? <p>Next expected contact: {formatLocalDate(nextPlan.date)}</p>
                     : <p>Cadence is saved. Plan the first follow-up when you are ready.</p>}
