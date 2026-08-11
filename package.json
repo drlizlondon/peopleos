@@ -11,7 +11,8 @@
     "test": "vitest run --exclude '**/node_modules/**' --exclude '**/*.perf.test.ts'",
     "test:watch": "vitest --exclude '**/node_modules/**' --exclude '**/*.perf.test.ts'",
     "test:perf": "vitest run perf.test.ts",
-    "check": "npm run lint && npm run test && npm run test:perf && npm run build",
+    "test:marketing": "node marketing/validate.mjs",
+    "check": "npm run lint && npm run test && npm run test:perf && npm run test:marketing && npm run build",
     "cap:sync": "npm run build && cap sync ios",
     "ios:open": "npm run cap:sync && cap open ios",
     "ios:build": "npm run cap:sync && xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator -derivedDataPath ios/DerivedData CODE_SIGNING_ALLOWED=NO build"
