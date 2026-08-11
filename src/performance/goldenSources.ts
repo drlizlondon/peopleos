@@ -466,6 +466,8 @@ export function searchDataset(seed: number): PeopleOsData {
     defaultPhoneRegion: "GB",
     captureMode: "standard",
     alreadyContactedDefaultReminderDays: 14,
+    todaySummaryNotificationsEnabled: false,
+    todaySummaryNotificationTime: "12:00",
     createdAt: NOW,
     updatedAt: NOW
   }];

@@ -94,8 +94,8 @@ If a feature does none of these, it is outside V1.
 - Opening an external application never records contact or changes the card
 - Not today moves the primary explicit FollowUp to tomorrow, or creates one explicit tomorrow FollowUp for a New/cadence recommendation, records current-day TodaySkip suppression, and leaves any other due FollowUps unchanged
 - Already contacted records one generic contact Interaction without an interaction form, completes the primary due FollowUp when present, and creates one explicitly selected next FollowUp
-- One optional daily Today summary notification at 09:00 local time on supported platforms, containing no Person names
-- Notification Open, Not today, and two-hour Snooze actions change navigation or delivery coordination only; they never mutate a Person, FollowUp, ReachOutEntry, or Interaction
+- One optional native iPhone Today summary at a user-selected local time, default 12:00, containing no Person names or relationship details
+- Notification taps open Today; scheduling, cancellation, and taps never mutate a Person, FollowUp, ReachOutEntry, TodaySkip, or Interaction
 
 ### Privacy and continuity
 
@@ -170,9 +170,9 @@ Already contacted is explicit evidence that contact happened, so it creates one 
 
 ### Today summary notifications
 
-Notifications are an optional downstream delivery mechanism. On a supported, permission-granted platform, the scheduler evaluates the normal Today projection at 09:00 in the current device timezone. An empty queue produces no notification; one or more actionable People produce one summary with no names. Open deep-links to Today. Notification Not today suppresses only that day's notification and schedules the next evaluation for tomorrow. Notification Snooze schedules one re-evaluation two hours later only when that instant remains on the same local day; when it would cross midnight, there is no same-day re-notification and normal next-day evaluation remains. None of these actions modifies individual reminders or relationship state.
+Notifications are an optional native iPhone delivery mechanism. They default Off and request normal iOS permission only after the user turns them On. The reminder time defaults to 12:00 local and is editable. The app derives at most 30 anonymous one-off daily occurrences from the same deterministic rules as Today, rebuilding them on launch, foreground/background transition, selected relationship mode, Settings, and dataset changes. A same-day occurrence may use the current Today count; forecast occurrences use “People are waiting on your list today.” Tapping opens Today. Turning reminders Off cancels all pending PeopleOS summaries. No notification action mutates individual reminders or relationship state.
 
-Reliable delivery requires a supported notification adapter. V1-14 must stop rather than simulate scheduling when the target runtime cannot reliably deliver while PeopleOS is closed. Unsupported platforms keep effective delivery unavailable while preserving any restored On intent.
+Reliable delivery uses Capacitor's native local-notifications adapter backed by `UNUserNotificationCenter`. The browser PWA does not request permission or claim closed-app delivery. There is no backend, APNs/remote push entitlement, server push, or unlimited closed-app evaluation claim. Reopening replenishes the bounded 30-occurrence plan.
 
 ## Excluded from Version 1
 
@@ -184,7 +184,7 @@ Reliable delivery requires a supported notification adapter. V1-14 must stop rat
 - SMS, calling, or email delivery services inside PeopleOS
 - Accounts, cloud sync, multi-device use, or shared workspaces
 - Per-Person notifications, one notification per Today card, or names in notification content
-- User-configurable notification time or snooze duration
+- Per-Person notification time, notification action buttons, or configurable snooze duration
 - Deals, pipelines, companies as managed accounts, tasks unrelated to a person, campaigns, or analytics dashboards
 - Birthdays as a special recommendation system
 - Automatic merging or general-purpose merge; V1 includes only explicit provisional-Person resolution
@@ -241,8 +241,8 @@ V1 is complete only when:
 - Every Today card has an explanation derived from visible facts.
 - Reach Out supports existing and provisional People, all required display states, completion history, and linked FollowUp behavior without duplicate Person or reminder records.
 - Export and restore preserve all V1 data.
-- Settings exposes exactly the five editable global preferences in `SETTINGS_SPEC.md`; none reads or mutates a Person.
-- On a supported notification platform, an empty Today queue produces no notification, a non-empty queue produces one anonymous 09:00 summary, and every notification action is proven unable to mutate Person, Reach Out, FollowUp, or Interaction data.
+- Settings exposes exactly the six editable global preferences in `SETTINGS_SPEC.md`; none reads or mutates a Person.
+- In the iPhone app, empty forecast dates schedule no summary, non-empty dates schedule one anonymous summary at the selected local time, and every notification operation is proven unable to mutate Person, Reach Out, FollowUp, TodaySkip, or Interaction data.
 - No excluded feature has been pulled forward.
 
 ## Complete implementation order
@@ -329,10 +329,8 @@ Deliver WhatsApp as an additional resolved Contact now target, the Profile-origi
 
 ### V1-14 — Today summary notifications
 
-Deliver the global Today-summary notification preference and permission flow, a narrow notification-scheduler port and supported adapter, delivery-only coordination state, one anonymous 09:00 local summary when Today is non-empty, fixed two-hour same-day Snooze, notification-only Not today, Open/deep-link routing, retries/idempotency, and platform capability tests.
+Moved into the chargeable MVP by POS-D047. Deliver Off-by-default native iPhone Today reminders, explicit permission, editable local time defaulting to 12:00, a narrow scheduler over at most 30 anonymous one-off occurrences, verified replacement/cancellation, and warm/cold tap routing to Today. Do not add action buttons, backend delivery, remote push, automatic messaging, or per-Person notifications.
 
-**Mandatory stop condition:** do not ship foreground timers or another unreliable imitation. If no approved adapter can reliably deliver while PeopleOS is closed on the target platform, stop the package and show Notifications as unavailable there. Do not add a backend, sync, native shell, or provider integration without a separate accepted architecture decision.
-
-**Independent acceptance:** intent defaults Off and permission is requested only after an explicit action; denied/restored-On states retain intent but schedule nothing and never prompt automatically; an empty queue sends nothing; a non-empty queue produces at most one name-free summary for the scheduled occurrence; Open always lands on Today; notification Not today and Snooze mutate only delivery coordination; retries and repeated actions are idempotent; timezone changes reschedule safely; unsupported platforms state Unavailable; Person, Reach Out, FollowUp, and Interaction records are byte-for-byte unchanged by every notification action.
+**Independent acceptance:** permission is requested only after an explicit action; denied stays Off and never auto-prompts; empty forecast dates schedule nothing; payloads contain no relationship data; time changes replace rather than duplicate; Off cancels; taps land on Today; unsupported web reports the native boundary; Person, Reach Out, FollowUp, TodaySkip, and Interaction stores remain unchanged. Signed physical-device/TestFlight delivery and cold-tap checks remain release acceptance, not something browser tests can prove.
 
 No later package begins against this amended scope until it is explicitly accepted. Completed package baselines remain intact unless the user explicitly reopens them.

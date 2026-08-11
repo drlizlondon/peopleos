@@ -193,23 +193,22 @@ Offer one privacy-preserving Today summary on a supported runtime without turnin
 | Row | Options | Default |
 |---|---|---|
 | Today summary notifications | Off; On, with separate effective status when permission/capability blocks delivery | Off |
-| Delivery time | Informational | 09:00 in the current device timezone |
-| Snooze duration | Informational | Two hours, later the same local day |
+| Reminder time | Any valid local `HH:mm` time | 12:00 in the current device timezone |
 | Permission and runtime capability | Informational status | Not requested until the user turns Today summary notifications on |
 
 ### Deterministic behaviour
 
 - `todaySummaryNotificationsEnabled` records desired global behavior; effective delivery additionally requires the approved adapter and granted operating-system permission.
-- On a supported runtime, explicitly choosing On persists the intent and requests permission in that same user-initiated flow. Denial leaves the preference On but shows “Permission denied,” schedules nothing, and never re-prompts automatically. Turning Off persists `false`, cancels pending delivery, and clears TodayNotificationState without attempting to change the operating-system permission.
+- On a supported runtime, explicitly choosing On requests permission in that same user-initiated flow and persists On only when permission is granted. Denial leaves the preference Off, shows “Permission denied,” schedules nothing, and never re-prompts automatically. Turning Off persists `false` and cancels pending PeopleOS summaries without attempting to change the operating-system permission.
 - An unsupported runtime does not offer a working On action. If a restored backup contains On, show “On preference — unavailable on this device” and schedule nothing. Restored On with requestable permission shows “Permission required”; only an explicit Enable on this device action may request it.
-- The scheduler evaluates the authoritative Today query at delivery time. An empty Today result produces no notification; one or more actionable People produce exactly one summary notification.
-- The title is “PeopleOS”. The body is “You have people to reach out to today. Open PeopleOS to see who's on your list.” It contains no Person names or count.
-- Delivery is fixed at 09:00 local time. Device-timezone changes cause the next schedule to be reconciled against the new local time; V1 has no notification-time preference.
-- Notification **Open** opens the current Today route. Notification **Not today** dismisses only that day's summary and schedules a fresh Today evaluation for 09:00 tomorrow. Notification **Snooze** schedules a fresh evaluation two hours later on the same local day; if two hours would cross midnight, no same-day re-notification is scheduled.
-- Enabling notifications or first making Today non-empty after 09:00 does not produce a late catch-up. The next ordinary evaluation is 09:00 the following local day.
-- Every re-evaluation applies the empty-Today rule again. A scheduled evaluation never guarantees that a notification will be shown.
-- Notification actions mutate only device-local notification-delivery state. They never create a TodaySkip, Interaction, FollowUp, FollowUpEvent, ReachOutEvent, or Reach Out transition.
-- The current browser-only PWA must not claim reliable closed-app notification delivery. The On control is available only after an approved adapter proves permission, scheduling, replacement, action handling, cancellation, warm/cold deep links, timezone reconciliation, and retry behavior on the target runtime.
+- The native scheduler forecasts from the same fixed Today eligibility rules and schedules at most 30 one-off daily summaries. It installs and verifies replacements before removing stale requests after launch, foreground/background transition, relationship-mode, Settings, or dataset changes. An empty forecast date produces no notification.
+- The title is “PeopleOS”. A same-day occurrence scheduled before its selected time may say “3 people are on your list today.” Future forecast occurrences use “People are waiting on your list today.” Singular grammar uses “1 person is on your list today.”
+- Bodies and payloads contain no names, contact details, Person or FollowUp identifiers, reasons, notes, affiliations, relationship details, or other personal data.
+- The user-selected reminder time follows the current device timezone when the plan is reconciled. Changing the time cancels and replaces every pending PeopleOS summary.
+- Tapping a summary opens the current Today route. The MVP has no notification action buttons, delivery Snooze, automatic contact action, or notification-only Not today command.
+- If the user ignores 30 summaries without reopening the app, the bounded local plan ends; reopening or foregrounding PeopleOS replenishes it. The MVP does not claim unlimited or live at-delivery evaluation while closed.
+- Notification scheduling and taps never create a TodaySkip, Interaction, FollowUp, FollowUpEvent, ReachOutEvent, or Reach Out transition.
+- The browser PWA does not request notification permission. The On control is available only in the iPhone wrapper whose native adapter proves permission, closed-app scheduling, replacement, cancellation, and warm/cold tap handling.
 
 ### User flows affected
 
@@ -318,17 +317,18 @@ type AppSettings = {
   alreadyContactedDefaultReminderDays: number;
   reachOutDefaultReminderDays?: 1 | 7 | 14 | 30;
   todaySummaryNotificationsEnabled: boolean;
+  todaySummaryNotificationTime: string;
   revision: number;
   createdAt: string;
   updatedAt: string;
 };
 ```
 
-`alreadyContactedDefaultReminderDays` defaults to 14. Absence of `reachOutDefaultReminderDays` means No reminder. `todaySummaryNotificationsEnabled` defaults to `false`; `true` records user intent, not proof of permission or runtime capability. Device timezone, device locale, notification permission/capability, application version, and schema version are runtime facts and must not be duplicated into this record. `lastBackupGeneratedAt` remains backup metadata as defined by the readiness correction, not a user preference.
+`alreadyContactedDefaultReminderDays` defaults to 14. Absence of `reachOutDefaultReminderDays` means No reminder. `todaySummaryNotificationsEnabled` defaults to `false` and `todaySummaryNotificationTime` defaults to `12:00`. Enabled intent is not proof of permission or runtime capability. Device timezone, device locale, notification permission/capability, application version, and schema version are runtime facts and must not be duplicated into this record. `lastBackupGeneratedAt` remains backup metadata as defined by the readiness correction, not a user preference.
 
 The record is included in backup/restore. Restore never requests notification permission; restored On intent remains ineffective until the runtime already has permission or the user explicitly chooses Enable on this device in Settings. Device-local `TodayNotificationState` is not part of AppSettings and is excluded from backup/restore. If AppSettings is missing after first launch, the application creates the defaults known to the current package.
 
-Migration is deliberately staged. V1-10 adds the Already-contacted default of 14 and does not add notification storage. V1-14 later adds notification intent defaulting Off and migrates V1-10-era backups the same way. Both preserve existing fields; unknown future fields are handled by schema migration rather than silently interpreted.
+Migration is deliberately staged. V1-10 adds the Already-contacted default of 14. The chargeable MVP migration adds notification intent Off and reminder time 12:00, preserving every older preference. Backups through schema 4 receive those defaults while current schema 5 requires both fields.
 
 ## 13. Validation and acceptance
 
@@ -337,6 +337,7 @@ Migration is deliberately staged. V1-10 adds the Already-contacted default of 14
 - The Already contacted default must be an integer from 1 to 3,650; presets are 2, 7, 14, and 30.
 - Reach Out reminder days must be absent, 1, 7, 14, or 30.
 - Today summary notification intent must be boolean. Effective delivery additionally requires granted permission and a supported reliable adapter; blocked/unavailable projections follow the Notifications section exactly.
+- Today summary notification time must be a valid zero-padded 24-hour `HH:mm` value.
 - A stale revision cannot overwrite a newer preference value.
 - Repeating the same save with the same revision/command identity produces one resulting update.
 - Backup/restore round-trips every editable preference.
@@ -345,7 +346,7 @@ Migration is deliberately staged. V1-10 adds the Already-contacted default of 14
 - Every informational row is announced as text, not as a disabled control.
 - No Settings row reads or modifies a specific Person.
 - No setting changes deterministic Relationship Engine rules.
-- Notification actions leave all Person, Interaction, FollowUp, TodaySkip, Reach Out, and Relationship Engine inputs unchanged.
+- Notification scheduling and taps leave all Person, Interaction, FollowUp, TodaySkip, Reach Out, and Relationship Engine inputs unchanged.
 
 ## 14. Explicit exclusions
 
@@ -354,7 +355,7 @@ Migration is deliberately staged. V1-10 adds the Already-contacted default of 14
 - AI, inferred defaults, recommendations based on usage, or “remember my last choice” behavior
 - Theme and cosmetic customization
 - Accounts, sync, provider integrations, analytics, or marketing preferences
-- Notification time, per-Person notification settings, names/counts in notification content, and configurable snooze duration
+- Per-Person notification settings, names or relationship details in notification content, notification action buttons, and configurable snooze duration
 - Browser/server push, notification analytics, or a backend solely for notification delivery
 - App PIN, biometric lock, or application-managed encryption
 - Automatic backup, restore merge, or destructive clear-all action

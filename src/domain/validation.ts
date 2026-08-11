@@ -241,7 +241,9 @@ export function validateAppSettings(value: unknown): value is AppSettings {
     && Number.isInteger(value.alreadyContactedDefaultReminderDays)
     && Number(value.alreadyContactedDefaultReminderDays) >= 1
     && Number(value.alreadyContactedDefaultReminderDays) <= 3_650
-    && (reminder === undefined || [1, 7, 14, 30].includes(Number(reminder)));
+    && (reminder === undefined || [1, 7, 14, 30].includes(Number(reminder)))
+    && typeof value.todaySummaryNotificationsEnabled === "boolean"
+    && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(value.todaySummaryNotificationTime));
 }
 
 const storeValidators: Record<DataStoreName, (value: unknown) => boolean> = {

@@ -1,4 +1,9 @@
-import { DATA_STORE_NAMES, type DataStoreName, type PeopleOsData } from "../domain/schema";
+import {
+  DATA_STORE_NAMES,
+  DEFAULT_TODAY_NOTIFICATION_TIME,
+  type DataStoreName,
+  type PeopleOsData
+} from "../domain/schema";
 import { assertValidRecord } from "../domain/validation";
 import type { CloudRecordEnvelope, SyncTombstone } from "./types";
 
@@ -44,6 +49,27 @@ export function recordTimestamp(store: DataStoreName, value: Record<string, unkn
   return candidate;
 }
 
+/**
+ * CloudKit records outlive an installed application version. Normalize additive
+ * AppSettings fields before current-schema validation so an older private-cloud
+ * record can participate in the ordinary deterministic reconciliation path.
+ * Invalid values are deliberately left untouched for validation to reject.
+ */
+export function migrateLegacyCloudRecord(remote: CloudRecordEnvelope): CloudRecordEnvelope {
+  if (remote.deleted || remote.store !== "appSettings" || !remote.payload) return remote;
+  const missingEnabled = remote.payload.todaySummaryNotificationsEnabled === undefined;
+  const missingTime = remote.payload.todaySummaryNotificationTime === undefined;
+  if (!missingEnabled && !missingTime) return remote;
+  return {
+    ...remote,
+    payload: {
+      ...remote.payload,
+      ...(missingEnabled ? { todaySummaryNotificationsEnabled: false } : {}),
+      ...(missingTime ? { todaySummaryNotificationTime: DEFAULT_TODAY_NOTIFICATION_TIME } : {})
+    }
+  };
+}
+
 function compareLive(local: Record<string, unknown>, remote: CloudRecordEnvelope, localOrigin: string): number {
   const localAt = recordTimestamp(remote.store, local);
   if (localAt !== remote.updatedAt) return localAt > remote.updatedAt ? 1 : -1;
@@ -59,10 +85,11 @@ export type ReconcileDecision = "keep-local" | "apply-remote" | "apply-deletion"
 
 export function decideRecord(
   local: Record<string, unknown> | undefined,
-  remote: CloudRecordEnvelope,
+  incomingRemote: CloudRecordEnvelope,
   localOrigin: string,
   localTombstone?: SyncTombstone
 ): ReconcileDecision {
+  const remote = migrateLegacyCloudRecord(incomingRemote);
   if (remote.deleted) {
     if (!local) return "apply-deletion";
     const deletedAt = remote.deletedAt ?? remote.updatedAt;

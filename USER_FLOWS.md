@@ -456,7 +456,7 @@ Status filters use derived display state. Completed and Dormant remain searchabl
 
 1. Open Settings.
 2. Review the nine sections in order: General, Modes, Today, Reach Out, Interactions, Notifications, Privacy & Security, Data, About.
-3. Select Default phone region, Capture mode, Default Reach Out reminder, Default “Already contacted” interval, or Daily Today summary to open its focused control.
+3. Select Default phone region, Capture mode, Default Reach Out reminder, Default “Already contacted” interval, Daily Today summary, or its reminder time.
 4. Choose a value and apply it explicitly.
 5. The saved value appears immediately on Settings and affects only the documented future global behavior.
 6. Back without applying preserves the previous value.
@@ -464,37 +464,35 @@ Status filters use derived display state. Completed and Dormant remain searchabl
 
 Changing Default phone region never rewrites stored canonical phone numbers. Changing Capture mode changes only the default global Add destination. Changing the Reach Out reminder default affects only new drafts and never edits existing entries or FollowUps. Changing the Already contacted default only changes the preselected choice on future UF-14 sheets. Turning the daily summary On starts the explicit notification-permission/capability flow; it never changes Today eligibility.
 
-Today, Interactions, Notifications, Privacy & Security, and About also show their fixed policy or runtime information. Unsupported notification delivery is reported accurately rather than represented by a working toggle. Data actions continue through UF-06, UF-27, and UF-28.
+Today, Interactions, Privacy & Security, and About also show their fixed policy or runtime information. Notifications exposes working controls only in the native iPhone app; the browser reports that boundary without requesting permission. Data actions continue through UF-06, UF-27, and UF-28.
 
 ## UF-39 — Daily Today summary notification
 
 1. Open Settings → Notifications.
-2. PeopleOS checks the approved adapter without requesting permission. If reliable scheduling/action support is unavailable, show Unavailable and do not offer a working On action; a restored On preference is shown separately from device capability.
-3. On a supported runtime, turn Daily Today summary On.
-4. PeopleOS persists the desired On state and requests platform permission only after this explicit action.
-5. If permission is denied, retain the explicit On preference, show “Permission denied,” schedule nothing, and do not re-prompt automatically.
-6. With permission granted, the notification scheduler evaluates the authoritative Today queue at 09:00 in the device's current local timezone.
-7. If Today is empty, send nothing.
-8. If Today contains one or more actionable People, send exactly one summary:
+2. PeopleOS checks the approved native adapter without requesting permission. The browser shows that reminders are available in the iPhone app and offers no working switch.
+3. In the iPhone app, turn Today reminders On.
+4. PeopleOS requests normal iOS permission only after this explicit action and persists On only after permission is granted.
+5. If permission is denied, remain Off, show “Permission denied,” schedule nothing, and do not re-prompt automatically.
+6. With permission granted, choose a reminder time. The default is 12:00 in the device's current local timezone.
+7. PeopleOS derives up to 30 one-off daily occurrences from the same deterministic eligibility rules as Today. Empty forecast dates produce no occurrence; launch, foreground/background transition, mode, Settings, and dataset changes safely replace the plan.
+8. A scheduled summary uses:
    - Title: PeopleOS
-   - Body: “You have people to reach out to today. Open PeopleOS to see who's on your list.”
-9. Do not include names or create one notification per Person.
-10. Actions:
-   - Open: open the current Today screen.
-   - Not today: dismiss only this summary and schedule the next queue evaluation for 09:00 tomorrow.
-   - Snooze: schedule one queue re-evaluation two hours later when that instant remains on the same local day. If it would cross midnight, schedule no same-day re-notification and retain the normal 09:00 next-day evaluation.
-11. Before a scheduled or snoozed summary is delivered, evaluate Today again; if it is empty, send nothing.
+   - Same-day body when trustworthy: “3 people are on your list today.”
+   - Forecast body: “People are waiting on your list today.”
+9. Do not include names, contact details, reasons, notes, affiliations, relationship details, or Person/FollowUp IDs. Do not create one notification per Person.
+10. Tap the summary to open Today. The MVP adds no notification action buttons, Snooze, automatic messaging, or notification-only Not today command.
+11. Change the time to cancel and replace the pending plan. Turn reminders Off to cancel every pending PeopleOS summary.
+12. After 30 ignored occurrences the bounded plan ends; reopening PeopleOS replenishes it. Do not claim unlimited or live at-delivery evaluation while the app remains closed.
 
-Notification actions write only device-local delivery coordination. They never create or edit Person, Interaction, FollowUp, FollowUpEvent, TodaySkip, ReachOutEntry, ReachOutEvent, or engine output. Stable notification/action IDs make repeated delivery callbacks idempotent.
+Notification scheduling and taps never create or edit Person, Interaction, FollowUp, FollowUpEvent, TodaySkip, ReachOutEntry, ReachOutEvent, or engine output.
 
 ## UF-40 — Open Today from a notification deep link
 
-1. The V1 summary notification carries a Today target and no Person ID.
-2. Tap the notification body or Open action.
+1. The MVP summary notification carries a semantic Today target and no Person ID.
+2. Tap the notification body.
 3. PeopleOS validates the target and opens Today, even after a cold launch or reload.
 4. Today is recalculated from current records; it may now be empty.
-5. A future targeted notification may carry an internal `personId` only. PeopleOS first builds Today, then opens that Person's Profile over Today when the Person is active and currently eligible; Back returns to Today.
-6. If the optional Person ID is absent, invalid, missing, archived, or no longer eligible, remain safely on Today and never open another Person by fallback matching.
+5. Foreign or malformed notification payloads are ignored. PeopleOS never opens a Person through notification fallback matching.
 
 Phone numbers, email addresses, display names, and external-provider identifiers are never used as deep-link identity. Opening a deep link never performs a notification action or relationship mutation.
 

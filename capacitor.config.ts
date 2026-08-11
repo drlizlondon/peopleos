@@ -3,7 +3,12 @@ import type { CapacitorConfig } from '@capacitor/cli';
 const config: CapacitorConfig = {
   appId: 'com.drlizlondon.peopleos',
   appName: 'PeopleOS',
-  webDir: 'dist'
+  webDir: 'dist',
+  plugins: {
+    LocalNotifications: {
+      presentationOptions: ['sound', 'banner', 'list']
+    }
+  }
 };
 
 export default config;

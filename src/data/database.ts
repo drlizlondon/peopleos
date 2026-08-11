@@ -3,6 +3,7 @@ import {
   DATABASE_NAME,
   DATABASE_VERSION,
   DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS,
+  DEFAULT_TODAY_NOTIFICATION_TIME,
   DATA_STORE_NAMES,
   type AppMetadata,
   type AppSettings,
@@ -62,6 +63,8 @@ export function createDefaultSettings(now = new Date().toISOString()): AppSettin
     defaultPhoneRegion: defaultPhoneRegion(),
     captureMode: "standard",
     alreadyContactedDefaultReminderDays: DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS,
+    todaySummaryNotificationsEnabled: false,
+    todaySummaryNotificationTime: DEFAULT_TODAY_NOTIFICATION_TIME,
     revision: 1,
     createdAt: now,
     updatedAt: now
@@ -69,12 +72,20 @@ export function createDefaultSettings(now = new Date().toISOString()): AppSettin
 }
 
 function migrateAppSettings(settings: AppSettings): AppSettings {
-  const legacy = settings as AppSettings & { alreadyContactedDefaultReminderDays?: unknown };
-  if (legacy.alreadyContactedDefaultReminderDays !== undefined) return settings;
-  return {
+  const legacy = settings as Partial<AppSettings> & Pick<AppSettings, "id" | "revision" | "createdAt" | "updatedAt">;
+  const migrated = {
     ...settings,
-    alreadyContactedDefaultReminderDays: DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS
+    alreadyContactedDefaultReminderDays: legacy.alreadyContactedDefaultReminderDays
+      ?? DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS,
+    todaySummaryNotificationsEnabled: legacy.todaySummaryNotificationsEnabled ?? false,
+    todaySummaryNotificationTime: legacy.todaySummaryNotificationTime
+      ?? DEFAULT_TODAY_NOTIFICATION_TIME
   };
+  return legacy.alreadyContactedDefaultReminderDays === undefined
+    || legacy.todaySummaryNotificationsEnabled === undefined
+    || legacy.todaySummaryNotificationTime === undefined
+    ? migrated
+    : settings;
 }
 
 export function createDefaultMetadata(now = new Date().toISOString()): AppMetadata {

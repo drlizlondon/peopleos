@@ -138,6 +138,8 @@ export function completeData(): PeopleOsData {
       captureMode: "standard",
       alreadyContactedDefaultReminderDays: 14,
       reachOutDefaultReminderDays: 7,
+      todaySummaryNotificationsEnabled: false,
+      todaySummaryNotificationTime: "12:00",
       createdAt: fixedNow,
       updatedAt: fixedNow
     }]

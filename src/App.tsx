@@ -35,6 +35,11 @@ import type { Person } from "./domain/schema";
 import type { ActiveRelationshipMode } from "./domain/relationshipMode";
 import { readActiveRelationshipMode, writeActiveRelationshipMode } from "./relationshipModePreference";
 import { startCloudSyncService } from "./sync/service";
+import {
+  OPEN_TODAY_FROM_NOTIFICATION_EVENT,
+  requestTodayNotificationReconcile,
+  startTodayNotificationService
+} from "./notifications/service";
 
 type ModalBackHandler = {
   id: string;
@@ -75,6 +80,7 @@ export default function App() {
   const activeHistoryStateRef = useRef<Record<string, unknown>>(window.history.state ?? {});
   const unsavedChangesRef = useRef(false);
   const navigationLockedRef = useRef(false);
+  const pendingNotificationTodayRef = useRef(false);
   const modalBackHandlerRef = useRef<ModalBackHandler | null>(null);
   const globalAddButtonRef = useRef<HTMLButtonElement>(null);
   const reachOutCaptureOpenerRef = useRef<HTMLElement | null>(null);
@@ -82,13 +88,25 @@ export default function App() {
     typeof window.history.state?.fromPath === "string" ? window.history.state.fromPath : undefined
   );
 
+  const replayPendingNotificationTap = useCallback(() => {
+    if (!pendingNotificationTodayRef.current
+      || navigationLockedRef.current
+      || unsavedChangesRef.current) return;
+    pendingNotificationTodayRef.current = false;
+    window.setTimeout(() => {
+      window.dispatchEvent(new Event(OPEN_TODAY_FROM_NOTIFICATION_EVENT));
+    }, 0);
+  }, []);
+
   const setUnsavedCapture = useCallback((dirty: boolean) => {
     unsavedChangesRef.current = dirty;
-  }, []);
+    if (!dirty) replayPendingNotificationTap();
+  }, [replayPendingNotificationTap]);
 
   const setNavigationLocked = useCallback((locked: boolean) => {
     navigationLockedRef.current = locked;
-  }, []);
+    if (!locked) replayPendingNotificationTap();
+  }, [replayPendingNotificationTap]);
 
   useEffect(() => {
     routeRef.current = route;
@@ -147,6 +165,36 @@ export default function App() {
   }, []);
 
   useEffect(() => startCloudSyncService(), []);
+
+  useEffect(() => {
+    const openToday = () => {
+      if (navigationLockedRef.current) {
+        pendingNotificationTodayRef.current = true;
+        return;
+      }
+      if (unsavedChangesRef.current && !window.confirm("Discard changes?")) {
+        pendingNotificationTodayRef.current = true;
+        return;
+      }
+      pendingNotificationTodayRef.current = false;
+      modalBackHandlerRef.current?.dismiss();
+      modalBackHandlerRef.current = null;
+      setUnsavedCapture(false);
+      setGlobalAddOpen(false);
+      setGlobalInteractionPerson(null);
+      setGlobalFollowUpPerson(null);
+      setGlobalReachOutOpen(false);
+      window.history.replaceState({}, "", "/");
+      activeHistoryStateRef.current = {};
+      setRoute(routeFromPath("/"));
+    };
+    window.addEventListener(OPEN_TODAY_FROM_NOTIFICATION_EVENT, openToday);
+    const stop = startTodayNotificationService();
+    return () => {
+      stop();
+      window.removeEventListener(OPEN_TODAY_FROM_NOTIFICATION_EVENT, openToday);
+    };
+  }, [setUnsavedCapture]);
 
   useEffect(() => {
     document.title = route.id === "today" ? "PeopleOS" : `${route.label} · PeopleOS`;
@@ -583,7 +631,11 @@ export default function App() {
               key={mode}
               type="button"
               aria-pressed={activeRelationshipMode === mode}
-              onClick={() => { writeActiveRelationshipMode(mode); setActiveRelationshipMode(mode); }}
+              onClick={() => {
+                writeActiveRelationshipMode(mode);
+                setActiveRelationshipMode(mode);
+                requestTodayNotificationReconcile();
+              }}
             >{mode === "all" ? "All" : mode === "personal" ? "Personal" : "Professional"}</button>
           ))}
         </div>

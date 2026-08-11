@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import App from "./App";
+import { OPEN_TODAY_FROM_NOTIFICATION_EVENT } from "./notifications/service";
 
 describe("PeopleOS shell", () => {
   it("keeps the selected relationship view while navigating and after remounting", async () => {
@@ -75,8 +76,19 @@ describe("PeopleOS shell", () => {
       "About"
     ]);
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
-    expect(screen.getByText("Unavailable in Version 1")).toBeInTheDocument();
+    expect(screen.getByText(/Local reminders are available in the iPhone app/)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Add person" })).not.toBeInTheDocument();
+  });
+
+  it("routes a notification tap from another screen into Today", async () => {
+    window.history.replaceState({}, "", "/people");
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Your people will appear here." })).toBeInTheDocument();
+    window.dispatchEvent(new Event(OPEN_TODAY_FROM_NOTIFICATION_EVENT));
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/");
+      expect(screen.getByRole("link", { name: "Today" })).toHaveAttribute("aria-current", "page");
+    });
   });
 
   it("supports browser Back between stable primary routes", async () => {

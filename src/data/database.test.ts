@@ -65,6 +65,8 @@ describe("PeopleOS IndexedDB foundation", () => {
       id: "app",
       captureMode: "standard",
       alreadyContactedDefaultReminderDays: 14,
+      todaySummaryNotificationsEnabled: false,
+      todaySummaryNotificationTime: "12:00",
       revision: 1
     });
     expect(settings?.reachOutDefaultReminderDays).toBeUndefined();
@@ -130,6 +132,8 @@ describe("PeopleOS IndexedDB foundation", () => {
       id: "app",
       captureMode: "standard",
       alreadyContactedDefaultReminderDays: 14,
+      todaySummaryNotificationsEnabled: false,
+      todaySummaryNotificationTime: "12:00",
       revision: 1
     });
   });
@@ -154,7 +158,9 @@ describe("PeopleOS IndexedDB foundation", () => {
     const migrated = await migratedDb.get("appSettings", "app");
     expect(migrated).toEqual({
       ...legacy,
-      alreadyContactedDefaultReminderDays: 14
+      alreadyContactedDefaultReminderDays: 14,
+      todaySummaryNotificationsEnabled: false,
+      todaySummaryNotificationTime: "12:00"
     });
     expect(await migratedDb.get("metadata", "app")).toEqual(metadata);
     migratedDb.close();

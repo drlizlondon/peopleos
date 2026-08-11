@@ -1,7 +1,8 @@
 export const DATABASE_NAME = "peopleos-v1";
 export const DATABASE_VERSION = 3;
-export const BACKUP_SCHEMA_VERSION = 4;
+export const BACKUP_SCHEMA_VERSION = 5;
 export const DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS = 14;
+export const DEFAULT_TODAY_NOTIFICATION_TIME = "12:00";
 
 export type EntityId = string;
 export type IsoInstant = string;
@@ -215,6 +216,8 @@ export type AppSettings = MutableRecord & {
   captureMode: "standard" | "networking";
   alreadyContactedDefaultReminderDays: number;
   reachOutDefaultReminderDays?: 1 | 7 | 14 | 30;
+  todaySummaryNotificationsEnabled: boolean;
+  todaySummaryNotificationTime: string;
 };
 
 export type AppMetadata = {

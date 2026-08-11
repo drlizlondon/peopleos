@@ -1075,7 +1075,7 @@ Blank reason with action examples, but no generic prefilled promise.
 
 ### Future extension points
 
-Time-of-day Person FollowUps remain excluded. The fixed 09:00 daily Today summary is a delivery mechanism over the derived queue, not a FollowUp time or a second reminder system.
+Time-of-day Person FollowUps remain excluded. The editable daily Today summary time is one global delivery preference over the derived queue, not a Person FollowUp time or a second reminder system.
 
 ## S18 — Follow-up Detail
 
@@ -1427,6 +1427,7 @@ None. Settings is a grouped index; each editable row or data action has its own 
 - Change Default Reach Out reminder
 - Change Default “Already contacted” interval
 - Turn the daily Today summary on or off and review permission/capability status
+- Change the daily Today summary time
 - Open How Today works
 - Import contacts
 - Export backup
@@ -1441,12 +1442,12 @@ None. Settings is a grouped index; each editable row or data action has its own 
 3. Today: fixed ordering/pagination policy; Default “Already contacted” interval
 4. Reach Out: default reminder for new entries
 5. Interactions: explicit logging and channel-neutral Already contacted behavior
-6. Notifications: daily Today summary opt-in, permission, fixed 09:00 local delivery and two-hour Snooze policy
+6. Notifications: daily Today summary opt-in, permission, editable local time defaulting to 12:00, and effective schedule status
 7. Privacy & Security: local storage and network/security boundary
 8. Data: Import, Export, Restore, last successful backup
 9. About: app version, schema version, product explanation, licences
 
-Default phone region, Capture mode, Default Reach Out reminder, Default “Already contacted” interval, and Daily Today summary are editable global V1 preferences. Notification permission/capability and the fixed delivery/Snooze times are runtime or policy information, not extra controls. Full contracts are in `SETTINGS_SPEC.md`.
+Default phone region, Capture mode, Default Reach Out reminder, Default “Already contacted” interval, Daily Today summary, and its reminder time are editable global MVP preferences. Notification permission/capability and scheduled-occurrence count are runtime information. Full contracts are in `SETTINGS_SPEC.md`.
 
 ### Navigation
 
@@ -1463,14 +1464,15 @@ Primary tab. Preference rows open focused selection sheets and return to the sam
 - Daily Today summary On — permission required after restore
 - Daily Today summary On — permission denied or revoked
 - Restored On preference — platform scheduler unavailable
+- Reminder time changed and pending summaries replaced
 - Storage unavailable
 - Preference save in progress or failed
 
 ### Validation
 
-Default region must be supported. Capture mode is Standard or Networking. Reach Out reminder is No reminder, Tomorrow, or exactly 7, 14, or 30 calendar days. Already contacted interval is 2, 7, 14, 30, or a custom whole 1–3650 days. Daily summary is Off or On and can become active only when platform capability and permission allow it. Changing phone region never rewrites canonical stored numbers. No editable row may read or write Person-specific state.
+Default region must be supported. Capture mode is Standard or Networking. Reach Out reminder is No reminder, Tomorrow, or exactly 7, 14, or 30 calendar days. Already contacted interval is 2, 7, 14, 30, or a custom whole 1–3650 days. Daily summary is Off or On and can become active only when platform capability and permission allow it. Reminder time is a valid zero-padded 24-hour `HH:mm` value. Changing phone region never rewrites canonical stored numbers. No editable row may read or write Person-specific state.
 
-Notification Snooze schedules exactly two hours later only when that instant remains on the same local date. If it would cross midnight, no same-day re-notification is scheduled; the ordinary 09:00 next-day evaluation remains authoritative.
+Changing reminder time cancels and replaces pending PeopleOS summaries. Turning reminders Off cancels them. Notification taps route only to Today and never mutate Person-specific state.
 
 ### Error handling
 

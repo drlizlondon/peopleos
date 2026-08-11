@@ -1,7 +1,7 @@
 import { DATA_STORE_NAMES, type DataStoreName, type PeopleOsData } from "../domain/schema";
 import { validatePeopleOsData } from "../domain/validation";
 import { readAllData, type PeopleOsDatabase } from "../data/database";
-import { canonicalJson, cloudRecordName, decodeCloudRecordName, decideRecord, recordTimestamp, recordsByKey, syncKey } from "./reconciliation";
+import { canonicalJson, cloudRecordName, decodeCloudRecordName, decideRecord, migrateLegacyCloudRecord, recordTimestamp, recordsByKey, syncKey } from "./reconciliation";
 import { SYNC_SCHEMA_VERSION, type CloudRecordEnvelope, type PeopleOSCloudSyncAdapter, type SyncOutboxOperation, type SyncRecordMetadata, type SyncState, type SyncTombstone } from "./types";
 
 const BATCH_SIZE = 100;
@@ -88,19 +88,28 @@ function withRecord(data: PeopleOsData, store: DataStoreName, record: Record<str
 async function applyRemoteRecords(db: PeopleOsDatabase, records: CloudRecordEnvelope[], state: SyncState, now: string): Promise<void> {
   let data = await readAllData(db);
   const tombstones = new Map((await db.getAll("syncTombstones")).map((item) => [item.key, item]));
-  const decisions: Array<{ remote: CloudRecordEnvelope; decision: ReturnType<typeof decideRecord> }> = [];
-  for (const remote of records) {
+  const decisions: Array<{
+    remote: CloudRecordEnvelope;
+    decision: ReturnType<typeof decideRecord>;
+    sourceFingerprint?: string;
+  }> = [];
+  for (const incomingRemote of records) {
+    const remote = migrateLegacyCloudRecord(incomingRemote);
     if (!DATA_STORE_NAMES.includes(remote.store)) throw new Error("Remote store is not allowed");
     const key = syncKey(remote.store, remote.entityId);
     const local = (data[remote.store] as Array<{ id: string }>).find((item) => item.id === remote.entityId) as unknown as Record<string, unknown> | undefined;
     const decision = decideRecord(local, remote, state.installationId, tombstones.get(key));
-    decisions.push({ remote, decision });
+    decisions.push({
+      remote,
+      decision,
+      ...(incomingRemote.payload ? { sourceFingerprint: canonicalJson(incomingRemote.payload) } : {})
+    });
     if (decision === "apply-remote") data = withRecord(data, remote.store, remote.payload, remote.entityId);
     if (decision === "apply-deletion") data = withRecord(data, remote.store, undefined, remote.entityId);
   }
   validatePeopleOsData(data);
   const tx = db.transaction([...DATA_STORE_NAMES, "metadata", "syncRecords", "syncTombstones", "syncOutbox"] as never, "readwrite");
-  for (const { remote, decision } of decisions) {
+  for (const { remote, decision, sourceFingerprint } of decisions) {
     const key = syncKey(remote.store, remote.entityId);
     const localRecord = (data[remote.store] as Array<{ id: string }>).find((item) => item.id === remote.entityId) as unknown as Record<string, unknown> | undefined;
     if (decision === "apply-remote" && remote.payload) {
@@ -120,7 +129,10 @@ async function applyRemoteRecords(db: PeopleOsDatabase, records: CloudRecordEnve
         key, store: remote.store, entityId: remote.entityId, status: remote.deleted ? "deleted" : "synced",
         localRevision: localRecord ? revisionOf(localRecord) : remote.revision,
         localUpdatedAt: remote.deleted ? remote.deletedAt ?? remote.updatedAt : remote.updatedAt,
-        localFingerprint: remote.deleted ? "deleted" : canonicalJson(remote.payload),
+        // Keep the source fingerprint when a legacy payload was normalized. The
+        // next local scan then writes the additive defaults back to CloudKit,
+        // healing the private-cloud record without fabricating a user edit.
+        localFingerprint: remote.deleted ? "deleted" : sourceFingerprint ?? canonicalJson(remote.payload),
         acknowledgedRemoteRevision: remote.revision, acknowledgedRemoteUpdatedAt: remote.updatedAt,
         cloudRecordName: remote.recordName, changeTag: remote.changeTag, systemFields: remote.systemFields,
         retryCount: 0, acknowledgedAt: now

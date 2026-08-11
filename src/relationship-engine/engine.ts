@@ -546,6 +546,52 @@ function buildTodayAssessment(
   return undefined;
 }
 
+/**
+ * The first local date on which the current, unchanged relationship bundle can
+ * enter Today. Notification planning uses this instead of reimplementing the
+ * Today rules or running the complete engine once for every forecast day.
+ *
+ * A pending FollowUp suppresses the rule-based paths until its effective date.
+ * Without a pending FollowUp, the earliest of the new-relationship and cadence
+ * rules wins. Once eligible, the Person remains eligible until relationship
+ * data changes; date-specific Today skips are applied by the caller.
+ */
+export function nextTodayEligibleLocalDate(
+  bundle: RelationshipPersonBundle,
+  clock: RelationshipClock
+): LocalDate | undefined {
+  const localDate = assertClock(clock);
+  if (bundle.person.archivedAt || bundle.person.identityStatus === "merged") return undefined;
+
+  const contacts = contactInteractions(bundle.interactions, bundle.person.id);
+  const followUps = bundle.followUps.filter((followUp) => followUp.personId === bundle.person.id);
+  const pending = followUps
+    .filter((followUp) => followUp.status === "pending")
+    .sort(compareFollowUpsByEffectiveDate);
+  if (pending[0]) {
+    const effectiveDate = effectiveFollowUpDate(pending[0]);
+    return effectiveDate < localDate ? localDate : effectiveDate;
+  }
+
+  const candidates: LocalDate[] = [];
+  if (contacts.length === 1 && !hasFollowUpCreatedAfterSoleContact(contacts, followUps)) {
+    const contactDate = localDateForInstant(contacts[0].occurredAt, clock.timeZone);
+    candidates.push(addDaysToLocalDate(contactDate, 7));
+  }
+
+  const lastContact = latestContact(contacts);
+  const contactCadence = contactCadenceOf(bundle.person);
+  const cadenceDays = contactCadence ? contactCadenceInDays(contactCadence) : undefined;
+  if (lastContact && cadenceDays) {
+    const contactDate = localDateForInstant(lastContact.occurredAt, clock.timeZone);
+    candidates.push(addDaysToLocalDate(contactDate, cadenceDays));
+  }
+
+  const earliest = candidates.sort()[0];
+  if (!earliest) return undefined;
+  return earliest < localDate ? localDate : earliest;
+}
+
 function buildOverdueFollowUp(
   followUps: readonly FollowUp[],
   personId: string,

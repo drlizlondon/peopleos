@@ -7,7 +7,7 @@ import {
 import { StaleRevisionError } from "../data/repositories";
 import { ValidationError } from "../domain/validation";
 import { fixedNow } from "../test/fixtures";
-import { updateAlreadyContactedDefault } from "./settings";
+import { updateAlreadyContactedDefault, updateTodaySummaryNotificationSettings } from "./settings";
 
 const names = new Set<string>();
 const connections = new Set<PeopleOsDatabase>();
@@ -85,6 +85,73 @@ describe("V1-10 Settings command", () => {
       expectedRevision: 1,
       days: 14,
       occurredAt: "2026-08-02T09:00:00.000Z"
+    }, { beforeCommit: () => { throw new Error("Injected failure"); } }))
+      .rejects.toThrow("Injected failure");
+    expect(await db.get("appSettings", "app")).toEqual(beforeSettings);
+    expect(await db.get("metadata", "app")).toEqual(beforeMetadata);
+  });
+});
+
+describe("MVP Today notification Settings command", () => {
+  it("updates enabled intent and time atomically", async () => {
+    const db = await openDatabase("notification-update");
+    const metadataBefore = await db.get("metadata", "app");
+    const saved = await updateTodaySummaryNotificationSettings(db, {
+      expectedRevision: 1,
+      enabled: true,
+      time: "08:45",
+      occurredAt: "2026-08-02T10:00:00.000Z"
+    });
+    expect(saved).toMatchObject({
+      todaySummaryNotificationsEnabled: true,
+      todaySummaryNotificationTime: "08:45",
+      revision: 2
+    });
+    expect((await db.get("metadata", "app"))?.datasetRevision)
+      .toBe((metadataBefore?.datasetRevision ?? 0) + 1);
+  });
+
+  it("treats an exact retry as a no-op", async () => {
+    const db = await openDatabase("notification-retry");
+    const command = {
+      expectedRevision: 1,
+      enabled: true,
+      time: "12:30",
+      occurredAt: "2026-08-02T10:00:00.000Z"
+    };
+    const first = await updateTodaySummaryNotificationSettings(db, command);
+    const metadata = await db.get("metadata", "app");
+    await expect(updateTodaySummaryNotificationSettings(db, command)).resolves.toEqual(first);
+    expect(await db.get("metadata", "app")).toEqual(metadata);
+  });
+
+  it("rejects an invalid time and stale revision without writing", async () => {
+    const db = await openDatabase("notification-validation");
+    const before = await db.get("appSettings", "app");
+    await expect(updateTodaySummaryNotificationSettings(db, {
+      expectedRevision: 1,
+      enabled: true,
+      time: "24:00",
+      occurredAt: "2026-08-02T10:00:00.000Z"
+    })).rejects.toBeInstanceOf(ValidationError);
+    await expect(updateTodaySummaryNotificationSettings(db, {
+      expectedRevision: 2,
+      enabled: true,
+      time: "12:00",
+      occurredAt: "2026-08-02T10:00:00.000Z"
+    })).rejects.toBeInstanceOf(StaleRevisionError);
+    expect(await db.get("appSettings", "app")).toEqual(before);
+  });
+
+  it("rolls Settings and metadata back together", async () => {
+    const db = await openDatabase("notification-rollback");
+    const beforeSettings = await db.get("appSettings", "app");
+    const beforeMetadata = await db.get("metadata", "app");
+    await expect(updateTodaySummaryNotificationSettings(db, {
+      expectedRevision: 1,
+      enabled: true,
+      time: "12:00",
+      occurredAt: "2026-08-02T10:00:00.000Z"
     }, { beforeCommit: () => { throw new Error("Injected failure"); } }))
       .rejects.toThrow("Injected failure");
     expect(await db.get("appSettings", "app")).toEqual(beforeSettings);

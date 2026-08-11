@@ -89,7 +89,7 @@ Early product validation should focus on behavior, not vanity metrics:
 - Duplicate warnings prevent accidental fragmentation without blocking legitimate entries.
 - Reach Out preserves why a person matters, surfaces linked plans in Today, and never creates a parallel reminder or Person record.
 - Settings exposes only global application behavior: phone parsing region, default capture mode, the visible default for new Reach Out reminder drafts, the default Already contacted interval, and the Today-summary notification opt-in. Person-level relationship choices never appear there.
-- A supported notification platform sends no notification when Today is empty and at most one name-free 09:00 local summary when it is not; notification actions never alter individual reminders.
+- The iPhone app can schedule an optional anonymous Today summary at a user-selected local time, default 12:00; the browser does not request permission, and notification scheduling/taps never alter individual reminders.
 - Export and restore preserve all relationship history.
 
 ## Explicitly deferred

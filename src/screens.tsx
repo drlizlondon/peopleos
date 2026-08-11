@@ -8,6 +8,7 @@ import AlreadyContactedDefaultSheet from "./AlreadyContactedDefaultSheet";
 import type { AppSettings } from "./domain/schema";
 import { enableCloudSync, isCloudSyncSupported, subscribeToSync, syncNow } from "./sync/service";
 import type { SyncState } from "./sync/types";
+import NotificationSettingsSection from "./notifications/NotificationSettingsSection";
 
 function PlannedAction({ children }: { children: string }) {
   return (
@@ -60,9 +61,7 @@ const settingsSections: SettingsSection[] = [
   { title: "Interactions", description: "Contact is recorded only after you confirm it happened.", rows: [
     { label: "Contact confirmation", value: "Always required" }
   ]},
-  { title: "Notifications", description: "Due people appear when you open PeopleOS.", rows: [
-    { label: "Notifications", value: "Unavailable in Version 1" }
-  ]},
+  { title: "Notifications", description: "Private, device-local Today reminders.", rows: [] },
   { title: "Privacy & Security", description: "PeopleOS is local-first and uses your device's protection.", rows: [
     { label: "Data location", value: "This device" },
     { label: "Accounts and analytics", value: "None" }
@@ -168,6 +167,13 @@ export function SettingsScreen({ navigate }: { navigate: (path: string) => void 
           </div>
         </section>
         {visibleSections.map((section) => (
+          section.title === "Notifications"
+            ? <NotificationSettingsSection
+              key={section.title}
+              settings={settings}
+              onSettingsChanged={setSettings}
+            />
+            :
           <section className="settings-section" key={section.title} aria-labelledby={`settings-${section.title.replaceAll(" ", "-").toLowerCase()}`}>
             <div className="settings-section-heading">
               <h3 id={`settings-${section.title.replaceAll(" ", "-").toLowerCase()}`}>{section.title}</h3>

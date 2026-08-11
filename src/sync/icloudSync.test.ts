@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRepositories } from "../data/repositories";
 import { deletePeopleOsDatabase, openPeopleOsDatabase } from "../data/database";
 import type { Person } from "../domain/schema";
-import { cloudRecordName, decideRecord } from "./reconciliation";
+import { cloudRecordName, decideRecord, migrateLegacyCloudRecord } from "./reconciliation";
 import { runCloudSync, scanLocalChanges, setCloudSyncEnabled } from "./coordinator";
 import { FakeCloudKitAdapter } from "./fakeAdapter";
 import type { CloudRecordEnvelope, SyncTombstone } from "./types";
@@ -55,6 +55,62 @@ describe("iCloud Sync reconciliation", () => {
     const db = await enabledDatabase(); const cloud = new FakeCloudKitAdapter(); const value = person("remote", "Remote");
     cloud.records.set(cloudRecordName("people", value.id), remotePerson(value)); await runCloudSync(db, cloud, T2);
     expect(await db.get("people", "remote")).toEqual(value);
+  });
+
+  it("migrates legacy CloudKit AppSettings before validation and heals the cloud record", async () => {
+    const db = await enabledDatabase();
+    const cloud = new FakeCloudKitAdapter();
+    const current = (await db.get("appSettings", "app"))!;
+    const {
+      todaySummaryNotificationsEnabled: _enabled,
+      todaySummaryNotificationTime: _time,
+      ...legacySettings
+    } = { ...current, revision: current.revision + 1, updatedAt: T2 };
+    const recordName = cloudRecordName("appSettings", "app");
+    cloud.records.set(recordName, {
+      store: "appSettings",
+      entityId: "app",
+      recordName,
+      schemaVersion: 1,
+      revision: legacySettings.revision,
+      updatedAt: legacySettings.updatedAt,
+      deleted: false,
+      originDeviceId: "legacy-device",
+      payload: legacySettings
+    });
+
+    await expect(runCloudSync(db, cloud, T2)).resolves.toBeUndefined();
+    expect(await db.get("appSettings", "app")).toMatchObject({
+      todaySummaryNotificationsEnabled: false,
+      todaySummaryNotificationTime: "12:00"
+    });
+    expect(cloud.records.get(recordName)?.payload).toMatchObject({
+      todaySummaryNotificationsEnabled: false,
+      todaySummaryNotificationTime: "12:00"
+    });
+  });
+
+  it("fills only missing legacy notification fields without masking invalid present values", () => {
+    const recordName = cloudRecordName("appSettings", "app");
+    const base: CloudRecordEnvelope = {
+      store: "appSettings",
+      entityId: "app",
+      recordName,
+      schemaVersion: 1,
+      revision: 1,
+      updatedAt: T1,
+      deleted: false,
+      originDeviceId: "legacy-device",
+      payload: { todaySummaryNotificationsEnabled: true, todaySummaryNotificationTime: "25:00" }
+    };
+    expect(migrateLegacyCloudRecord(base).payload).toEqual(base.payload);
+    expect(migrateLegacyCloudRecord({
+      ...base,
+      payload: { todaySummaryNotificationsEnabled: true }
+    }).payload).toEqual({
+      todaySummaryNotificationsEnabled: true,
+      todaySummaryNotificationTime: "12:00"
+    });
   });
 
   it("syncs a structured contact cadence without flattening its unit", async () => {

@@ -41,7 +41,7 @@ PeopleOS should retain this boring, understandable technical baseline while repl
 5. **External providers are adapters.** Google, WhatsApp, LinkedIn, vCard, or a future native shell do not leak provider models into the domain.
 6. **Every recommendation carries evidence.** There is no unexplained aggregate score.
 7. **Reach Out is intention, not identity or reminders.** ReachOutEntry references the permanent Person and links to the existing FollowUp engine for dates and Today eligibility.
-8. **Notifications are delivery only.** They consume the authoritative Today query and never copy eligibility, Person lists, reminder dates, or relationship rules into a scheduler.
+8. **Notifications are delivery only.** They derive a bounded anonymous schedule from authoritative Today eligibility and never copy Person lists, identifiers, notes, reasons, contact details, or relationship rules into notification payloads.
 
 ## Target architecture
 
@@ -387,7 +387,7 @@ The web baseline generates a standards-compliant vCard after a user gesture. A f
 
 ## Global Settings architecture
 
-Settings is a thin application boundary, not part of the Relationship Engine and not a generic preference framework. One versioned `AppSettings` singleton stores Default phone region, Capture mode, the Default Already contacted interval, the optional default Reach Out reminder interval, and explicit Today summary notification intent.
+Settings is a thin application boundary, not part of the Relationship Engine and not a generic preference framework. One versioned `AppSettings` singleton stores Default phone region, Capture mode, the Default Already contacted interval, the optional default Reach Out reminder interval, explicit Today summary notification intent, and its local `HH:mm` reminder time.
 
 Application services read the relevant preference when beginning a draft or choosing a global capture route:
 
@@ -395,7 +395,7 @@ Application services read the relevant preference when beginning a draft or choo
 - the global Add action reads Capture mode
 - the Already-contacted sheet reads its default interval only when it opens
 - Reach Out creation reads the reminder default to pre-fill a visible draft
-- the notification application service reads Today summary intent before consulting runtime permission/capability
+- the notification application service reads Today summary intent and time before consulting runtime permission/capability
 
 After a draft or sheet is created, its fields are ordinary explicit domain input. Later Settings changes never rewrite People, contact methods, ReachOutEntries, FollowUps, or Interactions. The Relationship Engine does not accept AppSettings and cannot vary its rules by preference. Notification intent gates delivery only; it does not change Today eligibility.
 
@@ -409,51 +409,46 @@ Timezone, locale, notification permission/capability, app version, and schema ve
 Person / Interaction / FollowUp / Reach Out stores
                       │
                       ▼
-          Relationship Engine + buildToday
-                      │ authoritative query result
-                      ▼
-       pure Today notification delivery policy
-                      │ show / cancel / evaluate later
+       nextTodayEligibleLocalDate (engine policy)
+                      │ bounded anonymous plan
                       ▼
           notification application service
-             │                    │
-             ▼                    ▼
-  TodayNotificationState   NotificationDelivery port
-       device-local          platform adapter
+                      │
+                      ▼
+       Capacitor LocalNotifications adapter
+                      │
+                      ▼
+        iOS UNUserNotificationCenter
 ```
 
-`buildToday` remains the only eligibility and ordering source. The delivery policy receives the current Today result, local date/time, user intent, runtime permission/capability, and device-local delivery state. It returns a delivery instruction; it does not persist relationship data or call the Relationship Engine differently. Before every initial or snoozed delivery, the application service rebuilds Today. Zero actionable People means no notification. One or more means one summary notification with stable replacement tag `peopleos-today-summary`, fixed privacy-safe copy, no names, and no count.
+`nextTodayEligibleLocalDate` is a pure projection beside the Relationship Engine and is exhaustively tested against `buildToday` eligibility. It applies the same pending-FollowUp suppression, new-relationship, cadence, archive, and merge rules without running the complete engine once per forecast day. Date-specific TodaySkips and the selected Personal/Professional/All view are applied by the notification policy. The result is at most 30 one-off daily occurrences. Both old and replacement plans therefore fit below iOS's 64-pending-request ceiling while the replacement is installed and verified.
 
-Provider-neutral ports keep delivery out of the domain:
+The narrow adapter keeps native delivery out of the domain:
 
 ```ts
-interface NotificationScheduler {
-  capability(): Promise<NotificationCapability>;
-  requestPermission(): Promise<NotificationPermissionState>;
-  scheduleTodayEvaluation(input: { at: string; deliveryId: string }): Promise<void>;
-  cancelTodayEvaluation(): Promise<void>;
-}
-
-interface NotificationDelivery {
-  showTodaySummary(input: {
-    deliveryId: string;
+interface TodayNotificationAdapter {
+  checkPermission(): Promise<"prompt" | "granted" | "denied">;
+  requestPermission(): Promise<"prompt" | "granted" | "denied">;
+  pendingIds(): Promise<number[]>;
+  cancel(ids: number[]): Promise<void>;
+  schedule(entries: Array<{
+    id: number;
+    at: Date;
     title: "PeopleOS";
     body: string;
-    deepLink: { destination: "today"; personId?: string };
-  }): Promise<void>;
-  closeTodaySummary(): Promise<void>;
+    extra: { kind: "today-summary"; destination: "today" };
+  }>): Promise<void>;
+  addTodayTapListener(listener: () => void): Promise<() => void>;
 }
 ```
 
-Notification **Open** targets the current Today route `/`. Notification **Not today** suppresses only delivery for the current local date and schedules tomorrow's 09:00 evaluation. Notification **Snooze** schedules an evaluation two hours later only when that instant remains on the same local day; otherwise normal next-day evaluation resumes without a same-day re-notification. These handlers may mutate only TodayNotificationState and the platform schedule; they never call Person, Interaction, FollowUp, TodaySkip, Reach Out, or Relationship Engine mutation commands. Notification action identifiers are namespaced separately from Today-card command identifiers so the two meanings of Not today cannot share a handler. A delivery ID makes repeated actions idempotent and stale actions harmless.
+The default reminder time is 12:00 local. A same-day occurrence scheduled ahead of that time may use the exact current count; forecast occurrences use generic copy because `UNUserNotificationCenter` content is static while PeopleOS is closed. Stable IDs are derived from local dates, and the service cancels/replaces its own IDs before every schedule. Pending requests and operating-system permission are not backup data. Restore never requests permission.
 
-TodayNotificationState is device-local coordination, excluded from backup/restore, and never contains a copied queue, eligibility result, Person/FollowUp/Reach Out IDs, names, counts, or explanations. AppSettings stores notification intent; OS permission is runtime state. Restore never requests permission. A failed/cancelled restore leaves delivery coordination unchanged; a successful restore invalidates every old delivery ID, clears device-local coordination, and cancels/rebuilds the platform occurrence after the domain transaction commits. A notification-adapter failure never rolls back restored relationship data: effective delivery becomes blocked with Retry, and an old callback is ignored as stale. Foregrounding, timezone changes, permission changes, adapter errors, and every successful domain command that can change Today similarly reconcile the next evaluation from authoritative state. If Today becomes empty, the service cancels any pending occurrence and closes an active summary where the adapter supports it. Enabling after 09:00 or making Today non-empty after 09:00 does not create a late catch-up; the next ordinary evaluation is 09:00 the next local day.
+The service reconciles on startup, foreground/background transition, relationship-mode change, Settings revision, dataset revision, and local-date change. It installs and verifies a replacement before removing stale requests; an incomplete native install is treated as an error and leaves the previous plan available. Taps carry only the semantic Today destination and replace the current route with `/`. There are no notification action buttons, delivery Snooze, or notification-only Not today command. Scheduling and taps never call Person, Interaction, FollowUp, TodaySkip, Reach Out, or Relationship Engine mutation commands. After 30 ignored occurrences, reopening the app replenishes the bounded plan. Occurrences are calculated in the device time zone when the plan is built; after travel, foregrounding PeopleOS rebuilds them for the new local zone.
 
 ### Reliable-adapter stop condition
 
-The current PWA cannot claim reliable cross-platform closed-app scheduling. The [Periodic Background Sync API is limited and experimental](https://developer.mozilla.org/en-US/docs/Web/API/Web_Periodic_Background_Synchronization_API), and the browser controls when it fires. Chrome ended work on [Notification Triggers](https://developer.chrome.com/docs/web-platform/notification-triggers/) because consistent, reliable cross-platform behavior was not established. Do not enable the notification setting on a runtime until one adapter proves permission, scheduled delivery while closed, replacement/cancellation, action handling, warm and cold deep links, timezone reconciliation, and retry behavior.
-
-The strongest V1 candidate is a native adapter using [Capacitor local notifications](https://capacitorjs.com/), behind the ports above. This does not approve a native build by itself. A backend push service is rejected for V1 because it would add subscriptions, network delivery, privacy, retry, and likely account/sync decisions that have not been accepted. Unsupported runtimes must report notifications as unavailable while preserving all Today behavior.
+The browser PWA cannot claim reliable cross-platform closed-app scheduling, so it does not request notification permission. The approved iPhone adapter is Capacitor Local Notifications, which delegates to `UNUserNotificationCenter` and retains tap events for cold-launch delivery to JavaScript. Local notifications require no APNs entitlement or remote push service. A backend remains rejected because it would add subscriptions, network delivery, privacy, retry, and likely account decisions solely to wake the app. Unsupported runtimes report the native boundary while preserving all Today behavior.
 
 ## Privacy and future sync
 

@@ -342,6 +342,8 @@ export function buildReferenceCorpus(seed = 20260725): PeopleOsData {
     defaultPhoneRegion: "GB",
     captureMode: "standard",
     alreadyContactedDefaultReminderDays: DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS,
+    todaySummaryNotificationsEnabled: false,
+    todaySummaryNotificationTime: "12:00",
     createdAt: CORPUS_NOW,
     updatedAt: CORPUS_NOW
   }];

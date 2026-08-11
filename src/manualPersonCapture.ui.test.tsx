@@ -7,6 +7,7 @@ import { deletePeopleOsDatabase, readAllData } from "./data/database";
 import { createRepositories } from "./data/repositories";
 import { DATABASE_NAME } from "./domain/schema";
 import { fixedNow } from "./test/fixtures";
+import { OPEN_TODAY_FROM_NOTIFICATION_EVENT } from "./notifications/service";
 
 async function resetDatabase() {
   await closeDatabase();
@@ -154,6 +155,22 @@ describe("V1-03 manual person capture", () => {
     expect(confirm).toHaveBeenCalledWith("Discard changes?");
     await waitFor(() => expect(window.location.pathname).toBe("/people"));
     expect((await readAllData(await getDatabase())).people).toHaveLength(0);
+  });
+
+  it("queues a notification tap until an in-flight draft is safely saved", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    await openCapture(user);
+    await user.type(screen.getByLabelText("Name"), "Saved before Today");
+
+    window.dispatchEvent(new Event(OPEN_TODAY_FROM_NOTIFICATION_EVENT));
+    expect(confirm).toHaveBeenCalledWith("Discard changes?");
+    expect(window.location.pathname).toBe("/people/new");
+
+    await user.click(screen.getByRole("button", { name: "Save person" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/"));
+    expect(screen.getByRole("link", { name: "Today" })).toHaveAttribute("aria-current", "page");
+    expect((await readAllData(await getDatabase())).people[0]?.displayName).toBe("Saved before Today");
   });
 
   it("retains the draft and uses the plain local-save error when storage fails", async () => {

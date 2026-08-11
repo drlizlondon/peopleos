@@ -22,11 +22,13 @@ describe("PeopleOS backup and restore", () => {
     const source = await openPeopleOsDatabase(name("source"), fixedNow);
     await restoreBackup(source, previewBackup({ product: "peopleos", schemaVersion: BACKUP_SCHEMA_VERSION, exportedAt: fixedNow, data: completeData() }), fixedNow);
     const generated = await generateBackup(source, "2026-08-02T10:00:00.000Z");
-    expect(generated.envelope.schemaVersion).toBe(4);
+    expect(generated.envelope.schemaVersion).toBe(5);
     expect(generated.envelope.data.appSettings[0]).toMatchObject({
       captureMode: "standard",
       alreadyContactedDefaultReminderDays: 14,
-      reachOutDefaultReminderDays: 7
+      reachOutDefaultReminderDays: 7,
+      todaySummaryNotificationsEnabled: false,
+      todaySummaryNotificationTime: "12:00"
     });
     expect((await source.get("metadata", "app"))?.lastBackupGeneratedAt).toBe("2026-08-02T10:00:00.000Z");
 
@@ -76,7 +78,12 @@ describe("PeopleOS backup and restore", () => {
 
   it("migrates schema-one Settings deterministically without mutating the source", () => {
     const current = completeData();
-    const { alreadyContactedDefaultReminderDays: _newDefault, ...legacySettings } = current.appSettings[0]!;
+    const {
+      alreadyContactedDefaultReminderDays: _newDefault,
+      todaySummaryNotificationsEnabled: _notificationIntent,
+      todaySummaryNotificationTime: _notificationTime,
+      ...legacySettings
+    } = current.appSettings[0]!;
     const legacy = {
       product: "peopleos",
       schemaVersion: 1,
@@ -91,13 +98,36 @@ describe("PeopleOS backup and restore", () => {
     expect(first.envelope.schemaVersion).toBe(BACKUP_SCHEMA_VERSION);
     expect(first.envelope.data.appSettings[0]).toEqual({
       ...legacySettings,
-      alreadyContactedDefaultReminderDays: 14
+      alreadyContactedDefaultReminderDays: 14,
+      todaySummaryNotificationsEnabled: false,
+      todaySummaryNotificationTime: "12:00"
     });
     expect("alreadyContactedDefaultReminderDays" in legacy.data.appSettings[0]).toBe(false);
+    expect("todaySummaryNotificationsEnabled" in legacy.data.appSettings[0]).toBe(false);
 
     const currentPreview = previewBackup(first.envelope);
     expect(currentPreview.migratedFromVersion).toBeUndefined();
     expect(currentPreview.envelope).toEqual(first.envelope);
+  });
+
+  it("migrates schema-four backups to private notifications Off at 12:00", () => {
+    const current = completeData();
+    const {
+      todaySummaryNotificationsEnabled: _notificationIntent,
+      todaySummaryNotificationTime: _notificationTime,
+      ...legacySettings
+    } = current.appSettings[0]!;
+    const preview = previewBackup({
+      product: "peopleos",
+      schemaVersion: 4,
+      exportedAt: fixedNow,
+      data: { ...current, appSettings: [legacySettings] }
+    });
+    expect(preview.migratedFromVersion).toBe(4);
+    expect(preview.envelope.data.appSettings[0]).toMatchObject({
+      todaySummaryNotificationsEnabled: false,
+      todaySummaryNotificationTime: "12:00"
+    });
   });
 
   it("imports older backups as Personal without overwriting an assigned relationship mode", () => {
@@ -129,6 +159,23 @@ describe("PeopleOS backup and restore", () => {
       schemaVersion: BACKUP_SCHEMA_VERSION,
       exportedAt: fixedNow,
       data: { ...current, appSettings: [invalidSettings] }
+    })).toThrow(/appSettings\[0\] is invalid/);
+  });
+
+  it("rejects a current schema backup when notification settings are missing or invalid", () => {
+    const current = completeData();
+    const { todaySummaryNotificationTime: _missing, ...missingTime } = current.appSettings[0]!;
+    expect(() => previewBackup({
+      product: "peopleos",
+      schemaVersion: BACKUP_SCHEMA_VERSION,
+      exportedAt: fixedNow,
+      data: { ...current, appSettings: [missingTime] }
+    })).toThrow(/appSettings\[0\] is invalid/);
+    expect(() => previewBackup({
+      product: "peopleos",
+      schemaVersion: BACKUP_SCHEMA_VERSION,
+      exportedAt: fixedNow,
+      data: { ...current, appSettings: [{ ...current.appSettings[0]!, todaySummaryNotificationTime: "25:00" }] }
     })).toThrow(/appSettings\[0\] is invalid/);
   });
 

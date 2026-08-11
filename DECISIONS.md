@@ -259,7 +259,7 @@ The larger metadata bundles and hand-written national-prefix rules were consider
 
 ## POS-D036 — Settings adds only the global defaults required by the refined Today loop
 
-- **Status:** Accepted
+- **Status:** Superseded in its notification-time and Snooze details by POS-D047
 - **Date:** 2026-07-22
 
 AppSettings adds `alreadyContactedDefaultReminderDays`, default 14 and validated as an integer from 1 to 3,650, plus `todaySummaryNotificationsEnabled`, default Off. The Today sheet presents 2, 7, 14, and 30-day presets and a custom interval. Notification delivery remains subject to runtime capability and permission. Permission is requested only after the user explicitly enables the setting on a supported runtime.
@@ -285,7 +285,7 @@ The strongest alternative was to treat Not today as the existing TodaySkip alone
 
 ## POS-D038 — Today summary notifications are downstream delivery, never reminder state
 
-- **Status:** Accepted
+- **Status:** Superseded by POS-D047
 - **Date:** 2026-07-22
 
 A pure delivery policy consumes the current authoritative `buildToday` result. It sends no notification when Today is empty and one privacy-safe summary when one or more actionable People exist. The summary contains no names or count. A device-local TodayNotificationState coordinates evaluation, suppression, Snooze, and idempotent delivery actions without storing copied Today items or relationship identifiers; it is excluded from backup/restore.
@@ -396,3 +396,15 @@ Goldens are stored two ways on purpose: a digest for all 500 seeds, so nothing i
 The strongest alternative was keeping the executable copies permanently. Rejected because an unmaintained duplicate rots and eventually gets "fixed" to match the code it is supposed to be checking, at which point it certifies whatever it is handed.
 
 An oracle nobody has seen fail is decoration, so both halves of this are demonstrated failing before they are trusted: the oracles against deliberately reintroduced bugs, and the goldens against the same bugs after the switch.
+
+## POS-D047 — Chargeable MVP notifications are native, private, editable, and bounded
+
+- **Status:** Accepted and implemented
+- **Date:** 2026-08-11
+- **Supersedes:** POS-D036's fixed 09:00/two-hour-Snooze policy and POS-D038's no-count/action-button delivery contract
+
+The chargeable iPhone MVP uses Capacitor's native iOS local-notifications adapter, backed by `UNUserNotificationCenter`. Notifications are optional and Off by default. Permission is requested only when the user explicitly turns reminders On. The default reminder time is 12:00 in the device's local timezone and the user may change it or turn reminders Off. The browser PWA never requests notification permission or claims closed-app delivery. No APNs entitlement, backend, remote push service, notification analytics, or account is introduced.
+
+PeopleOS derives a bounded rolling plan from the same deterministic eligibility rules as Today. It schedules at most 30 one-off daily summaries. This leaves enough capacity below iOS's 64-request limit to install and verify a complete replacement before removing the previous plan. The service reconciles on launch, foreground/background transition, relationship-mode change, Settings change, or dataset revision. It may schedule the exact current Today count only for a same-local-date occurrence that has not yet reached its selected time. Forecast occurrences use the brief-approved generic body, “People are waiting on your list today.” Notification payloads contain only a semantic Today destination—never a Person or FollowUp identifier, name, phone number, email, reason, note, affiliation, or relationship detail. If 30 notifications are ignored without reopening PeopleOS, reopening replenishes the bounded plan; the MVP does not claim unlimited closed-app evaluation.
+
+Tapping a PeopleOS summary opens the current Today route on warm or cold launch. There are no notification Not today or Snooze actions: those older concepts duplicated Today-card language and created delivery state with little MVP value. Notification delivery never mutates Person, Interaction, FollowUp, TodaySkip, Reach Out, or Relationship Engine input. Static local-notification content cannot run the JavaScript Today engine at delivery time, so count claims for forecast days are deliberately rejected; adding live remote evaluation would require a separate privacy and backend decision.
