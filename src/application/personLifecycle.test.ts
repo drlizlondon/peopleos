@@ -45,11 +45,20 @@ afterEach(async () => {
 });
 
 describe("V1-11 Person lifecycle commands", () => {
-  it("updates only Person-level preferences with stable identity and one revision", async () => {
+  it("updates Person-level preferences and frequency when real contact already anchors recurrence", async () => {
     const db = await openDatabase("update");
     const repositories = createRepositories(db);
     const original = person();
     await repositories.people.create(original);
+    await repositories.interactions.create({
+      id: "interaction-anchor",
+      revision: 1,
+      personId: original.id,
+      kind: "contacted",
+      occurredAt: now,
+      createdAt: now,
+      updatedAt: now
+    });
     const metadataBefore = await db.get("metadata", "app");
 
     const saved = await updatePerson(db, {
@@ -76,6 +85,30 @@ describe("V1-11 Person lifecycle commands", () => {
     });
     expect((await db.get("metadata", "app"))?.datasetRevision)
       .toBe((metadataBefore?.datasetRevision ?? 0) + 1);
+  });
+
+  it("rejects enabling Regular contact through the generic update without a scheduling anchor", async () => {
+    const db = await openDatabase("update-unanchored-cadence");
+    const repositories = createRepositories(db);
+    const original = person();
+    await repositories.people.create(original);
+
+    await expect(updatePerson(db, {
+      personId: original.id,
+      expectedRevision: original.revision,
+      draft: {
+        displayName: original.displayName,
+        importance: original.importance,
+        tags: original.tags,
+        contactCadence: { value: 1, unit: "days" }
+      },
+      occurredAt: "2026-07-23T10:00:00.000Z"
+    })).rejects.toThrow(/Today or Tomorrow to start regular contact/);
+    expect(await db.get("people", original.id)).toMatchObject({
+      ...original,
+      relationshipMode: "personal"
+    });
+    expect(await db.get("people", original.id)).not.toHaveProperty("contactCadence");
   });
 
   it("rejects invalid or stale edits without changing the Person", async () => {

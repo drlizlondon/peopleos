@@ -6,7 +6,15 @@ PeopleOS is local-first. Its operational data is stored in IndexedDB on the devi
 
 When the user optionally enables **iCloud Sync** in the iPhone app, PeopleOS stores encrypted-in-transit copies of enabled PeopleOS records in that user's private iCloud storage and synchronises them through Apple CloudKit. PeopleOS uses the device-level iCloud account only to establish access; it does not receive or display the user's Apple account identifier. Data is never written to a public CloudKit database or silently sent to another service.
 
-iCloud Sync does not request Contacts permission. Importing contacts remains a separate, explicit workflow. Production diagnostics contain sync state and structured error categories only, never names, phone numbers, email addresses, notes, relationship data, or full record payloads.
+iCloud Sync does not use Apple Contacts. Contact transfer remains a separate, explicit workflow. Production diagnostics contain sync state and structured error categories only, never names, phone numbers, email addresses, notes, relationship data, or full record payloads.
+
+## Apple Contacts
+
+Choosing existing people uses Apple's system contact picker. PeopleOS does not receive general address-book access for this action; it receives only the contacts the user finishes selecting. From those selections, PeopleOS reads only the name, phone numbers, email addresses, organisation and job title, then sends them through the same on-device preview and duplicate-review flow as a chosen vCard. PeopleOS does not read Apple Contacts notes, photos, birthdays or unrelated fields.
+
+When manually adding someone, the user can optionally ask PeopleOS to create a conventional iPhone contact too. This is off by default. PeopleOS requests the normal iOS Contacts permission only after that explicit choice, and transfers only the name, phone numbers, email addresses, organisation and job title. Before creating the contact, PeopleOS checks the supplied phone numbers and email addresses for an exact match among contacts that iOS permits it to see; it does not enumerate the address book or match names. Under limited Contacts access, an unshared duplicate can remain invisible. Personal/Professional membership, cadence, reminders, PeopleOS notes and memories, history, conversation starters and Reach Out data are never written to the Apple contact. A Contacts denial or write failure does not undo the person already saved in PeopleOS.
+
+These actions are selective transfers, not synchronisation. PeopleOS does not monitor Apple Contacts, propagate later edits or deletions in either direction, or store PeopleOS relationship data in Apple Contacts. The existing user-chosen vCard importer remains available as a bulk and fallback route.
 
 Manual JSON export and restore remain available as an independent backup method. iCloud synchronisation is not represented as the only backup. Before a destructive restore while sync is enabled, PeopleOS creates a local recovery snapshot and requires an explicit confirmation.
 

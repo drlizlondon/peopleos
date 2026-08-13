@@ -1,8 +1,8 @@
 import "fake-indexeddb/auto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRepositories } from "../data/repositories";
-import { deletePeopleOsDatabase, openPeopleOsDatabase } from "../data/database";
-import type { Person } from "../domain/schema";
+import { createDefaultSettings, deletePeopleOsDatabase, openPeopleOsDatabase } from "../data/database";
+import { DEFAULT_CONVERSATION_STARTERS, type Person } from "../domain/schema";
 import { cloudRecordName, decideRecord, migrateLegacyCloudRecord } from "./reconciliation";
 import { runCloudSync, scanLocalChanges, setCloudSyncEnabled } from "./coordinator";
 import { FakeCloudKitAdapter } from "./fakeAdapter";
@@ -64,6 +64,7 @@ describe("iCloud Sync reconciliation", () => {
     const {
       todaySummaryNotificationsEnabled: _enabled,
       todaySummaryNotificationTime: _time,
+      conversationStarters: _conversationStarters,
       ...legacySettings
     } = { ...current, revision: current.revision + 1, updatedAt: T2 };
     const recordName = cloudRecordName("appSettings", "app");
@@ -82,16 +83,19 @@ describe("iCloud Sync reconciliation", () => {
     await expect(runCloudSync(db, cloud, T2)).resolves.toBeUndefined();
     expect(await db.get("appSettings", "app")).toMatchObject({
       todaySummaryNotificationsEnabled: false,
-      todaySummaryNotificationTime: "12:00"
+      todaySummaryNotificationTime: "12:00",
+      conversationStarters: DEFAULT_CONVERSATION_STARTERS
     });
     expect(cloud.records.get(recordName)?.payload).toMatchObject({
       todaySummaryNotificationsEnabled: false,
-      todaySummaryNotificationTime: "12:00"
+      todaySummaryNotificationTime: "12:00",
+      conversationStarters: DEFAULT_CONVERSATION_STARTERS
     });
   });
 
-  it("fills only missing legacy notification fields without masking invalid present values", () => {
+  it("fills only missing legacy additive fields without masking invalid present values", () => {
     const recordName = cloudRecordName("appSettings", "app");
+    const invalidTime = { ...createDefaultSettings(T1), todaySummaryNotificationTime: "25:00" };
     const base: CloudRecordEnvelope = {
       store: "appSettings",
       entityId: "app",
@@ -101,16 +105,27 @@ describe("iCloud Sync reconciliation", () => {
       updatedAt: T1,
       deleted: false,
       originDeviceId: "legacy-device",
-      payload: { todaySummaryNotificationsEnabled: true, todaySummaryNotificationTime: "25:00" }
+      payload: invalidTime
     };
     expect(migrateLegacyCloudRecord(base).payload).toEqual(base.payload);
+    const {
+      todaySummaryNotificationTime: _missingTime,
+      conversationStarters: _missingStarters,
+      ...missingAdditiveFields
+    } = createDefaultSettings(T1);
     expect(migrateLegacyCloudRecord({
       ...base,
-      payload: { todaySummaryNotificationsEnabled: true }
+      payload: missingAdditiveFields
     }).payload).toEqual({
-      todaySummaryNotificationsEnabled: true,
-      todaySummaryNotificationTime: "12:00"
+      ...missingAdditiveFields,
+      todaySummaryNotificationTime: "12:00",
+      conversationStarters: DEFAULT_CONVERSATION_STARTERS.map((starter) => ({ ...starter }))
     });
+
+    const invalidBank = { ...createDefaultSettings(T1), conversationStarters: [] };
+    const invalidBankRecord = { ...base, payload: invalidBank };
+    expect(migrateLegacyCloudRecord(invalidBankRecord).payload).toEqual(invalidBank);
+    expect(() => decideRecord(undefined, invalidBankRecord, "local-device")).toThrow(/invalid/);
   });
 
   it("syncs a structured contact cadence without flattening its unit", async () => {

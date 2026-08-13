@@ -10,8 +10,12 @@ import {
   isValidContactCadence
 } from "../domain/cadence";
 import type { ContactCadence, Person } from "../domain/schema";
+import {
+  hasRegularContactInteractionAnchor,
+  regularContactSetupState
+} from "../domain/regularContactSchedule";
 import type { RelationshipMode } from "../domain/relationshipMode";
-import { ValidationError } from "../domain/validation";
+import { assertValidRecord, ValidationError } from "../domain/validation";
 
 export type PersonEditDraft = {
   displayName: string;
@@ -84,19 +88,59 @@ export async function updatePerson(
   command: PersonUpdateCommand
 ): Promise<Person> {
   const draft = normalizeDraft(command.draft);
-  const current = requireEditable(await db.get("people", command.personId));
-  if (current.revision !== command.expectedRevision) {
-    if (current.revision === command.expectedRevision + 1
-      && current.updatedAt === command.occurredAt
-      && current.contactCadenceDays === undefined
-      && sameEditableValues(current, draft)) return current;
-    throw new StaleRevisionError();
+  const tx = db.transaction(["people", "interactions", "followUps", "metadata"], "readwrite");
+  try {
+    const people = tx.objectStore("people");
+    const current = requireEditable(await people.get(command.personId));
+    if (current.revision !== command.expectedRevision) {
+      if (current.revision === command.expectedRevision + 1
+        && current.updatedAt === command.occurredAt
+        && current.contactCadenceDays === undefined
+        && sameEditableValues(current, draft)) {
+        await tx.done;
+        return current;
+      }
+      throw new StaleRevisionError();
+    }
+    if (current.contactCadenceDays === undefined && sameEditableValues(current, draft)) {
+      await tx.done;
+      return current;
+    }
+    const updated: Person = {
+      ...current,
+      ...draft,
+      revision: current.revision + 1,
+      createdAt: current.createdAt,
+      updatedAt: command.occurredAt
+    };
+    delete updated.contactCadenceDays;
+    if (draft.contactCadence === undefined) delete updated.contactCadence;
+    const [interactions, followUps] = await Promise.all([
+      tx.objectStore("interactions").index("by-person").getAll(current.id),
+      tx.objectStore("followUps").index("by-person").getAll(current.id)
+    ]);
+    const enablingRegularContact = !contactCadenceOf(current) && Boolean(contactCadenceOf(updated));
+    if ((enablingRegularContact && !hasRegularContactInteractionAnchor(current.id, interactions))
+      || regularContactSetupState(updated, interactions, followUps) === "incomplete") {
+      throw new ValidationError(["Choose Today or Tomorrow to start regular contact."]);
+    }
+    assertValidRecord("people", updated);
+    await people.put(updated);
+    const metadataStore = tx.objectStore("metadata");
+    const metadata = await metadataStore.get("app");
+    if (!metadata) throw new Error("PeopleOS metadata is missing");
+    await metadataStore.put({
+      ...metadata,
+      datasetRevision: metadata.datasetRevision + 1,
+      updatedAt: command.occurredAt
+    });
+    await tx.done;
+    return updated;
+  } catch (error) {
+    try { tx.abort(); } catch { /* already completed or aborted */ }
+    try { await tx.done; } catch { /* expected rollback */ }
+    throw error;
   }
-  if (current.contactCadenceDays === undefined && sameEditableValues(current, draft)) return current;
-  const updated: Person = { ...current, ...draft };
-  delete updated.contactCadenceDays;
-  if (draft.contactCadence === undefined) delete updated.contactCadence;
-  return createRepositories(db).people.update(updated, command.expectedRevision, command.occurredAt);
 }
 
 export async function archivePerson(

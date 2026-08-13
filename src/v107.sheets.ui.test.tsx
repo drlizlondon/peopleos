@@ -251,8 +251,18 @@ describe("V1-07 follow-up and cadence sheets", () => {
     });
   });
 
-  it("validates and saves a custom cadence without creating persistent follow-up work", async () => {
+  it("validates and saves a custom cadence from a real contact anchor without creating follow-up work", async () => {
     const person = await seedPerson();
+    const occurredAt = new Date().toISOString();
+    await createRepositories(await getDatabase()).interactions.create({
+      id: "interaction-contact-anchor",
+      revision: 1,
+      personId: person.id,
+      kind: "contacted",
+      occurredAt,
+      createdAt: occurredAt,
+      updatedAt: occurredAt
+    });
     const user = userEvent.setup();
     const onSaved = vi.fn();
     render(<CadenceEditorSheet person={person} onClose={vi.fn()} onSaved={onSaved} />);
@@ -277,6 +287,7 @@ describe("V1-07 follow-up and cadence sheets", () => {
     const data = await readAllData(await getDatabase());
     expect(data.people[0]).toMatchObject({ id: person.id, revision: 2, contactCadence: { value: 45, unit: "days" } });
     expect(data.people[0].contactCadenceDays).toBeUndefined();
+    expect(data.interactions).toEqual([expect.objectContaining({ kind: "contacted", personId: person.id })]);
     expect(data.followUps).toEqual([]);
     expect(data.followUpEvents).toEqual([]);
   });

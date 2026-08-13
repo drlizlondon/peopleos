@@ -22,6 +22,11 @@ function statusText(settings: AppSettings | undefined, runtime: TodayNotificatio
   }
   if (runtime.permission === "denied") return "Blocked in iPhone Settings";
   if (runtime.permission !== "granted") return "Permission needed";
+  if (runtime.incompleteRegularScheduleCount > 0) {
+    return runtime.incompleteRegularScheduleCount === 1
+      ? "On · Regular contact needs a start date"
+      : `On · ${runtime.incompleteRegularScheduleCount} regular contacts need a start date`;
+  }
   return runtime.scheduledCount > 0
     ? `On · ${runtime.scheduledCount} private reminders scheduled`
     : "On · Nothing is waiting in Today";

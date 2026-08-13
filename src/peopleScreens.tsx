@@ -17,11 +17,25 @@ import {
   createManualContactMethodDraft,
   createManualPersonCaptureDraft,
   prepareManualPersonCapture,
-  savePreparedManualPersonCapture,
-  type ManualContactMethodDraft,
   type ManualPersonCaptureDraft,
   type PreparedManualPersonCapture
 } from "./application/manualPersonCapture";
+import {
+  retryPreparedPersonIPhoneContactSave,
+  savePreparedPersonWithOptionalIPhoneContact,
+  type IPhoneContactSaveOutcome
+} from "./application/appleContacts";
+import {
+  getIPhoneContactsAdapter,
+  isIPhoneContactsSupported
+} from "./contacts/capacitorAdapter";
+import {
+  chooseLinkDetailsForExistingPerson,
+  importSelectedContacts,
+  prepareContactImportFromPickerResult,
+  skipContactImportRow,
+  type ContactImportSession
+} from "./application/contactImport";
 import { findDuplicateMatches } from "./application/duplicateDetection";
 import { addReviewedDetailsToExistingPerson } from "./application/duplicateResolution";
 import {
@@ -44,7 +58,6 @@ import {
   getPersonSearchView,
   MAX_PERSON_SEARCH_QUERY_LENGTH,
   PersonSearchValidationError,
-  type PersonFilterOptions,
   type PersonSearchFilters,
   type PersonSearchMatch,
   type PersonSearchResult
@@ -56,6 +69,7 @@ import {
   type PersonHistory,
   type TimelineDisplayItem
 } from "./application/interactionQueries";
+import { createInteraction, createInteractionDraft } from "./application/interactions";
 import {
   listPersonMemoryFacts,
   memoryFactKindLabel,
@@ -92,9 +106,9 @@ import {
 import { getDatabase } from "./data/client";
 // eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { StaleRevisionError } from "./data/repositories";
-import type { ContactCadence, ContactCadenceUnit, ContactMethod, FollowUp, Interaction, InteractionKind, MemoryFact, Person, ReachOutEntry } from "./domain/schema";
+import type { ContactCadenceUnit, ContactMethod, FollowUp, Interaction, InteractionKind, MemoryFact, Person, ReachOutEntry } from "./domain/schema";
 import type { ActiveRelationshipMode, RelationshipMode } from "./domain/relationshipMode";
-import { contactCadenceInDays, formatContactCadence } from "./domain/cadence";
+import { formatContactCadence } from "./domain/cadence";
 import { effectiveFollowUpDate, FOLLOW_UP_ACTION_OPTIONS } from "./domain/followUpPolicy";
 import type { DuplicateMatch } from "./domain/duplicates";
 import { ValidationError } from "./domain/validation";
@@ -116,6 +130,7 @@ import {
   editPersonPath,
   memoryFactsPath,
   followUpDetailPath,
+  postAddRelationshipPath,
   personFollowUpsPath,
   personProfilePath,
   routeFromPath,
@@ -126,7 +141,7 @@ import {
 } from "./navigation";
 import DuplicateWarningSheet, { type DuplicateLinkSelection } from "./DuplicateWarningSheet";
 import { DuplicateReviewRequiredError } from "./application/duplicateReview";
-import PeopleFilterSheet from "./PeopleFilterSheet";
+import PersonContactLinkReview, { type PersonContactLinkSelection } from "./PersonContactLinkReview";
 
 type Navigate = (path: string, options?: { replace?: boolean; state?: Record<string, unknown> }) => void;
 
@@ -159,13 +174,6 @@ type PeopleDirectoryState = {
   scrollY: number;
 };
 
-const EMPTY_PERSON_FILTER_OPTIONS: PersonFilterOptions = {
-  tags: [],
-  currentOrganisations: [],
-  events: [],
-  relationshipStages: []
-};
-
 function initialPeopleDirectoryState(): PeopleDirectoryState {
   const saved = window.history.state?.peopleDirectory as Partial<PeopleDirectoryState> | undefined;
   return {
@@ -173,16 +181,6 @@ function initialPeopleDirectoryState(): PeopleDirectoryState {
     filters: saved?.filters && typeof saved.filters === "object" ? saved.filters : { archive: "active" },
     scrollY: typeof saved?.scrollY === "number" ? saved.scrollY : 0
   };
-}
-
-function peopleFilterCount(filters: PersonSearchFilters): number {
-  return (filters.tags?.length ?? 0)
-    + (filters.currentOrganisations?.length ?? 0)
-    + (filters.eventIds?.length ?? 0)
-    + (filters.relationshipStages?.length ?? 0)
-    + Number(filters.hasDueFollowUp === true)
-    + Number(filters.missingContactDetails === true)
-    + Number(Boolean(filters.archive && filters.archive !== "active"));
 }
 
 function matchExplanation(match: PersonSearchMatch): string | undefined {
@@ -221,15 +219,12 @@ export function PeopleScreen({
   const [query, setQuery] = useState(initialStateRef.current.query);
   const [filters, setFilters] = useState<PersonSearchFilters>(initialStateRef.current.filters);
   const [results, setResults] = useState<PersonSearchResult[] | undefined>(undefined);
-  const [filterOptions, setFilterOptions] = useState<PersonFilterOptions>(EMPTY_PERSON_FILTER_OPTIONS);
   const [storedPersonCount, setStoredPersonCount] = useState<number | undefined>(undefined);
   const [fallbackPeople, setFallbackPeople] = useState<PersonSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [queryError, setQueryError] = useState("");
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [retryVersion, setRetryVersion] = useState(0);
-  const filterOpenerRef = useRef<HTMLButtonElement>(null);
   const restoredScrollRef = useRef(false);
 
   useEffect(() => {
@@ -276,7 +271,6 @@ export function PeopleScreen({
     })).then((view) => {
       if (!active) return;
       setResults(view.results);
-      setFilterOptions(view.filterOptions);
       setStoredPersonCount(view.totalPersonCount);
       setFallbackPeople([]);
     }).catch(async (caught) => {
@@ -289,7 +283,11 @@ export function PeopleScreen({
       setError("Context search is unavailable. Showing the name-only directory.");
       setResults(undefined);
       try {
-        const people = await listPeopleSummaries(await getDatabase(), activeMode);
+        const people = await listPeopleSummaries(
+          await getDatabase(),
+          activeMode,
+          filters.archive === "archived" ? "archived" : "active"
+        );
         if (active) setFallbackPeople(people.filter((summary) => {
           const normalizedQuery = debouncedQuery.trim().toLocaleLowerCase("en-US");
           return !normalizedQuery || summary.person.displayName.toLocaleLowerCase("en-US").includes(normalizedQuery);
@@ -323,14 +321,6 @@ export function PeopleScreen({
     }, "", window.location.href);
   }
 
-  function removeFilter<K extends "tags" | "currentOrganisations" | "eventIds" | "relationshipStages">(key: K, value: NonNullable<PersonSearchFilters[K]>[number]) {
-    setFilters((current) => ({ ...current, [key]: (current[key] ?? []).filter((candidate) => candidate !== value) }));
-  }
-
-  function clearFilters() {
-    setFilters({ archive: "active" });
-  }
-
   if (loading && results === undefined && storedPersonCount === undefined) {
     return (
       <main className="screen people-screen people-screen-loading" id="main-content" tabIndex={-1} aria-busy="true">
@@ -345,10 +335,10 @@ export function PeopleScreen({
         <EmptyState
           eyebrow="People"
           title="Your people will appear here."
-          description="Add someone manually, even if all you know is enough to recognise them later."
+          description="Add a name now. You can fill in the details later."
           action={(
             <div className="empty-action-stack">
-              {actionButton("Add person", () => navigate("/people/new"))}
+              {actionButton("Add someone", () => navigate("/people/new"))}
               {importAction(navigate, "Import contacts")}
             </div>
           )}
@@ -362,19 +352,25 @@ export function PeopleScreen({
       <header className="page-heading page-heading-with-action">
         <div>
           <p className="eyebrow">People</p>
-          <h2>{importedPersonIds ? "Imported people" : "Find a person"}</h2>
-          <p>{importedPersonIds
-            ? "People created or updated in the most recent import."
-            : "Search by name or by the context you remember."}</p>
+          <h2>{importedPersonIds ? "Imported people" : "People"}</h2>
+          {importedPersonIds && <p>People created or updated in the most recent import.</p>}
         </div>
         <div className="page-actions">
-          <button className="secondary-action" type="button" onClick={() => navigate("/people/import")}>Import contacts</button>
           {importedPersonIds && onClearImportedFilter && (
             <button type="button" onClick={onClearImportedFilter}>Show all people</button>
           )}
-          <button className="primary-action" type="button" onClick={() => navigate("/people/new")}>
-            <Icon name="plus" /> Add person
-          </button>
+          {!importedPersonIds && (
+            <button
+              className="text-action"
+              type="button"
+              onClick={() => setFilters((current) => ({
+                ...current,
+                archive: current.archive === "archived" ? "active" : "archived"
+              }))}
+            >
+              {filters.archive === "archived" ? "Active people" : "Archived"}
+            </button>
+          )}
         </div>
       </header>
       <div className="people-search-toolbar">
@@ -392,26 +388,7 @@ export function PeopleScreen({
           />
           {queryError && <p id="people-search-error" className="field-error" role="alert">{queryError}</p>}
         </div>
-        <button
-          ref={filterOpenerRef}
-          className="secondary-action"
-          type="button"
-          aria-expanded={filtersOpen}
-          onClick={() => setFiltersOpen(true)}
-        >Filters{peopleFilterCount(filters) ? ` (${peopleFilterCount(filters)})` : ""}</button>
       </div>
-      {peopleFilterCount(filters) > 0 && (
-        <div className="active-filter-chips" aria-label="Active People filters">
-          {filters.tags?.map((value) => <button key={`tag-${value}`} type="button" onClick={() => removeFilter("tags", value)}>Tag: {value} ×</button>)}
-          {filters.currentOrganisations?.map((value) => <button key={`org-${value}`} type="button" onClick={() => removeFilter("currentOrganisations", value)}>Organisation: {value} ×</button>)}
-          {filters.eventIds?.map((value) => <button key={`event-${value}`} type="button" onClick={() => removeFilter("eventIds", value)}>Event: {filterOptions.events.find((event) => event.id === value)?.name ?? value} ×</button>)}
-          {filters.relationshipStages?.map((value) => <button key={`stage-${value}`} type="button" onClick={() => removeFilter("relationshipStages", value)}>Stage: {relationshipStageLabel(value)} ×</button>)}
-          {filters.hasDueFollowUp && <button type="button" onClick={() => setFilters((current) => ({ ...current, hasDueFollowUp: undefined }))}>Has due follow-up ×</button>}
-          {filters.missingContactDetails && <button type="button" onClick={() => setFilters((current) => ({ ...current, missingContactDetails: undefined }))}>Missing contact details ×</button>}
-          {filters.archive && filters.archive !== "active" && <button type="button" onClick={() => setFilters((current) => ({ ...current, archive: "active" }))}>{filters.archive === "archived" ? "Archived" : "Active and archived"} ×</button>}
-          <button className="clear-filter-chip" type="button" onClick={clearFilters}>Clear all</button>
-        </div>
-      )}
       {loading && <p className="screen-status" role="status">Updating people…</p>}
       {error && (
         <div className="form-alert" role="alert">
@@ -454,37 +431,28 @@ export function PeopleScreen({
           ))}
         </ul>
       )}
-      {!loading && !error && results && results.length === 0 && (query.trim() || peopleFilterCount(filters) > 0) && (
+      {!loading && !error && results && results.length === 0 && query.trim() && (
         <section className="profile-card people-no-matches" aria-live="polite">
-          <h3>{query.trim() ? `No one matches “${query.trim()}”.` : "No one matches these filters."}</h3>
+          <h3>{`No one matches “${query.trim()}”.`}</h3>
           <div className="button-row compact-buttons">
             {query && <button type="button" onClick={() => setQuery("")}>Clear search</button>}
-            {peopleFilterCount(filters) > 0 && <button type="button" onClick={() => setFiltersOpen(true)}>Adjust filters</button>}
             <button type="button" onClick={() => navigate("/people/new")}>Add new person</button>
           </div>
         </section>
       )}
-      {!loading && !error && results?.length === 0 && !query.trim() && peopleFilterCount(filters) === 0 && (storedPersonCount ?? 0) > 0 && (
+      {!loading && !error && results?.length === 0 && !query.trim() && (storedPersonCount ?? 0) > 0 && (
         <section className="profile-card people-no-matches" aria-live="polite">
-          <h3>No active people.</h3>
-          <p>Archived people remain available when you need their history.</p>
-          <button type="button" onClick={() => setFilters({ archive: "archived" })}>Show archived people</button>
+          <h3>{filters.archive === "archived" ? "No archived people." : "No active people."}</h3>
+          <p>{filters.archive === "archived"
+            ? "Return to your active people."
+            : "Archived people remain available with their saved information."}</p>
+          <button type="button" onClick={() => setFilters({ archive: filters.archive === "archived" ? "active" : "archived" })}>
+            {filters.archive === "archived" ? "Show active people" : "Show archived people"}
+          </button>
         </section>
       )}
       {!loading && !error && importedPersonIds && visibleResults.length === 0 && (
         <p className="screen-status">No imported people are available in this session.</p>
-      )}
-      {filtersOpen && (
-        <PeopleFilterSheet
-          filters={filters}
-          options={filterOptions}
-          onClose={() => { setFiltersOpen(false); requestAnimationFrame(() => filterOpenerRef.current?.focus()); }}
-          onApply={(next) => {
-            setFilters(next);
-            setFiltersOpen(false);
-            requestAnimationFrame(() => filterOpenerRef.current?.focus());
-          }}
-        />
       )}
     </main>
   );
@@ -505,8 +473,15 @@ function firstIssue(error: unknown): string {
   return "PeopleOS could not save this yet.";
 }
 
-function contactInputLabel(contact: ManualContactMethodDraft): string {
-  return contact.kind === "phone" ? "Phone number" : "Email address";
+function iPhoneContactPickerError(error: unknown): string {
+  const code = error && typeof error === "object" && "code" in error
+    ? (error as { code?: unknown }).code
+    : undefined;
+  if (code === "picker_busy") return "iPhone Contacts is already open. Close it and try again.";
+  if (code === "permission_denied") return "Contacts access was denied. You can still type the mobile number or email manually.";
+  if (code === "permission_restricted") return "iPhone Contacts are restricted on this device. You can still add details manually.";
+  if (code === "unavailable") return "iPhone Contacts are unavailable right now. You can still add details manually.";
+  return "PeopleOS could not open iPhone Contacts. Try again or add the details manually.";
 }
 
 function parseTags(value: string): string[] {
@@ -520,26 +495,15 @@ function mergePersonIds(
   return [...new Set([...existing, ...additional])].sort();
 }
 
-function relationshipLists(mode: RelationshipMode): { personal: boolean; professional: boolean } {
-  return {
-    personal: mode === "personal" || mode === "both",
-    professional: mode === "professional" || mode === "both"
-  };
-}
-
-function relationshipModeFromLists(personal: boolean, professional: boolean): RelationshipMode | undefined {
-  if (personal && professional) return "both";
-  if (personal) return "personal";
-  if (professional) return "professional";
-  return undefined;
-}
-
 export function AddPersonScreen({
   navigate,
   dismiss,
   onDirtyChange,
   onSavingChange,
+  iPhoneContactsSupported = false,
+  onChooseIPhoneContacts,
   initialCapture,
+  defaultRelationshipMode = "personal",
   onOpenDuplicatePerson,
   onCaptureFinished
 }: {
@@ -547,25 +511,37 @@ export function AddPersonScreen({
   dismiss: () => void;
   onDirtyChange: (dirty: boolean) => void;
   onSavingChange: (saving: boolean) => void;
+  iPhoneContactsSupported?: boolean;
+  onChooseIPhoneContacts?: () => Promise<"selected" | "cancelled">;
   initialCapture?: ManualCaptureResumeState | null;
+  defaultRelationshipMode?: RelationshipMode;
   onOpenDuplicatePerson: (personId: string, capture: ManualCaptureResumeState) => void;
   onCaptureFinished: () => void;
 }) {
-  const [draft, setDraft] = useState<ManualPersonCaptureDraft>(() => initialCapture?.draft ?? ({
-    ...createManualPersonCaptureDraft(),
-    contactMethods: [createManualContactMethodDraft("phone")]
-  }));
-  const [tagsText, setTagsText] = useState(initialCapture?.tagsText ?? "");
-  const initialCadence = initialCapture?.draft.contactCadence;
-  const [cadenceText, setCadenceText] = useState(
-    initialCapture?.cadenceText
-      ?? (initialCadence ? String(initialCadence.value) : initialCapture?.draft.contactCadenceDays ? String(initialCapture.draft.contactCadenceDays) : "")
-  );
-  const [cadenceUnit, setCadenceUnit] = useState<ContactCadenceUnit>(initialCapture?.cadenceUnit ?? initialCadence?.unit ?? "days");
-  const [keepInTouch, setKeepInTouch] = useState(
-    Boolean(initialCapture?.cadenceText || initialCadence || initialCapture?.draft.contactCadenceDays)
-  );
+  const [draft, setDraft] = useState<ManualPersonCaptureDraft>(() => {
+    const baseDraft: ManualPersonCaptureDraft = {
+      ...createManualPersonCaptureDraft(),
+      relationshipMode: defaultRelationshipMode
+    };
+    if (!initialCapture) return baseDraft;
+    return {
+      ...baseDraft,
+      ...initialCapture.draft,
+      relationshipMode: initialCapture.draft.relationshipMode ?? baseDraft.relationshipMode,
+      contactCadence: undefined,
+      contactCadenceDays: undefined,
+      startDate: undefined
+    };
+  });
+  const [tagsText] = useState(initialCapture?.tagsText ?? "");
   const [defaultPhoneRegion, setDefaultPhoneRegion] = useState("GB");
+  const [choosingContacts, setChoosingContacts] = useState(false);
+  const [choiceError, setChoiceError] = useState("");
+  const [saveToIPhoneContacts, setSaveToIPhoneContacts] = useState(false);
+  const [postSaveContactFailure, setPostSaveContactFailure] = useState<{
+    prepared: PreparedManualPersonCapture;
+    outcome: Extract<IPhoneContactSaveOutcome, { status: "failed" }>;
+  } | null>(null);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -573,19 +549,16 @@ export function AddPersonScreen({
   const validatedDraftRef = useRef<ManualPersonCaptureDraft | null>(null);
   const submittingRef = useRef(false);
   const dirtyRef = useRef(false);
-  const identityRef = useRef<HTMLInputElement>(null);
   const saveButtonRef = useRef<HTMLButtonElement>(null);
   const acknowledgedDuplicatePersonIdsRef = useRef<string[]>([]);
   const [duplicateMatches, setDuplicateMatches] = useState<DuplicateMatch[]>([]);
 
   useEffect(() => {
-    const focusFrame = requestAnimationFrame(() => identityRef.current?.focus());
     if (initialCapture) {
       dirtyRef.current = true;
       onDirtyChange(true);
     }
     getDatabase().then(getAppSettings).then((settings) => setDefaultPhoneRegion(settings.defaultPhoneRegion)).catch(() => undefined);
-    return () => cancelAnimationFrame(focusFrame);
   }, [initialCapture, onDirtyChange]);
 
   useEffect(() => {
@@ -612,44 +585,12 @@ export function AddPersonScreen({
     onDirtyChange(true);
   }
 
-  function updateContact(id: string, patch: Partial<ManualContactMethodDraft>) {
-    changed((current) => ({
-      ...current,
-      contactMethods: current.contactMethods.map((contact) => contact.id === id ? { ...contact, ...patch } : contact)
-    }));
-  }
-
-  function addContact(kind: "phone" | "email") {
-    changed((current) => ({ ...current, contactMethods: [...current.contactMethods, createManualContactMethodDraft(kind)] }));
-  }
-
-  function removeContact(id: string) {
-    changed((current) => ({ ...current, contactMethods: current.contactMethods.filter((contact) => contact.id !== id) }));
-    setErrors((current) => {
-      const next = { ...current };
-      delete next[`contact-${id}`];
-      return next;
-    });
-  }
-
-  function changeCadence(value: string, unit: ContactCadenceUnit = cadenceUnit) {
-    preparedRef.current = null;
-    validatedDraftRef.current = null;
-    acknowledgedDuplicatePersonIdsRef.current = [];
-    setDuplicateMatches([]);
-    dirtyRef.current = true;
-    setCadenceText(value);
-    setCadenceUnit(unit);
-    onDirtyChange(true);
-  }
-
   function validate(): ManualPersonCaptureDraft | undefined {
     const nextErrors: FieldErrors = {};
     const displayName = draft.displayName.trim();
-    if (!displayName) {
-      nextErrors.displayName = draft.identityStatus === "provisional"
-        ? "Add a temporary description so you can recognise this person later."
-        : "Add a name so you can recognise this person later.";
+    const hasContactIdentifier = draft.contactMethods.some((contact) => contact.value.trim());
+    if (!displayName && !hasContactIdentifier) {
+      nextErrors.identity = "Add a name, mobile number or email address.";
     } else if (displayName.length > 120) {
       nextErrors.displayName = "Use 120 characters or fewer.";
     }
@@ -674,25 +615,29 @@ export function AddPersonScreen({
     if (tags.length > 10) nextErrors.tags = "Add no more than 10 tags.";
     else if (tags.some((tag) => tag.length > 40)) nextErrors.tags = "Each tag must be 40 characters or fewer.";
 
-    let contactCadence: ContactCadence | undefined;
-    if (keepInTouch) {
-      contactCadence = { value: Number(cadenceText), unit: cadenceUnit };
-      try {
-        contactCadenceInDays(contactCadence);
-      } catch {
-        nextErrors.cadence = "Enter a positive whole number no more than 3,650 days apart.";
-      }
-    }
     if (draft.role?.trim() && !draft.organisationName?.trim()) {
       nextErrors.organisation = "Add an organisation before adding a role.";
     }
 
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) {
-      requestAnimationFrame(() => document.querySelector<HTMLElement>("[aria-invalid='true']")?.focus());
+      const focusInvalid = () => {
+        const invalid = document.querySelector<HTMLElement>("[aria-invalid='true']");
+        if (invalid) invalid.focus();
+        else saveButtonRef.current?.focus();
+      };
+      focusInvalid();
+      requestAnimationFrame(focusInvalid);
       return undefined;
     }
-    return { ...draft, displayName, tags, contactCadence, contactCadenceDays: undefined };
+    return {
+      ...draft,
+      displayName,
+      tags,
+      contactCadence: undefined,
+      contactCadenceDays: undefined,
+      startDate: undefined
+    };
   }
 
   function markCaptureFinished() {
@@ -706,12 +651,46 @@ export function AddPersonScreen({
     prepared: PreparedManualPersonCapture,
     acknowledgedDuplicatePersonIds: readonly string[] = []
   ) {
-    await savePreparedManualPersonCapture(await getDatabase(), prepared, {
-      enforceDuplicateReview: true,
-      acknowledgedDuplicatePersonIds
+    const result = await savePreparedPersonWithOptionalIPhoneContact(await getDatabase(), prepared, {
+      saveToIPhoneContacts,
+      contactsAdapter: getIPhoneContactsAdapter(),
+      localSaveHooks: {
+        enforceDuplicateReview: true,
+        acknowledgedDuplicatePersonIds
+      }
     });
     markCaptureFinished();
-    navigate(personProfilePath(prepared.person.id), { replace: true });
+    if (result.iPhoneContact.status === "failed") {
+      setPostSaveContactFailure({ prepared: result.prepared, outcome: result.iPhoneContact });
+      setDuplicateMatches([]);
+      return;
+    }
+    navigate(postAddRelationshipPath(prepared.person.id), { replace: true });
+  }
+
+  async function retryIPhoneContactSave() {
+    if (!postSaveContactFailure || submittingRef.current) return;
+    submittingRef.current = true;
+    onSavingChange(true);
+    setSaving(true);
+    try {
+      const outcome = await retryPreparedPersonIPhoneContactSave(
+        postSaveContactFailure.prepared,
+        getIPhoneContactsAdapter(),
+        postSaveContactFailure.outcome.operationId
+      );
+      if (outcome.status === "failed") {
+        setPostSaveContactFailure({ prepared: postSaveContactFailure.prepared, outcome });
+        return;
+      }
+      onSavingChange(false);
+      setSaving(false);
+      navigate(postAddRelationshipPath(postSaveContactFailure.prepared.person.id), { replace: true });
+    } finally {
+      submittingRef.current = false;
+      onSavingChange(false);
+      setSaving(false);
+    }
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -790,6 +769,7 @@ export function AddPersonScreen({
         candidate: prepared,
         selectedContactMethodIds: selection.contactMethodIds,
         includeAffiliation: selection.includeAffiliation,
+        includeDisplayName: selection.includeDisplayName,
         now: prepared.person.createdAt
       });
       markCaptureFinished();
@@ -807,7 +787,12 @@ export function AddPersonScreen({
 
   function openExisting(match: DuplicateMatch) {
     const resumeDraft = validatedDraftRef.current ?? draft;
-    onOpenDuplicatePerson(match.person.id, { draft: resumeDraft, tagsText, cadenceText, cadenceUnit });
+    onOpenDuplicatePerson(match.person.id, {
+      draft: resumeDraft,
+      tagsText,
+      cadenceText: initialCapture?.cadenceText ?? "",
+      cadenceUnit: initialCapture?.cadenceUnit ?? "days"
+    });
   }
 
   function returnToEdit() {
@@ -815,289 +800,214 @@ export function AddPersonScreen({
     requestAnimationFrame(() => saveButtonRef.current?.focus());
   }
 
-  const identityLabel = draft.identityStatus === "provisional" ? "Temporary description" : "Name";
-  const identityHint = draft.identityStatus === "provisional"
-    ? "Use enough detail to recognise this person later, such as “Hackathon organiser”."
-    : "A first name is enough. You can add more later.";
-  const selectedLists = relationshipLists(draft.relationshipMode);
+  async function chooseIPhoneContacts() {
+    if (!onChooseIPhoneContacts || choosingContacts) return;
+    setChoosingContacts(true);
+    setChoiceError("");
+    try {
+      await onChooseIPhoneContacts();
+    } catch {
+      setChoiceError("PeopleOS could not open iPhone Contacts. Try again.");
+    } finally {
+      setChoosingContacts(false);
+    }
+  }
+
+  function enableIPhoneContactFields(checked: boolean) {
+    setSaveToIPhoneContacts(checked);
+    dirtyRef.current = true;
+    onDirtyChange(true);
+    if (!checked) return;
+    changed((current) => {
+      const methods = [...current.contactMethods];
+      if (!methods.some((contact) => contact.kind === "phone")) {
+        methods.push(createManualContactMethodDraft("phone"));
+      }
+      if (!methods.some((contact) => contact.kind === "email")) {
+        methods.push(createManualContactMethodDraft("email"));
+      }
+      return { ...current, contactMethods: methods };
+    });
+  }
+
+  function updateConventionalContact(
+    kind: "phone" | "email",
+    value: string
+  ) {
+    changed((current) => {
+      const existing = current.contactMethods.find((contact) => contact.kind === kind);
+      if (existing) {
+        return {
+          ...current,
+          contactMethods: current.contactMethods.map((contact) => (
+            contact.id === existing.id ? { ...contact, value } : contact
+          ))
+        };
+      }
+      return {
+        ...current,
+        contactMethods: [
+          ...current.contactMethods,
+          { ...createManualContactMethodDraft(kind), value }
+        ]
+      };
+    });
+  }
+
+  const phone = draft.contactMethods.find((contact) => contact.kind === "phone");
+  const email = draft.contactMethods.find((contact) => contact.kind === "email");
+
+  function contactSaveFailureMessage(): string {
+    if (!postSaveContactFailure) return "";
+    const name = postSaveContactFailure.prepared.person.displayName;
+    if (postSaveContactFailure.outcome.code === "permission_denied") {
+      return `${name} is saved in PeopleOS, but Contacts permission was denied. Allow PeopleOS to access Contacts in iPhone Settings, then try again.`;
+    }
+    if (postSaveContactFailure.outcome.code === "permission_restricted") {
+      return `${name} is saved in PeopleOS, but iPhone Contacts are restricted on this device.`;
+    }
+    if (postSaveContactFailure.outcome.code === "invalid_payload") {
+      return `${name} is saved in PeopleOS, but those contact details could not be added to iPhone Contacts.`;
+    }
+    if (postSaveContactFailure.outcome.code === "unavailable") {
+      return `${name} is saved in PeopleOS, but iPhone Contacts are unavailable right now.`;
+    }
+    return `${name} is saved in PeopleOS, but could not be added to iPhone Contacts.`;
+  }
+
+  const canRetryIPhoneContactSave = postSaveContactFailure
+    ? !["permission_restricted", "invalid_payload"].includes(postSaveContactFailure.outcome.code)
+    : false;
 
   return (
     <main className="screen form-screen" id="main-content" tabIndex={-1}>
       <button className="back-button" type="button" onClick={dismiss} disabled={saving}>← Cancel</button>
       <header className="page-heading compact-heading">
         <p className="eyebrow">People</p>
-        <h2>Add a person</h2>
-        <p>Capture only what you know. Everything except a recognisable identity is optional.</p>
+        <h2>Add someone</h2>
       </header>
 
-      <form className="person-form" onSubmit={save} noValidate>
-        <fieldset className="list-membership-fieldset" aria-describedby="person-lists-hint">
-          <legend>Lists</legend>
-          <div className="list-checkboxes">
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={selectedLists.personal}
-                disabled={selectedLists.personal && !selectedLists.professional}
-                onChange={(event) => changed((current) => {
-                  const lists = relationshipLists(current.relationshipMode);
-                  const relationshipMode = relationshipModeFromLists(event.target.checked, lists.professional);
-                  return relationshipMode ? { ...current, relationshipMode } : current;
-                })}
-              />
-              <span>Personal</span>
-            </label>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={selectedLists.professional}
-                disabled={selectedLists.professional && !selectedLists.personal}
-                onChange={(event) => changed((current) => {
-                  const lists = relationshipLists(current.relationshipMode);
-                  const relationshipMode = relationshipModeFromLists(lists.personal, event.target.checked);
-                  return relationshipMode ? { ...current, relationshipMode } : current;
-                })}
-              />
-              <span>Professional</span>
-            </label>
+      {postSaveContactFailure && (
+        <section className="post-save-contact-result" aria-labelledby="post-save-contact-title">
+          <p className="eyebrow">Saved in PeopleOS</p>
+          <h3 id="post-save-contact-title">Your person is safe.</h3>
+          <p role="alert">{contactSaveFailureMessage()}</p>
+          <div className="button-row">
+            {canRetryIPhoneContactSave && (
+              <button className="primary-action" type="button" disabled={saving} onClick={() => void retryIPhoneContactSave()}>
+                {saving ? "Trying again…" : "Try iPhone Contacts again"}
+              </button>
+            )}
+            <button
+              className={canRetryIPhoneContactSave ? "secondary-action" : "primary-action"}
+              type="button"
+              disabled={saving}
+              onClick={() => navigate(postAddRelationshipPath(postSaveContactFailure.prepared.person.id), { replace: true })}
+            >
+              Continue
+            </button>
           </div>
-          <p className="field-hint" id="person-lists-hint">Choose where you’d like to find this person. You can select both.</p>
-        </fieldset>
-        <div className="form-field">
-          <label htmlFor="person-display-name">{identityLabel}</label>
+        </section>
+      )}
+
+      {!postSaveContactFailure && <>
+        {iPhoneContactsSupported && (
+          <section className="add-person-picker-card" aria-labelledby="choose-iphone-contact-heading" aria-busy={choosingContacts}>
+            <div>
+              <h3 id="choose-iphone-contact-heading">Choose from iPhone Contacts</h3>
+              <p>Pick someone already in your contacts.</p>
+            </div>
+            <button className="primary-action" type="button" disabled={choosingContacts} onClick={() => void chooseIPhoneContacts()}>
+              {choosingContacts ? "Opening Contacts…" : "Choose from iPhone Contacts"}
+            </button>
+            {choiceError && <p className="form-alert" role="alert">{choiceError}</p>}
+          </section>
+        )}
+
+        {iPhoneContactsSupported && <div className="add-person-divider"><span>or add directly</span></div>}
+
+        <form className="person-form quick-capture-form" onSubmit={save} noValidate>
+        <div className="form-field quick-capture-name">
+          <label htmlFor="person-display-name">Name <span aria-hidden="true">Optional</span></label>
           <input
-            ref={identityRef}
             id="person-display-name"
             name="displayName"
+            aria-label="Name"
             maxLength={120}
-            required
-            aria-required="true"
             autoComplete="name"
+            autoCapitalize="words"
+            enterKeyHint="next"
             value={draft.displayName}
-            aria-describedby={`person-display-name-hint${errors.displayName ? " person-display-name-error" : ""}`}
-            aria-invalid={Boolean(errors.displayName)}
-            onChange={(event) => changed((current) => ({ ...current, displayName: event.target.value }))}
+            aria-describedby={errors.displayName
+              ? "person-display-name-error"
+              : errors.identity ? "person-identity-error" : undefined}
+            aria-invalid={Boolean(errors.displayName || errors.identity)}
+            onChange={(event) => changed((current) => ({ ...current, displayName: event.target.value, identityStatus: "confirmed" }))}
           />
-          <p className="field-hint" id="person-display-name-hint">{identityHint}</p>
           {errors.displayName && <p className="field-error" id="person-display-name-error" role="alert">{errors.displayName}</p>}
         </div>
 
-        <section className="form-section" aria-labelledby="capture-contact-heading">
-          <div className="form-section-heading">
-            <div>
-              <h3 id="capture-contact-heading" aria-label="Contact details">Mobile or email <span>Optional</span></h3>
-              <p>Add the easiest way to contact them.</p>
-            </div>
+        <section className="quick-contact-fields" aria-label="Contact details">
+          <div className="form-field">
+            <label htmlFor="person-phone">Mobile <span aria-hidden="true">Optional</span></label>
+            <input
+              id="person-phone"
+              aria-label="Mobile"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              enterKeyHint="next"
+              value={phone?.value ?? ""}
+              aria-invalid={Boolean(phone && errors[`contact-${phone.id}`])}
+              aria-describedby={phone && errors[`contact-${phone.id}`] ? "person-phone-error" : undefined}
+              onChange={(event) => updateConventionalContact("phone", event.target.value)}
+            />
+            {phone && errors[`contact-${phone.id}`] && (
+              <p className="field-error" id="person-phone-error" role="alert">{errors[`contact-${phone.id}`]}</p>
+            )}
           </div>
-          <div className="contact-draft-list">
-            {draft.contactMethods.map((contact, index) => {
-              const errorId = `capture-contact-${contact.id}-error`;
-              const valueId = `capture-contact-${contact.id}-value`;
-              const error = errors[`contact-${contact.id}`];
-              return (
-                <fieldset className="contact-draft" key={contact.id}>
-                  <legend>Contact detail {index + 1}</legend>
-                  <div className={`contact-row-grid${contact.kind === "phone" ? " phone-row-grid" : ""}`}>
-                    <div className="form-field">
-                      <label htmlFor={`capture-contact-${contact.id}-kind`}>Type</label>
-                      <select
-                        id={`capture-contact-${contact.id}-kind`}
-                        value={contact.kind}
-                        onChange={(event) => updateContact(contact.id, { kind: event.target.value as "phone" | "email" })}
-                      >
-                        <option value="phone">Mobile</option>
-                        <option value="email">Email</option>
-                      </select>
-                    </div>
-                    {contact.kind === "phone" && (
-                      <div className="form-field phone-region-field">
-                        <label htmlFor={`capture-contact-${contact.id}-region`}>Region</label>
-                        <select
-                          id={`capture-contact-${contact.id}-region`}
-                          aria-label="Phone region"
-                          value={contact.region ?? defaultPhoneRegion}
-                          onChange={(event) => updateContact(contact.id, { region: event.target.value })}
-                        >
-                          {phoneRegionOptions.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}
-                        </select>
-                      </div>
-                    )}
-                    <div className="form-field contact-value-field">
-                      <label htmlFor={valueId}>{contact.kind === "phone" ? "Mobile number" : "Email address"}</label>
-                      <input
-                        id={valueId}
-                        aria-label={contactInputLabel(contact)}
-                        type={contact.kind === "email" ? "email" : "tel"}
-                        inputMode={contact.kind === "email" ? "email" : "tel"}
-                        autoComplete={contact.kind === "email" ? "email" : "tel"}
-                        value={contact.value}
-                        aria-invalid={Boolean(error)}
-                        aria-describedby={error ? errorId : undefined}
-                        onChange={(event) => updateContact(contact.id, { value: event.target.value })}
-                      />
-                      {error && <p className="field-error" id={errorId} role="alert">{error}</p>}
-                    </div>
-                    <div className="form-field">
-                      <label htmlFor={`capture-contact-${contact.id}-label`}>Label</label>
-                      <input
-                        id={`capture-contact-${contact.id}-label`}
-                        placeholder={contact.kind === "phone" ? "Personal mobile" : "Work email"}
-                        value={contact.label ?? ""}
-                        onChange={(event) => updateContact(contact.id, { label: event.target.value })}
-                      />
-                    </div>
-                  </div>
-                  <button className="text-action danger-text" type="button" onClick={() => removeContact(contact.id)}>
-                    Remove contact detail
-                  </button>
-                </fieldset>
-              );
-            })}
-          </div>
-          <div className="button-row compact-buttons">
-            <button aria-label="Add phone" type="button" onClick={() => addContact("phone")}>Add another mobile</button>
-            <button aria-label="Add email" type="button" onClick={() => addContact("email")}>Add another email</button>
+          <div className="form-field">
+            <label htmlFor="person-email">Email <span aria-hidden="true">Optional</span></label>
+            <input
+              id="person-email"
+              aria-label="Email"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              enterKeyHint="done"
+              value={email?.value ?? ""}
+              aria-invalid={Boolean(email && errors[`contact-${email.id}`])}
+              aria-describedby={email && errors[`contact-${email.id}`] ? "person-email-error" : undefined}
+              onChange={(event) => updateConventionalContact("email", event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  event.currentTarget.blur();
+                }
+              }}
+            />
+            {email && errors[`contact-${email.id}`] && (
+              <p className="field-error" id="person-email-error" role="alert">{errors[`contact-${email.id}`]}</p>
+            )}
           </div>
         </section>
 
-        <fieldset className="keep-in-touch-fieldset">
-          <legend>Keep in touch</legend>
-          <label className="checkbox-row keep-in-touch-toggle">
-            <input
-              type="checkbox"
-              checked={keepInTouch}
-              aria-controls="person-cadence-controls"
-              aria-expanded={keepInTouch}
-              onChange={(event) => {
-                setKeepInTouch(event.target.checked);
-                changeCadence(event.target.checked ? "3" : "", event.target.checked ? "days" : cadenceUnit);
-              }}
-            />
-            <span>Remind me to stay in touch</span>
-          </label>
-          {keepInTouch && (
-            <div className="form-field frequency-field" id="person-cadence-controls">
-              <div className="frequency-control">
-                <span aria-hidden="true">Every</span>
-                <input
-                  id="person-cadence-value"
-                  aria-label="Reminder frequency"
-                  type="number"
-                  inputMode="numeric"
-                  min="1"
-                  max={cadenceUnit === "days" ? 3650 : cadenceUnit === "weeks" ? 521 : 121}
-                  step="1"
-                  value={cadenceText}
-                  aria-invalid={Boolean(errors.cadence)}
-                  aria-describedby={errors.cadence ? "person-cadence-error" : "person-cadence-hint"}
-                  onChange={(event) => changeCadence(event.target.value)}
-                />
-                <select
-                  id="person-cadence-unit"
-                  aria-label="Reminder frequency unit"
-                  value={cadenceUnit}
-                  aria-invalid={Boolean(errors.cadence)}
-                  aria-describedby={errors.cadence ? "person-cadence-error" : "person-cadence-hint"}
-                  onChange={(event) => changeCadence(cadenceText, event.target.value as ContactCadenceUnit)}
-                >
-                  <option value="days">days</option>
-                  <option value="weeks">weeks</option>
-                  <option value="months">months</option>
-                </select>
-              </div>
-              <p className="field-hint" id="person-cadence-hint">They’ll appear in Today when it’s time to reconnect.</p>
-              {errors.cadence && <p className="field-error" id="person-cadence-error" role="alert">{errors.cadence}</p>}
-            </div>
-          )}
-        </fieldset>
+        {errors.identity && <p className="field-error" id="person-identity-error" role="alert">{errors.identity}</p>}
 
-        <details className="more-details">
-          <summary>More details</summary>
-          <div className="more-details-body">
-            <fieldset className="choice-fieldset">
-              <legend>What do you know?</legend>
-              <label>
-                <input
-                  type="radio"
-                  name="identity-status"
-                  value="confirmed"
-                  checked={draft.identityStatus === "confirmed"}
-                  onChange={() => changed((current) => ({ ...current, identityStatus: "confirmed" }))}
-                />
-                Their name
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="identity-status"
-                  value="provisional"
-                  checked={draft.identityStatus === "provisional"}
-                  onChange={() => changed((current) => ({ ...current, identityStatus: "provisional" }))}
-                />
-                A description for now
-              </label>
-            </fieldset>
-            <div className="form-field">
-              <label htmlFor="person-organisation">Organisation <span>Optional</span></label>
+        {iPhoneContactsSupported && (
+          <details className="iphone-contact-save-option">
+            <summary>Also save to iPhone Contacts</summary>
+            <label className="checkbox-row">
               <input
-                id="person-organisation"
-                value={draft.organisationName ?? ""}
-                aria-invalid={Boolean(errors.organisation)}
-                aria-describedby={errors.organisation ? "person-organisation-error" : undefined}
-                onChange={(event) => changed((current) => ({ ...current, organisationName: event.target.value }))}
+                type="checkbox"
+                checked={saveToIPhoneContacts}
+                onChange={(event) => enableIPhoneContactFields(event.target.checked)}
               />
-              {errors.organisation && <p className="field-error" id="person-organisation-error" role="alert">{errors.organisation}</p>}
-            </div>
-            <div className="form-field">
-              <label htmlFor="person-where-met">Where you met <span>Optional</span></label>
-              <input
-                id="person-where-met"
-                placeholder="HealthTech Fellowship"
-                value={draft.whereMet ?? ""}
-                onChange={(event) => changed((current) => ({ ...current, whereMet: event.target.value }))}
-              />
-            </div>
-            <div className="form-field">
-              <label htmlFor="person-role">Role or job title <span>Optional</span></label>
-              <input
-                id="person-role"
-                value={draft.role ?? ""}
-                onChange={(event) => changed((current) => ({ ...current, role: event.target.value }))}
-              />
-            </div>
-            <div className="form-field">
-              <label htmlFor="person-importance">Importance</label>
-              <select
-                id="person-importance"
-                value={draft.importance}
-                onChange={(event) => changed((current) => ({ ...current, importance: event.target.value as "normal" | "high" }))}
-              >
-                <option value="normal">Normal</option>
-                <option value="high">High</option>
-              </select>
-            </div>
-            <div className="form-field">
-              <label htmlFor="person-tags">Tags <span>Optional</span></label>
-              <input
-                id="person-tags"
-                placeholder="mentor, fellowship"
-                value={tagsText}
-                aria-invalid={Boolean(errors.tags)}
-                aria-describedby={`person-tags-hint${errors.tags ? " person-tags-error" : ""}`}
-                onChange={(event) => {
-                  preparedRef.current = null;
-                  acknowledgedDuplicatePersonIdsRef.current = [];
-                  setDuplicateMatches([]);
-                  dirtyRef.current = true;
-                  setTagsText(event.target.value);
-                  onDirtyChange(true);
-                }}
-              />
-              <p className="field-hint" id="person-tags-hint">Separate tags with commas.</p>
-              {errors.tags && <p className="field-error" id="person-tags-error" role="alert">{errors.tags}</p>}
-            </div>
-          </div>
-        </details>
+              <span>Save this person to iPhone Contacts too</span>
+            </label>
+            <p className="field-hint">A one-time copy, not ongoing sync.</p>
+          </details>
+        )}
 
         {formError && (
           <div className="form-alert">
@@ -1105,13 +1015,18 @@ export function AddPersonScreen({
             <p>Nothing partial was saved. Your entries are still here so you can try again.</p>
           </div>
         )}
-        <div className="form-actions">
-          <button ref={saveButtonRef} className="primary-action" type="submit" disabled={saving || !draft.displayName.trim()}>
-            {saving ? "Saving…" : "Save person"}
+        <div className="quick-capture-actions form-actions">
+          <button ref={saveButtonRef} className="primary-action" type="submit" disabled={saving}>
+            {saving ? "Adding…" : "Add to PeopleOS"}
           </button>
-          <button className="secondary-action" type="button" onClick={dismiss} disabled={saving}>Cancel</button>
         </div>
-      </form>
+        <div className="add-person-secondary-actions" aria-label="Other ways to add someone">
+          <button className="text-action" type="button" disabled={choosingContacts} onClick={() => navigate("/people/import")}>
+            Import contacts
+          </button>
+        </div>
+        </form>
+      </>}
       {preparedRef.current && duplicateMatches.length > 0 && (
         <DuplicateWarningSheet
           candidate={preparedRef.current}
@@ -1195,12 +1110,398 @@ function followUpActionLabel(followUp: FollowUp): string {
 
 function followUpTimingLabel(followUp: FollowUp, localDate: string): string {
   const effectiveDate = effectiveFollowUpDate(followUp);
-  if (effectiveDate < localDate) return `Overdue · ${formatLocalDate(effectiveDate)}`;
-  if (effectiveDate === localDate) return "Due today";
-  return `${followUp.snoozedUntilDate ? "Snoozed until" : "Due"} ${formatLocalDate(effectiveDate)}`;
+  if (effectiveDate < localDate) return `Ready since ${formatLocalDate(effectiveDate)}`;
+  if (effectiveDate === localDate) return "Today";
+  return `${followUp.snoozedUntilDate ? "Later ·" : "Planned for"} ${formatLocalDate(effectiveDate)}`;
+}
+
+function reachOutDisplayLabel(reachOut: ReachOutDetail, localDate: string): string {
+  if (reachOut.displayState === "active" && reachOut.relevantDate === localDate) return "Today";
+  return {
+    active: "Active",
+    waiting: "Waiting",
+    snoozed: "Later",
+    overdue: "Ready",
+    completed: "Completed",
+    dormant: "Dormant"
+  }[reachOut.displayState];
 }
 
 export function PersonProfileScreen({
+  personId,
+  navigate,
+  backPath,
+  onAddToReachOut: _onAddToReachOut,
+  onDirtyChange,
+  onSavingChange
+}: {
+  personId: string;
+  navigate: Navigate;
+  backPath: string;
+  onAddToReachOut: (person: Person, opener: HTMLElement) => void;
+  onDirtyChange: (dirty: boolean) => void;
+  onSavingChange: (saving: boolean) => void;
+}) {
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const {
+    summary,
+    phoneRegion,
+    relationship,
+    relationshipError,
+    error
+  } = usePerson(personId, refreshVersion);
+  const [history, setHistory] = useState<PersonHistory | null | undefined>(undefined);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [noteError, setNoteError] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreError, setRestoreError] = useState("");
+  const [contactLinkSession, setContactLinkSession] = useState<ContactImportSession | null>(null);
+  const [contactLinkBusy, setContactLinkBusy] = useState(false);
+  const [contactLinkError, setContactLinkError] = useState("");
+  const [contactLinkStatus, setContactLinkStatus] = useState("");
+  const noteSavingRef = useRef(false);
+  const noteDirtyRef = useRef(false);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const contactLinkOpenerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (!noteDirtyRef.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", beforeUnload);
+      onDirtyChange(false);
+      onSavingChange(false);
+    };
+  }, [onDirtyChange, onSavingChange]);
+
+  useEffect(() => {
+    let active = true;
+    setHistory(undefined);
+    getDatabase().then((db) => getPersonHistory(db, personId))
+      .then((result) => { if (active) setHistory(result ?? null); })
+      .catch(() => { if (active) setHistory(null); });
+    return () => { active = false; };
+  }, [personId, refreshVersion]);
+
+  async function saveNote(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const summaryText = noteDraft.trim();
+    if (!summaryText || noteSavingRef.current || !summary || summary.person.archivedAt) return;
+    noteSavingRef.current = true;
+    setSavingNote(true);
+    onSavingChange(true);
+    setNoteError("");
+    try {
+      const draft = createInteractionDraft(personId, { kind: "note_added" });
+      await createInteraction(await getDatabase(), { ...draft, summary: summaryText });
+      setNoteDraft("");
+      noteDirtyRef.current = false;
+      onDirtyChange(false);
+      setRefreshVersion((current) => current + 1);
+    } catch {
+      setNoteError("PeopleOS could not save this note. Your text is still here.");
+    } finally {
+      noteSavingRef.current = false;
+      setSavingNote(false);
+      onSavingChange(false);
+    }
+  }
+
+  async function restoreArchivedPerson() {
+    if (!summary?.person.archivedAt || restoring) return;
+    setRestoring(true);
+    setRestoreError("");
+    try {
+      await restorePerson(await getDatabase(), {
+        personId: summary.person.id,
+        expectedRevision: summary.person.revision,
+        occurredAt: new Date().toISOString()
+      });
+      setRefreshVersion((current) => current + 1);
+      requestAnimationFrame(() => headingRef.current?.focus());
+    } catch (caught) {
+      setRestoreError(firstIssue(caught));
+    } finally {
+      setRestoring(false);
+    }
+  }
+
+  function finishContactLink() {
+    setContactLinkSession(null);
+    setContactLinkError("");
+    requestAnimationFrame(() => contactLinkOpenerRef.current?.focus());
+  }
+
+  async function chooseMatchingIPhoneContact() {
+    if (!summary || contactLinkBusy) return;
+    const adapter = getIPhoneContactsAdapter();
+    if (!adapter) {
+      setContactLinkError("iPhone Contacts are unavailable right now. You can still add details manually.");
+      return;
+    }
+    setContactLinkBusy(true);
+    setContactLinkError("");
+    setContactLinkStatus("");
+    onSavingChange(true);
+    try {
+      const result = await adapter.pickContacts();
+      const session = await prepareContactImportFromPickerResult(
+        await getDatabase(),
+        result,
+        phoneRegion
+      );
+      if (!session) return;
+      if (session.rows.length === 0) {
+        setContactLinkError("No iPhone contact was selected.");
+        return;
+      }
+      setContactLinkSession(session);
+    } catch (caught) {
+      setContactLinkError(iPhoneContactPickerError(caught));
+    } finally {
+      setContactLinkBusy(false);
+      onSavingChange(false);
+    }
+  }
+
+  async function addSelectedIPhoneContactDetails(selection: PersonContactLinkSelection) {
+    if (!summary || !contactLinkSession || contactLinkBusy) return;
+    setContactLinkBusy(true);
+    setContactLinkError("");
+    setContactLinkStatus("");
+    onSavingChange(true);
+    try {
+      const reviewedSession: ContactImportSession = {
+        ...contactLinkSession,
+        rows: contactLinkSession.rows.map((row) => row.id === selection.row.id
+          ? chooseLinkDetailsForExistingPerson(
+              row,
+              summary.person,
+              selection.contactMethodIds,
+              selection.includeAffiliation,
+              selection.includeDisplayName
+            )
+          : skipContactImportRow(row))
+      };
+      const result = await importSelectedContacts(await getDatabase(), reviewedSession);
+      const linkedRow = result.rows.find((row) => row.id === selection.row.id);
+      if (!linkedRow || linkedRow.status === "failed") {
+        setContactLinkError(linkedRow?.error ?? "PeopleOS could not add those contact details. Nothing was changed.");
+        return;
+      }
+      setContactLinkSession(null);
+      setContactLinkStatus(linkedRow.status === "added_details"
+        ? `Contact details added to ${summary.person.displayName}.`
+        : `Those contact details are already saved for ${summary.person.displayName}.`);
+      setRefreshVersion((current) => current + 1);
+      requestAnimationFrame(() => contactLinkOpenerRef.current?.focus());
+    } catch (caught) {
+      setContactLinkError(firstIssue(caught));
+    } finally {
+      setContactLinkBusy(false);
+      onSavingChange(false);
+    }
+  }
+
+  const requestedBackRoute = routeFromPath(backPath);
+  const resumesCapture = backPath === "/people/new";
+  const resumesImport = backPath === "/people/import";
+  const resumesContactEditor = requestedBackRoute.id === "contact-methods";
+  const resumesReachOut = requestedBackRoute.id === "reach-out-detail";
+  const resumesToday = requestedBackRoute.id === "today" && window.history.state?.todayOriginPrepared === true;
+  const returnsToListOrigin = window.history.state?.navigationOrigin === true
+    && ["today", "reach-out", "people", "upcoming"].includes(requestedBackRoute.id);
+  const preparedReachOutOrigin = resumesReachOut && window.history.state?.profileOriginPrepared === true;
+  const returnsThroughHistory = resumesCapture
+    || resumesImport
+    || resumesContactEditor
+    || resumesToday
+    || returnsToListOrigin
+    || preparedReachOutOrigin;
+  const backRoute = ["today", "reach-out", "people", "upcoming"].includes(requestedBackRoute.id)
+    ? requestedBackRoute
+    : routeFromPath("/people");
+  const contacts = summary ? preferredProfileContacts(summary, phoneRegion) : [];
+  const notes = (history?.interactions ?? [])
+    .filter((interaction) => interaction.kind === "note_added" && interaction.summary)
+    .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt));
+  const today = currentLocalDate();
+  const tomorrow = (() => {
+    const value = new Date();
+    value.setDate(value.getDate() + 1);
+    return [value.getFullYear(), String(value.getMonth() + 1).padStart(2, "0"), String(value.getDate()).padStart(2, "0")].join("-");
+  })();
+  const nextDate = relationship?.scheduleState.kind === "scheduled"
+    ? relationship.scheduleState.localDate
+    : undefined;
+  const nextLabel = relationship === undefined && !relationshipError
+    ? "Loading…"
+    : relationshipError
+      ? "Unavailable"
+    : nextDate && nextDate <= today
+      ? "Today"
+      : nextDate === tomorrow
+        ? "Tomorrow"
+        : nextDate
+          ? formatLocalDate(nextDate)
+          : relationship?.scheduleState.kind === "incomplete_regular_schedule"
+            ? "Choose a start date in Edit"
+            : "Not scheduled";
+
+  return (
+    <main className="screen person-profile-screen simple-person-profile" id="main-content" tabIndex={-1}>
+      <button
+        className="back-button"
+        type="button"
+        onClick={() => returnsThroughHistory
+          ? window.history.back()
+          : resumesReachOut
+            ? navigate(backPath, { replace: true, state: {} })
+            : navigate(backRoute.path)}
+      >
+        ← {resumesCapture
+          ? "Continue adding person"
+          : resumesImport
+            ? "Continue import"
+            : resumesContactEditor
+              ? "Continue editing contact"
+              : backRoute.label}
+      </button>
+      {summary === undefined && !error && <p role="status">Loading person…</p>}
+      {error && (
+        <div className="form-alert" role="alert">
+          <p>{error}</p>
+          <button type="button" onClick={() => setRefreshVersion((current) => current + 1)}>Retry</button>
+        </div>
+      )}
+      {summary === null && (
+        <EmptyState
+          eyebrow="People"
+          title="Person not found"
+          description="This person may have been removed or the link may be out of date."
+          action={actionButton("Add someone", () => navigate("/people/new"))}
+        />
+      )}
+      {summary && (
+        <>
+          <header className="profile-heading simple-profile-heading">
+            <div>
+              <p className="eyebrow">Person</p>
+              <h2 ref={headingRef} tabIndex={-1}>{summary.person.displayName}</h2>
+              {affiliationLine(summary) && <p className="profile-affiliation">{affiliationLine(summary)}</p>}
+            </div>
+            {!summary.person.archivedAt && (
+              <button className="secondary-action" type="button" onClick={() => navigate(editPersonPath(summary.person.id))}>Edit</button>
+            )}
+          </header>
+
+          {summary.person.archivedAt ? (
+            <section className="archived-person-banner" aria-labelledby="simple-archived-heading">
+              <div>
+                <h3 id="simple-archived-heading">Archived</h3>
+                <p>Restore this person to include them in PeopleOS again.</p>
+              </div>
+              <button className="primary-action" type="button" disabled={restoring} onClick={() => void restoreArchivedPerson()}>
+                {restoring ? "Restoring…" : "Restore person"}
+              </button>
+            </section>
+          ) : null}
+          {restoreError && <p className="form-alert" role="alert">{restoreError}</p>}
+
+          <section className="simple-profile-reference" aria-label="Person details">
+            <dl className="profile-details">
+              {contacts.map((contact) => (
+                <div key={contact.id}>
+                  <dt>{contact.kind === "phone" ? "Mobile" : "Email"}</dt>
+                  <dd>{displayContact(contact, phoneRegion)}</dd>
+                </div>
+              ))}
+              <div>
+                <dt>Contact every</dt>
+                <dd>{summary.person.contactCadence ? formatContactCadence(summary.person.contactCadence) : "Not set"}</dd>
+              </div>
+              <div>
+                <dt>Next</dt>
+                <dd>{nextLabel}</dd>
+              </div>
+            </dl>
+            {!summary.person.archivedAt && (
+              <div className="button-row compact-buttons" aria-label="Contact detail actions">
+                <button className="text-action" type="button" onClick={() => navigate(contactMethodsPath(summary.person.id))}>
+                  {contacts.length === 0 ? "Add contact details" : "Edit contact details"}
+                </button>
+                {isIPhoneContactsSupported() && (
+                  <button
+                    ref={contactLinkOpenerRef}
+                    className="text-action"
+                    type="button"
+                    disabled={contactLinkBusy}
+                    onClick={() => void chooseMatchingIPhoneContact()}
+                  >
+                    {contactLinkBusy && !contactLinkSession ? "Opening Contacts…" : "Link iPhone contact"}
+                  </button>
+                )}
+              </div>
+            )}
+          </section>
+
+          {contactLinkStatus && <p className="undo-message" role="status">{contactLinkStatus}</p>}
+          {contactLinkError && !contactLinkSession && <p className="form-alert" role="alert">{contactLinkError}</p>}
+          {contactLinkSession && (
+            <PersonContactLinkReview
+              key={contactLinkSession.id}
+              session={contactLinkSession}
+              targetPerson={summary.person}
+              targetContactMethods={summary.activeContactMethods}
+              busy={contactLinkBusy}
+              error={contactLinkError}
+              onCancel={finishContactLink}
+              onSubmit={(selection) => void addSelectedIPhoneContactDetails(selection)}
+            />
+          )}
+
+          <section className="simple-notes" aria-labelledby="simple-notes-heading">
+            <h3 id="simple-notes-heading">Notes</h3>
+            {notes.length > 0 && (
+              <div className="saved-notes" aria-label="Saved notes">
+                {notes.map((note) => <p key={note.id}>{note.summary}</p>)}
+              </div>
+            )}
+            {!summary.person.archivedAt && (
+              <form onSubmit={saveNote}>
+                <label className="visually-hidden" htmlFor="person-note">Note</label>
+                <textarea
+                  id="person-note"
+                  rows={4}
+                  maxLength={5_000}
+                  value={noteDraft}
+                  placeholder="Write something you want to remember."
+                  onChange={(event) => {
+                    setNoteDraft(event.target.value);
+                    setNoteError("");
+                    noteDirtyRef.current = event.target.value.length > 0;
+                    onDirtyChange(noteDirtyRef.current);
+                  }}
+                />
+                {noteError && <p className="field-error" role="alert">{noteError}</p>}
+                <button className="primary-action" type="submit" disabled={savingNote || !noteDraft.trim()}>
+                  {savingNote ? "Saving…" : "Save note"}
+                </button>
+              </form>
+            )}
+          </section>
+        </>
+      )}
+    </main>
+  );
+}
+
+export function LegacyPersonProfileScreen({
   personId,
   navigate,
   backPath,
@@ -1574,7 +1875,7 @@ export function PersonProfileScreen({
           eyebrow="People"
           title="Person not found"
           description="This person may have been removed or the link may be out of date."
-          action={actionButton("Add person", () => navigate("/people/new"))}
+          action={actionButton("Add someone", () => navigate("/people/new"))}
         />
       )}
       {summary && (
@@ -1727,14 +2028,14 @@ export function PersonProfileScreen({
             <div className="card-heading-with-action">
               <div>
                 <h3 id="profile-reach-out-heading">Reach Out</h3>
-                <p>The deliberate intention attached to this Person.</p>
+                <p>Someone you mean to contact.</p>
               </div>
             </div>
             {reachOut === undefined && !reachOutError && <p role="status">Loading Reach Out plan…</p>}
             {reachOutError && <div className="section-error"><p role="alert">{reachOutError}</p><button type="button" onClick={() => setRefreshVersion((current) => current + 1)}>Retry</button></div>}
             {reachOut && (
               <div className="current-plan-summary">
-                <span className="status-chip">{reachOut.displayState === "active" && reachOut.relevantDate === currentLocalDate() ? "Due today" : reachOut.displayState[0].toUpperCase() + reachOut.displayState.slice(1)}</span>
+                <span className="status-chip">{reachOutDisplayLabel(reachOut, currentLocalDate())}</span>
                 <strong>{reachOut.entry.reason ?? "Add why"}</strong>
                 <p>{reachOut.entry.actionDetail ?? (FOLLOW_UP_ACTION_OPTIONS.find((option) => option.value === reachOut.entry.intendedActionType)?.label ?? "Choose next action")}</p>
                 {reachOut.relevantDate && <p>Reminder: {formatLocalDate(reachOut.relevantDate)}</p>}
@@ -1747,7 +2048,7 @@ export function PersonProfileScreen({
             )}
             {reachOut === null && !reachOutError && (
               <div className="timeline-empty">
-                <p>{reachOutHistory.some((entry) => entry.intentStatus === "completed") ? "The latest outreach cycle is complete and remains in history." : "This Person is not currently in Reach Out."}</p>
+                <p>{reachOutHistory.some((entry) => entry.intentStatus === "completed") ? "Your latest Reach Out is complete and stays in history." : "You haven’t added this person to Reach Out."}</p>
                 {!summary.person.archivedAt && summary.person.identityStatus !== "merged" && <button className="text-action" type="button" onClick={(event) => onAddToReachOut(summary.person, event.currentTarget)}>Add to Reach Out</button>}
                 {reachOutHistory[0] && <button className="text-action" type="button" onClick={() => navigate(reachOutDetailPath(reachOutHistory[0].id))}>Open Reach Out history</button>}
               </div>
@@ -2542,7 +2843,6 @@ export function ContactMethodsScreen({
                       <input
                         ref={editorValueRef}
                         id="contact-editor-value"
-                        autoFocus
                         type={editor.draft.kind === "phone" ? "tel" : "email"}
                         inputMode={editor.draft.kind === "phone" ? "tel" : "email"}
                         required

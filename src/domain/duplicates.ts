@@ -9,6 +9,7 @@ import type {
 export type DuplicateEvidenceCode =
   | "same_phone"
   | "same_email"
+  | "same_full_name"
   | "similar_name_same_organisation"
   | "similar_name_same_event";
 
@@ -32,6 +33,11 @@ export type DuplicateEvidence =
       code: "same_email";
       strength: "strong";
       canonicalValue: string;
+    })
+  | (DuplicateEvidenceBase & {
+      code: "same_full_name";
+      strength: "review";
+      normalisedName: string;
     })
   | (DuplicateEvidenceBase & {
       code: "similar_name_same_organisation";
@@ -73,8 +79,9 @@ export type DuplicateMatch = {
 const evidenceOrder: Record<DuplicateEvidenceCode, number> = {
   same_phone: 0,
   same_email: 1,
-  similar_name_same_organisation: 2,
-  similar_name_same_event: 3
+  same_full_name: 2,
+  similar_name_same_organisation: 3,
+  similar_name_same_event: 4
 };
 
 function ascending(left: string, right: string): number {
@@ -93,6 +100,29 @@ export function normaliseDuplicateText(value: string): string {
     .replace(/\p{P}+/gu, " ")
     .replace(/\s+/gu, " ")
     .trim();
+}
+
+/** A deliberately narrow human-name check used only for explicit review UI. */
+export function reviewedHumanName(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.includes("@") || /\d/u.test(trimmed)) return undefined;
+  const tokens = normaliseDuplicateText(trimmed).split(" ").filter(Boolean);
+  return tokens.length > 0 && tokens.every((token) => /^\p{L}+$/u.test(token))
+    ? trimmed
+    : undefined;
+}
+
+/**
+ * Returns a key only for an exact, plausibly human full name. PeopleOS stores
+ * a phone or email in displayName when no name was supplied, so those useful
+ * identifier fallbacks must never become name-only duplicate evidence.
+ */
+export function conservativeFullNameDuplicateKey(value: string): string | undefined {
+  const reviewedName = reviewedHumanName(value);
+  if (!reviewedName) return undefined;
+  const normalised = normaliseDuplicateText(reviewedName);
+  const tokens = normalised.split(" ").filter(Boolean);
+  return tokens.length >= 2 ? normalised : undefined;
 }
 
 function ids(records: readonly { id: string }[]): string[] {
@@ -195,6 +225,20 @@ function exactContactEvidence(
   });
 }
 
+function exactFullNameEvidence(candidate: Person, existing: Person): DuplicateEvidence[] {
+  const candidateName = conservativeFullNameDuplicateKey(candidate.displayName);
+  const existingName = conservativeFullNameDuplicateKey(existing.displayName);
+  if (!candidateName || candidateName !== existingName) return [];
+  return [{
+    code: "same_full_name",
+    strength: "review",
+    normalisedName: candidateName,
+    candidateSourceIds: [candidate.id],
+    existingSourceIds: [existing.id],
+    explanation: `Same full name: ${candidate.displayName.trim()}`
+  }];
+}
+
 function organisationEvidence(
   candidate: readonly OrganisationAffiliation[],
   existing: readonly OrganisationAffiliation[]
@@ -255,6 +299,8 @@ function evidenceStableValue(evidence: DuplicateEvidence): string {
     case "same_phone":
     case "same_email":
       return evidence.canonicalValue;
+    case "same_full_name":
+      return evidence.normalisedName;
     case "similar_name_same_organisation":
       return evidence.normalisedOrganisation;
     case "similar_name_same_event":
@@ -309,7 +355,8 @@ export function detectDuplicatePeople(input: DuplicateDetectionInput): Duplicate
       const existingContacts = activeContactsFor(input.contactMethods, person.id);
       const evidence: DuplicateEvidence[] = [
         ...exactContactEvidence(candidateContacts, existingContacts, "phone"),
-        ...exactContactEvidence(candidateContacts, existingContacts, "email")
+        ...exactContactEvidence(candidateContacts, existingContacts, "email"),
+        ...exactFullNameEvidence(input.candidate.person, person)
       ];
 
       const namesMatch = Boolean(candidateName)

@@ -33,6 +33,9 @@ const project = await text("ios/App/App.xcodeproj/project.pbxproj");
 const infoPlist = await text("ios/App/App/Info.plist");
 const entitlements = await text("ios/App/App/App.entitlements");
 const nativePackage = await text("ios/App/CapApp-SPM/Package.swift");
+const mainStoryboard = await text("ios/App/App/Base.lproj/Main.storyboard");
+const contactsPlugin = await text("ios/App/App/PeopleOSContactsPlugin.swift");
+const bridgeViewController = await text("ios/App/App/PeopleOSBridgeViewController.swift");
 
 const marketingVersions = uniqueMatches(project, /MARKETING_VERSION = ([^;]+);/g);
 if (marketingVersions.length !== 1 || marketingVersions[0] !== packageJson.version) {
@@ -45,12 +48,36 @@ if (buildNumbers.length !== 1 || !/^\d+$/.test(buildNumbers[0]) || Number(buildN
 }
 
 if (!/TARGETED_DEVICE_FAMILY = 1;/g.test(project)) throw new Error("The untested iPad target is still enabled.");
-if (infoPlist.includes("NSContactsUsageDescription")) throw new Error("Unused Contacts permission copy must not ship.");
+const contactsUsageDescription = infoPlist.match(/<key>NSContactsUsageDescription<\/key>\s*<string>([^<]+)<\/string>/)?.[1]?.trim();
+if (!contactsUsageDescription) throw new Error("The explicit Apple Contacts writer needs a non-empty Contacts usage description.");
 if (infoPlist.includes("UIInterfaceOrientationLandscape") || infoPlist.includes("UISupportedInterfaceOrientations~ipad")) {
   throw new Error("The iPhone-first MVP must not advertise untested orientations or iPad support.");
 }
 if (entitlements.includes("aps-environment")) throw new Error("Local reminders must not add a remote-push entitlement.");
+if (entitlements.includes("com.apple.developer.contacts.notes")) throw new Error("PeopleOS must never request access to Apple Contacts notes.");
 if (!nativePackage.includes("CapacitorLocalNotifications")) throw new Error("The native local-notifications package is missing.");
+if (!project.includes("PeopleOSContactsPlugin.swift in Sources") || !project.includes("PeopleOSBridgeViewController.swift in Sources")) {
+  throw new Error("The repository-owned Contacts bridge is not compiled into the app target.");
+}
+if (!mainStoryboard.includes('customClass="PeopleOSBridgeViewController"')) {
+  throw new Error("The app storyboard does not load the repository-owned Capacitor bridge.");
+}
+if (!contactsPlugin.includes("CNContactPickerViewController") || !contactsPlugin.includes("CNSaveRequest")) {
+  throw new Error("The native Contacts picker or explicit writer is missing.");
+}
+const forbiddenContactKeys = [
+  "CNContactNoteKey",
+  "CNContactImageDataKey",
+  "CNContactThumbnailImageDataKey",
+  "CNContactBirthdayKey",
+  "CNContactNonGregorianBirthdayKey"
+];
+if (forbiddenContactKeys.some((key) => contactsPlugin.includes(key))) {
+  throw new Error("The selective Contacts bridge must not read notes, photos or birthdays.");
+}
+if (!bridgeViewController.includes("PeopleOSContactsPlugin") || !bridgeViewController.includes("PeopleOSCloudSyncPlugin")) {
+  throw new Error("The Capacitor bridge must register both repository-owned native plugins.");
+}
 
 const distFiles = await filesBelow("dist");
 if (distFiles.length === 0) throw new Error("The production web build is empty.");
@@ -69,4 +96,4 @@ for (const file of distFiles) {
 
 console.log(`Release preflight passed for PeopleOS ${packageJson.version} (${buildNumbers[0]}).`);
 console.log(`Verified ${distFiles.length} production assets in the native bundle.`);
-console.log("Portal checks remain: distribution signing, production CloudKit schema, App Store Connect agreements/listing and signed-iPhone reminder QA.");
+console.log("Portal checks remain: distribution signing, production CloudKit schema, App Store Connect agreements/listing, and signed-iPhone reminder/Contacts QA.");

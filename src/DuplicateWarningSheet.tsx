@@ -1,10 +1,12 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { reviewedDisplayNameCandidate } from "./application/duplicateResolution";
 import type { PreparedManualPersonCapture } from "./application/manualPersonCapture";
-import type { DuplicateMatch } from "./domain/duplicates";
+import { reviewedHumanName, type DuplicateMatch } from "./domain/duplicates";
 
 export type DuplicateLinkSelection = {
   contactMethodIds: string[];
   includeAffiliation: boolean;
+  includeDisplayName: boolean;
 };
 
 type Props = {
@@ -35,7 +37,12 @@ function linkableSelection(candidate: PreparedManualPersonCapture, match: Duplic
     contactMethodIds: candidate.contactMethods
       .filter((contact) => !identicalCandidateIds.has(contact.id))
       .map((contact) => contact.id),
-    includeAffiliation: Boolean(candidate.affiliation)
+    includeAffiliation: Boolean(candidate.affiliation),
+    includeDisplayName: Boolean(
+      reviewedDisplayNameCandidate(candidate)
+      && !reviewedHumanName(match.person.displayName)
+      && match.evidence.some((evidence) => evidence.code === "same_phone" || evidence.code === "same_email")
+    )
   };
 }
 
@@ -55,7 +62,7 @@ export default function DuplicateWarningSheet({
   showOpenExisting = true,
   createSeparateLabel = "Create separate person",
   eyebrow = "Review before saving",
-  heading = "Possible duplicate",
+  heading = "Possible duplicate found",
   description,
   onOpenExisting,
   onAddDetails,
@@ -114,7 +121,14 @@ export default function DuplicateWarningSheet({
   }, [busy, onReturnToEdit]);
 
   function updateSelection(personId: string, update: (current: DuplicateLinkSelection) => DuplicateLinkSelection) {
-    setSelections((current) => ({ ...current, [personId]: update(current[personId] ?? { contactMethodIds: [], includeAffiliation: false }) }));
+    setSelections((current) => ({
+      ...current,
+      [personId]: update(current[personId] ?? {
+        contactMethodIds: [],
+        includeAffiliation: false,
+        includeDisplayName: false
+      })
+    }));
   }
 
   return (
@@ -128,13 +142,27 @@ export default function DuplicateWarningSheet({
           <button type="button" onClick={onReturnToEdit} disabled={busy} aria-label="Return to edit">×</button>
         </div>
         <p>{description ?? <><strong>{candidate.person.displayName}</strong> may already be in PeopleOS. Nothing has been saved or merged.</>}</p>
+        {candidate.initialFollowUp && (
+          <p className="field-hint">
+            Your chosen frequency and start date apply only if you create a separate person. Adding contact details to an existing person keeps their current timing; review it from their profile.
+          </p>
+        )}
 
         <div className="duplicate-match-list">
           {matches.map((match, matchIndex) => {
-            const selection = selections[match.person.id] ?? { contactMethodIds: [], includeAffiliation: false };
-            const linkableContactIds = linkableSelection(candidate, match).contactMethodIds;
+            const linkable = linkableSelection(candidate, match);
+            const selection = selections[match.person.id] ?? {
+              contactMethodIds: [],
+              includeAffiliation: false,
+              includeDisplayName: false
+            };
+            const linkableContactIds = linkable.contactMethodIds;
             const affiliationCanBeAdded = Boolean(candidate.affiliation);
-            const hasSelectedDetail = selection.contactMethodIds.length > 0 || selection.includeAffiliation;
+            const displayNameCanBeAdded = linkable.includeDisplayName;
+            const displayName = reviewedDisplayNameCandidate(candidate);
+            const hasSelectedDetail = selection.contactMethodIds.length > 0
+              || selection.includeAffiliation
+              || selection.includeDisplayName;
             const persistedMatch = match.source !== "import";
             return (
               <article className="duplicate-match" key={match.person.id}>
@@ -177,11 +205,24 @@ export default function DuplicateWarningSheet({
                     Open existing person
                   </button>
                 </div>}
-                {showAddDetails && persistedMatch && (linkableContactIds.length > 0 || affiliationCanBeAdded) && (
+                {showAddDetails && persistedMatch && (linkableContactIds.length > 0 || affiliationCanBeAdded || displayNameCanBeAdded) && (
                   <details className="link-details-review">
                     <summary>Review details to add</summary>
                     <fieldset>
                       <legend>Only checked details will be added to {match.person.displayName}</legend>
+                      {displayNameCanBeAdded && displayName && (
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={selection.includeDisplayName}
+                            onChange={(event) => updateSelection(match.person.id, (current) => ({
+                              ...current,
+                              includeDisplayName: event.target.checked
+                            }))}
+                          />
+                          Name: {displayName}
+                        </label>
+                      )}
                       {linkableContactIds.map((id) => (
                         <label key={id}>
                           <input

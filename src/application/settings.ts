@@ -1,7 +1,12 @@
 import type { PeopleOsDatabase } from "../data/database";
 import { StaleRevisionError } from "../data/repositories";
-import type { AppSettings } from "../domain/schema";
-import { assertValidRecord, isIsoInstant, ValidationError } from "../domain/validation";
+import type { AppSettings, ConversationStarter } from "../domain/schema";
+import {
+  assertValidRecord,
+  isIsoInstant,
+  validateConversationStarters,
+  ValidationError
+} from "../domain/validation";
 
 export type UpdateAlreadyContactedDefaultCommand = {
   expectedRevision: number;
@@ -13,6 +18,12 @@ export type UpdateTodaySummaryNotificationSettingsCommand = {
   expectedRevision: number;
   enabled: boolean;
   time: string;
+  occurredAt: string;
+};
+
+export type UpdateConversationStartersCommand = {
+  expectedRevision: number;
+  starters: ConversationStarter[];
   occurredAt: string;
 };
 
@@ -63,6 +74,42 @@ function isExactTodaySummaryRetry(
   return settings.revision === command.expectedRevision + 1
     && settings.todaySummaryNotificationsEnabled === command.enabled
     && settings.todaySummaryNotificationTime === command.time
+    && settings.updatedAt === command.occurredAt;
+}
+
+function validateConversationStartersCommand(command: UpdateConversationStartersCommand): void {
+  if (!Number.isInteger(command.expectedRevision) || command.expectedRevision < 1) {
+    throw new ValidationError(["The Settings revision is invalid."]);
+  }
+  if (!validateConversationStarters(command.starters)) {
+    throw new ValidationError([
+      "Keep 1 to 100 valid conversation starters, including Personal and Professional options."
+    ]);
+  }
+  if (!isIsoInstant(command.occurredAt)) {
+    throw new ValidationError(["The Settings update time is invalid."]);
+  }
+}
+
+function sameConversationStarters(
+  left: readonly ConversationStarter[],
+  right: readonly ConversationStarter[]
+): boolean {
+  return left.length === right.length && left.every((starter, index) => {
+    const other = right[index];
+    return other !== undefined
+      && starter.id === other.id
+      && starter.template === other.template
+      && starter.relationshipMode === other.relationshipMode;
+  });
+}
+
+function isExactConversationStartersRetry(
+  settings: AppSettings,
+  command: UpdateConversationStartersCommand
+): boolean {
+  return settings.revision === command.expectedRevision + 1
+    && sameConversationStarters(settings.conversationStarters, command.starters)
     && settings.updatedAt === command.occurredAt;
 }
 
@@ -132,6 +179,50 @@ export async function updateTodaySummaryNotificationSettings(
       ...current,
       todaySummaryNotificationsEnabled: command.enabled,
       todaySummaryNotificationTime: command.time,
+      revision: current.revision + 1,
+      updatedAt: command.occurredAt
+    };
+    assertValidRecord("appSettings", updated);
+
+    const metadata = await metadataStore.get("app");
+    if (!metadata) throw new Error("PeopleOS metadata is missing");
+    await settingsStore.put(updated);
+    await metadataStore.put({
+      ...metadata,
+      datasetRevision: metadata.datasetRevision + 1,
+      updatedAt: command.occurredAt
+    });
+    hooks.beforeCommit?.();
+    await tx.done;
+    return updated;
+  } catch (error) {
+    try { tx.abort(); } catch { /* transaction already closed */ }
+    try { await tx.done; } catch { /* expected rollback */ }
+    throw error;
+  }
+}
+
+export async function updateConversationStarters(
+  db: PeopleOsDatabase,
+  command: UpdateConversationStartersCommand,
+  hooks: SettingsMutationHooks = {}
+): Promise<AppSettings> {
+  validateConversationStartersCommand(command);
+  const tx = db.transaction(["appSettings", "metadata"], "readwrite");
+  try {
+    const settingsStore = tx.objectStore("appSettings");
+    const metadataStore = tx.objectStore("metadata");
+    const current = await settingsStore.get("app");
+    if (!current) throw new Error("PeopleOS settings are missing");
+    if (isExactConversationStartersRetry(current, command)) {
+      await tx.done;
+      return current;
+    }
+    if (current.revision !== command.expectedRevision) throw new StaleRevisionError();
+
+    const updated: AppSettings = {
+      ...current,
+      conversationStarters: command.starters.map((starter) => ({ ...starter })),
       revision: current.revision + 1,
       updatedAt: command.occurredAt
     };

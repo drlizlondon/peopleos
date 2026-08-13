@@ -415,10 +415,22 @@ describe("Follow-up commands", () => {
     expect(await db.count("interactions")).toBe(0);
   });
 
-  it("updates or removes cadence deterministically without creating FollowUps", async () => {
+  it("requires a real or scheduled anchor before the legacy cadence command can enable Regular contact", async () => {
     const db = await openDatabase("cadence");
     const current = (await db.get("people", "person-one"))!;
     const command = { personId: current.id, expectedRevision: current.revision, cadenceDays: 90, occurredAt: later };
+    await expect(updateContactCadence(db, command)).rejects.toThrow(/Today or Tomorrow to start regular contact/);
+    expect((await db.get("people", current.id))?.contactCadence).toBeUndefined();
+
+    await createRepositories(db).interactions.create({
+      id: "interaction-cadence-anchor",
+      revision: 1,
+      personId: current.id,
+      kind: "contacted",
+      occurredAt: fixedNow,
+      createdAt: fixedNow,
+      updatedAt: fixedNow
+    });
     const updated = await updateContactCadence(db, command);
     expect(await updateContactCadence(db, command)).toEqual(updated);
     expect(updated).toMatchObject({ contactCadence: { value: 90, unit: "days" }, revision: current.revision + 1 });

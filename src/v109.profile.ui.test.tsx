@@ -1,49 +1,38 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { closeDatabase, getDatabase } from "./data/client";
 import { deletePeopleOsDatabase } from "./data/database";
 import { createRepositories } from "./data/repositories";
-import { DATABASE_NAME, type Interaction, type Person } from "./domain/schema";
+import { DATABASE_NAME, type Person } from "./domain/schema";
 
 async function resetDatabase() {
   await closeDatabase();
   await deletePeopleOsDatabase(DATABASE_NAME);
 }
 
-async function seedProfile(options: { dueCommitment?: boolean } = {}) {
+async function seedProfile() {
   const repositories = createRepositories(await getDatabase());
   const person: Person = {
     id: "person-sarah",
     revision: 1,
     displayName: "Sarah Jones",
+    relationshipMode: "personal",
     identityStatus: "confirmed",
     importance: "normal",
     tags: [],
+    contactCadence: { value: 2, unit: "weeks" },
     createdAt: "2021-01-01T12:00:00.000Z",
     updatedAt: "2021-01-01T12:00:00.000Z"
   };
   await repositories.people.create(person);
-  const dates = ["2022-01-01", "2022-06-01", "2023-01-01", "2023-06-01", "2024-01-01"];
-  for (const [index, date] of dates.entries()) {
-    const record: Interaction = {
-      id: `interaction-${index}`,
-      revision: 1,
-      personId: person.id,
-      kind: index % 2 ? "email" : "meeting",
-      occurredAt: `${date}T12:00:00.000Z`,
-      createdAt: `${date}T12:00:00.000Z`,
-      updatedAt: `${date}T12:00:00.000Z`
-    };
-    await repositories.interactions.create(record);
-  }
   await repositories.interactions.create({
     id: "private-note",
     revision: 1,
     personId: person.id,
     kind: "note_added",
     occurredAt: "2025-01-01T12:00:00.000Z",
-    summary: "Private investor concern that must never become a cue",
+    summary: "Ask about the garden project",
     createdAt: "2025-01-01T12:00:00.000Z",
     updatedAt: "2025-01-01T12:00:00.000Z"
   });
@@ -57,25 +46,23 @@ async function seedProfile(options: { dueCommitment?: boolean } = {}) {
     createdAt: "2025-02-01T12:00:00.000Z",
     updatedAt: "2025-02-01T12:00:00.000Z"
   });
-  if (options.dueCommitment) {
-    await repositories.followUps.create({
-      id: "follow-up-introduction",
-      revision: 1,
-      personId: person.id,
-      dueDate: "2025-03-01",
-      reason: "Introduce Sarah to the fellowship lead",
-      actionType: "make_introduction",
-      status: "pending",
-      createdAt: "2025-02-02T12:00:00.000Z",
-      updatedAt: "2025-02-02T12:00:00.000Z"
-    });
-  }
+  await repositories.followUps.create({
+    id: "follow-up-introduction",
+    revision: 1,
+    personId: person.id,
+    dueDate: "2026-08-13",
+    reason: "Introduce Sarah to the fellowship lead",
+    actionType: "make_introduction",
+    status: "pending",
+    createdAt: "2025-02-02T12:00:00.000Z",
+    updatedAt: "2025-02-02T12:00:00.000Z"
+  });
 }
 
-describe("V1-09 Profile projections", () => {
+describe("simple Profile projections", () => {
   beforeEach(async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-07-23T12:00:00.000Z"));
+    vi.setSystemTime(new Date("2026-08-12T12:00:00.000Z"));
     window.history.replaceState({ fromPath: "/people" }, "", "/people/person-sarah");
     await resetDatabase();
   });
@@ -86,34 +73,46 @@ describe("V1-09 Profile projections", () => {
     await resetDatabase();
   });
 
-  it("renders stage, last contact and relationship age from one engine assessment", async () => {
+  it("shows only reference details, frequency, next date and plain Notes", async () => {
     await seedProfile();
     render(<App />);
+
     expect(await screen.findByRole("heading", { name: "Sarah Jones" })).toBeInTheDocument();
-    const summary = screen.getByRole("heading", { name: "Relationship summary" }).closest("section")!;
-    expect(await within(summary).findByText("Long-term")).toBeInTheDocument();
-    expect(within(summary).getByText(/Long-term · 5 recorded conversations across about 2 years/)).toBeInTheDocument();
-    expect(within(summary).getByText(/Last contact: Meeting on 1 January 2024/)).toBeInTheDocument();
-    expect(within(summary).getByText(/Known for about 5 years/)).toBeInTheDocument();
+    expect(screen.getByText("Contact every").parentElement).toHaveTextContent("2 weeks");
+    expect(screen.getByText("Next").parentElement).toHaveTextContent("Tomorrow");
+    expect(await screen.findByText("Ask about the garden project")).toBeInTheDocument();
   });
 
-  it("surfaces a safe structured Fact and never promotes private Note prose", async () => {
+  it("shows a paused due Person’s return date from the shared schedule", async () => {
+    await seedProfile();
+    const db = await getDatabase();
+    const person = await db.get("people", "person-sarah");
+    const followUp = await db.get("followUps", "follow-up-introduction");
+    await db.put("people", {
+      ...person!,
+      todayPausedUntilDate: "2026-08-20"
+    });
+    await db.put("followUps", {
+      ...followUp!,
+      dueDate: "2026-08-11"
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Sarah Jones" })).toBeInTheDocument();
+    expect(screen.getByText("Next").parentElement).toHaveTextContent(/Aug 20, 2026|20 Aug 2026/);
+    expect(screen.getByText("Next").parentElement).not.toHaveTextContent("Today");
+  });
+
+  it("does not turn stored facts, follow-up reasons or recorded activity into profile analytics", async () => {
     await seedProfile();
     render(<App />);
-    const cue = await screen.findByLabelText("Memory cue");
-    expect(within(cue).getByText("Looking for pilot sites")).toBeInTheDocument();
-    expect(within(cue).getByText(/From a memory fact you added/)).toBeInTheDocument();
-    expect(within(cue).queryByText(/Private investor concern/)).not.toBeInTheDocument();
-  });
+    await screen.findByRole("heading", { name: "Sarah Jones" });
 
-  it("lets a due commitment displace the Fact cue without changing the stage", async () => {
-    await seedProfile({ dueCommitment: true });
-    render(<App />);
-    const cue = await screen.findByLabelText("Memory cue");
-    expect(within(cue).getByText("Introduce Sarah to the fellowship lead")).toBeInTheDocument();
-    expect(within(cue).getByText(/From a follow-up planned for/)).toBeInTheDocument();
-    expect(within(cue).queryByText("Looking for pilot sites")).not.toBeInTheDocument();
-    const summary = screen.getByRole("heading", { name: "Relationship summary" }).closest("section")!;
-    expect(await within(summary).findByText("Long-term")).toBeInTheDocument();
+    expect(screen.queryByText("Looking for pilot sites")).not.toBeInTheDocument();
+    expect(screen.queryByText("Introduce Sarah to the fellowship lead")).not.toBeInTheDocument();
+    expect(screen.queryByText("Relationship summary")).not.toBeInTheDocument();
+    expect(screen.queryByText(/last contact/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/known for/i)).not.toBeInTheDocument();
   });
 });

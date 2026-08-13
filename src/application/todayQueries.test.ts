@@ -169,6 +169,68 @@ describe("V1-10 Today application projection", () => {
     db.close();
   });
 
+  it("supplies mode-appropriate starters without deriving them from Memory Facts", async () => {
+    const db = await openDatabase();
+    await seedDuePerson(db);
+    const professionalPerson = {
+      ...person,
+      id: "person-professional",
+      displayName: "Professional Person",
+      relationshipMode: "professional" as const
+    };
+    const bothPerson = {
+      ...person,
+      id: "person-both",
+      displayName: "Both Person",
+      relationshipMode: "both" as const
+    };
+    await db.put("people", professionalPerson);
+    await db.put("people", bothPerson);
+    await db.put("followUps", {
+      ...additional,
+      id: "follow-up-professional",
+      personId: professionalPerson.id
+    });
+    await db.put("followUps", {
+      ...additional,
+      id: "follow-up-both",
+      personId: bothPerson.id
+    });
+    await db.put("memoryFacts", {
+      id: "memory-not-a-starter",
+      revision: 1,
+      personId: person.id,
+      kind: "interest",
+      value: "This Memory Fact must not become message copy",
+      showAsMemoryCue: true,
+      createdAt: now,
+      updatedAt: now
+    });
+    const settings = (await db.get("appSettings", "app"))!;
+    await db.put("appSettings", {
+      ...settings,
+      conversationStarters: [
+        { id: "personal", template: "Personal hello, {name}.", relationshipMode: "personal" },
+        { id: "professional", template: "Professional hello, {name}.", relationshipMode: "professional" },
+        { id: "shared", template: "Shared hello, {name}.", relationshipMode: "both" }
+      ]
+    });
+
+    const projection = await getTodayScreenProjection(db, clock, "all");
+    const starterIdsByPerson = Object.fromEntries(projection.cards.map((card) => [
+      card.person.id,
+      card.conversationStarters.map((starter) => starter.id)
+    ]));
+    expect(starterIdsByPerson).toEqual({
+      [person.id]: ["personal", "shared"],
+      [professionalPerson.id]: ["professional", "shared"],
+      [bothPerson.id]: ["personal", "professional", "shared"]
+    });
+    expect(projection.cards.flatMap((card) => card.conversationStarters)
+      .some((starter) => starter.template.includes("Memory Fact"))).toBe(false);
+    db.close();
+  });
+
   it("distinguishes an eligible Person suppressed for the current local day", async () => {
     const db = await openDatabase();
     await seedDuePerson(db);

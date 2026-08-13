@@ -1,12 +1,51 @@
 export const DATABASE_NAME = "peopleos-v1";
 export const DATABASE_VERSION = 3;
-export const BACKUP_SCHEMA_VERSION = 5;
+export const BACKUP_SCHEMA_VERSION = 6;
 export const DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS = 14;
 export const DEFAULT_TODAY_NOTIFICATION_TIME = "12:00";
 
 export type EntityId = string;
 export type IsoInstant = string;
 export type LocalDate = string;
+
+export type ConversationStarter = {
+  id: EntityId;
+  template: string;
+  relationshipMode: "personal" | "professional" | "both";
+};
+
+export const DEFAULT_CONVERSATION_STARTERS = [
+  {
+    id: "personal-thinking-of-you",
+    template: "Hey {name}, just thinking of you today.",
+    relationshipMode: "personal"
+  },
+  {
+    id: "personal-how-have-you-been",
+    template: "Hi {name}, how have you been lately?",
+    relationshipMode: "personal"
+  },
+  {
+    id: "personal-whats-new",
+    template: "Hey {name}, what’s new with you?",
+    relationshipMode: "personal"
+  },
+  {
+    id: "professional-check-in",
+    template: "Hi {name}, I wanted to check in and see how things are going.",
+    relationshipMode: "professional"
+  },
+  {
+    id: "professional-catch-up",
+    template: "Hi {name}, I’ve been meaning to catch up — how are things?",
+    relationshipMode: "professional"
+  },
+  {
+    id: "both-how-are-things",
+    template: "Hi {name}, how are things with you?",
+    relationshipMode: "both"
+  }
+] as const satisfies readonly ConversationStarter[];
 
 export type ContactCadenceUnit = "days" | "weeks" | "months";
 
@@ -34,6 +73,8 @@ export type Person = MutableRecord & {
   contactCadence?: ContactCadence;
   /** @deprecated Read compatibility for records written before structured cadence storage. */
   contactCadenceDays?: number;
+  /** A user-chosen date before which this Person must not appear in Today. */
+  todayPausedUntilDate?: LocalDate;
   archivedAt?: IsoInstant;
 };
 
@@ -218,6 +259,7 @@ export type AppSettings = MutableRecord & {
   reachOutDefaultReminderDays?: 1 | 7 | 14 | 30;
   todaySummaryNotificationsEnabled: boolean;
   todaySummaryNotificationTime: string;
+  conversationStarters: ConversationStarter[];
 };
 
 export type AppMetadata = {

@@ -1,18 +1,16 @@
 import type { TodayCardProjection } from "./application/todayQueries";
-import { formatEngineLocalDate, formatExplanation } from "./relationship-engine";
+import { useState } from "react";
 
 type TodayCardProps = {
   card: TodayCardProjection;
   busy: boolean;
   error?: string;
   copyValue?: string;
-  onContactNow: () => void;
-  onNotToday: () => void;
-  onAlreadyContacted: () => void;
-  onAddPhone: () => void;
-  onWhy: () => void;
+  onMessage: (draft?: string) => void;
+  onCall: () => void;
+  onDone: () => void;
+  onPause: () => void;
   onProfile: () => void;
-  onReachOut?: () => void;
   onRetry?: () => void;
   onCopy?: () => void;
 };
@@ -22,12 +20,11 @@ function affiliation(card: TodayCardProjection): string | undefined {
   return [card.currentAffiliation.role, card.currentAffiliation.organisationName].filter(Boolean).join(" · ");
 }
 
-function dueLabel(card: TodayCardProjection): { label?: string; detail?: string } {
-  if (card.item.dueState === "overdue") {
-    return { label: "Overdue", detail: `Planned for ${formatEngineLocalDate(card.item.relevantDate)}` };
-  }
-  if (card.item.dueState === "due_today") return { label: "Due today" };
-  return {};
+function initialConversationStarterIndex(card: TodayCardProjection): number {
+  if (card.conversationStarters.length === 0) return 0;
+  const seed = [...card.person.id, ...card.item.relevantDate]
+    .reduce((total, character) => total + character.charCodeAt(0), 0);
+  return seed % card.conversationStarters.length;
 }
 
 export default function TodayCard({
@@ -35,20 +32,21 @@ export default function TodayCard({
   busy,
   error,
   copyValue,
-  onContactNow,
-  onNotToday,
-  onAlreadyContacted,
-  onAddPhone,
-  onWhy,
+  onMessage,
+  onCall,
+  onDone,
+  onPause,
   onProfile,
-  onReachOut,
   onRetry,
   onCopy
 }: TodayCardProps) {
-  const due = dueLabel(card);
   const affiliationText = affiliation(card);
-  const reason = formatExplanation(card.item.explanation);
-  const intendedAction = formatExplanation(card.item.intendedActionContext.explanation);
+  const starterKey = `${card.person.id}:${card.item.relevantDate}:${card.conversationStarters.map((starter) => starter.id).join(":")}`;
+  const initialStarterIndex = initialConversationStarterIndex(card);
+  const [starterState, setStarterState] = useState({ key: starterKey, index: initialStarterIndex });
+  const starterIndex = starterState.key === starterKey ? starterState.index : initialStarterIndex;
+  const starter = card.conversationStarters[starterIndex]?.template.replaceAll("{name}", card.person.displayName);
+  const starterId = `today-conversation-starter-${card.person.id}`;
 
   return (
     <article
@@ -64,21 +62,25 @@ export default function TodayCard({
           </button>
           {affiliationText && <p>{affiliationText}</p>}
         </div>
-        {due.label && <span className={`today-due-state${card.item.dueState === "overdue" ? " overdue" : ""}`}>{due.label}</span>}
       </header>
-      {due.detail && <p className="today-planned-date">{due.detail}</p>}
-      <p className="today-reason"><span>Reason</span>{reason}</p>
-      <p className="today-action-context">{intendedAction}</p>
-      {card.memoryCue && (
-        <div className="today-memory-cue" aria-label="Memory cue">
-          <span>Remember</span>
-          <strong>{card.memoryCue.text}</strong>
+      {starter && (
+        <div className="today-conversation-suggestion" aria-label="Conversation starter">
+          <span>Conversation starter</span>
+          <p id={starterId} className="today-conversation-starter" aria-live="polite" aria-atomic="true">“{starter}”</p>
         </div>
       )}
-      {card.item.additionalDueFollowUpIds.length > 0 && (
-        <p className="today-also-due">Also due: {card.item.additionalDueFollowUpIds.length} other {card.item.additionalDueFollowUpIds.length === 1 ? "plan" : "plans"}</p>
+      {card.conversationStarters.length > 1 && (
+        <button
+          className="text-action today-another-starter"
+          type="button"
+          aria-label={`Show another conversation starter for ${card.person.displayName}`}
+          aria-controls={starterId}
+          onClick={() => setStarterState({
+            key: starterKey,
+            index: (starterIndex + 1) % card.conversationStarters.length
+          })}
+        >Another suggestion</button>
       )}
-      {card.reachOut?.entry.reason && <p className="today-reach-out-context">Reach Out: {card.reachOut.entry.reason}</p>}
 
       {error && (
         <div className="today-card-error" role="alert">
@@ -91,17 +93,12 @@ export default function TodayCard({
       )}
 
       <div className="today-card-actions" role="group" aria-label={`Actions for ${card.person.displayName}`}>
-        <button className="primary-action" type="button" disabled={busy} onClick={onContactNow}>Contact now</button>
-        <button type="button" disabled={busy} onClick={onNotToday}>Not today</button>
-        <button type="button" disabled={busy} onClick={onAlreadyContacted}>Already contacted</button>
+        <button className="primary-action" type="button" disabled={busy} onClick={() => onMessage(starter)}>Message</button>
+        <button type="button" disabled={busy} onClick={onCall}>Call</button>
+        <button type="button" disabled={busy} onClick={onDone}>Done</button>
       </div>
-      {!card.contact.hasActivePhone && (
-        <button className="today-add-phone" type="button" disabled={busy} onClick={onAddPhone}>Add phone number</button>
-      )}
       <div className="today-card-links">
-        <button type="button" onClick={onWhy}>Why this person?</button>
-        <button type="button" onClick={onProfile}>Open profile</button>
-        {card.reachOut && onReachOut && <button type="button" onClick={onReachOut}>Open Reach Out plan</button>}
+        <button type="button" disabled={busy} onClick={onPause}>Pause</button>
       </div>
     </article>
   );

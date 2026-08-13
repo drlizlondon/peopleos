@@ -1,5 +1,6 @@
 import {
   DATA_STORE_NAMES,
+  DEFAULT_CONVERSATION_STARTERS,
   DEFAULT_TODAY_NOTIFICATION_TIME,
   type DataStoreName,
   type PeopleOsData
@@ -59,13 +60,17 @@ export function migrateLegacyCloudRecord(remote: CloudRecordEnvelope): CloudReco
   if (remote.deleted || remote.store !== "appSettings" || !remote.payload) return remote;
   const missingEnabled = remote.payload.todaySummaryNotificationsEnabled === undefined;
   const missingTime = remote.payload.todaySummaryNotificationTime === undefined;
-  if (!missingEnabled && !missingTime) return remote;
+  const missingConversationStarters = remote.payload.conversationStarters === undefined;
+  if (!missingEnabled && !missingTime && !missingConversationStarters) return remote;
   return {
     ...remote,
     payload: {
       ...remote.payload,
       ...(missingEnabled ? { todaySummaryNotificationsEnabled: false } : {}),
-      ...(missingTime ? { todaySummaryNotificationTime: DEFAULT_TODAY_NOTIFICATION_TIME } : {})
+      ...(missingTime ? { todaySummaryNotificationTime: DEFAULT_TODAY_NOTIFICATION_TIME } : {}),
+      ...(missingConversationStarters
+        ? { conversationStarters: DEFAULT_CONVERSATION_STARTERS.map((starter) => ({ ...starter })) }
+        : {})
     }
   };
 }

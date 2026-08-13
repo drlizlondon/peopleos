@@ -68,34 +68,20 @@ describe("V1-07 full FollowUp screens", () => {
     await resetDatabase();
   });
 
-  it("keeps due plans out of Upcoming and applies filter drafts only on Show results", async () => {
+  it("shows each future scheduled person once and leaves people already due in Today", async () => {
     await seedPerson("person-sarah", "Sarah Jones", "high");
     await seedPerson("person-aaron", "Aaron Patel");
     await seedFollowUp("person-sarah", today(), "Send today’s update", "send_update");
     await seedFollowUp("person-sarah", addDaysToLocalDate(today(), 3), "Arrange coffee", "arrange_meeting");
     await seedFollowUp("person-aaron", addDaysToLocalDate(today(), 10), "Research contact route", "research_contact_route");
 
-    const user = userEvent.setup();
     render(<UpcomingScreen navigate={vi.fn()} />);
-    expect(await screen.findByRole("heading", { name: "Arrange coffee" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Research contact route" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Send today’s update" })).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Filter" }));
-    let dialog = await screen.findByRole("dialog", { name: "Filter follow-ups" });
-    await waitFor(() => expect(within(dialog).getByLabelText("Date window")).toHaveFocus());
-    await user.selectOptions(within(dialog).getByLabelText("Date window"), "next_7_days");
-    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    expect(screen.getByRole("heading", { name: "Research contact route" })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Filter" }));
-    dialog = await screen.findByRole("dialog", { name: "Filter follow-ups" });
-    await user.selectOptions(within(dialog).getByLabelText("Date window"), "next_7_days");
-    await user.click(within(dialog).getByRole("button", { name: "Show results" }));
-
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "Research contact route" })).not.toBeInTheDocument());
-    expect(screen.getByRole("heading", { name: "Arrange coffee" })).toBeInTheDocument();
-    expect(screen.getByText("1 filter applied.")).toBeInTheDocument();
+    const list = await screen.findByRole("list", { name: "People coming up" });
+    expect(within(list).getByRole("link", { name: /Aaron Patel/ })).toBeInTheDocument();
+    expect(within(list).queryByRole("link", { name: /Sarah Jones/ })).not.toBeInTheDocument();
+    expect(within(list).queryByText("Send today’s update")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Filter" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Action type")).not.toBeInTheDocument();
   });
 
   it("distinguishes a due-only Upcoming state", async () => {
@@ -103,27 +89,19 @@ describe("V1-07 full FollowUp screens", () => {
     await seedFollowUp("person-sarah", today(), "Send today’s update", "send_update");
 
     render(<UpcomingScreen navigate={vi.fn()} />);
-    expect(await screen.findByRole("heading", { name: "No future follow-ups." })).toBeInTheDocument();
-    expect(screen.getByText("You have 1 due follow-up. Upcoming only shows plans after today.")).toBeInTheDocument();
+    expect(await screen.findByText("No one is scheduled yet.")).toBeInTheDocument();
+    expect(screen.queryByText(/follow-up/i)).not.toBeInTheDocument();
   });
 
-  it("opens a Today-dated plan created from Upcoming instead of making it appear to vanish", async () => {
+  it("is read-only and returns quietly to Today", async () => {
     await seedPerson("person-sarah", "Sarah Jones");
     const navigate = vi.fn();
     const user = userEvent.setup();
     render(<UpcomingScreen navigate={navigate} />);
-    await screen.findByRole("heading", { name: "Nothing planned yet." });
-
-    const addButtons = screen.getAllByRole("button", { name: "Add follow-up" });
-    expect(addButtons).toHaveLength(2);
-    await user.click(addButtons[0]);
-    const picker = await screen.findByRole("dialog", { name: "Choose a person" });
-    await user.click(await within(picker).findByRole("button", { name: /Sarah Jones/ }));
-    const editor = await screen.findByRole("dialog", { name: "Plan a follow-up" });
-    await user.type(within(editor).getByLabelText(/^Reason/), "Send today’s update");
-    await user.click(within(editor).getByRole("button", { name: "Save follow-up" }));
-
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.stringMatching(/^\/follow-ups\/follow-up-/)));
+    await screen.findByText("No one is scheduled yet.");
+    expect(screen.queryByRole("button", { name: "Add follow-up" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "← Today" }));
+    expect(navigate).toHaveBeenCalledWith("/");
   });
 
   it("shows FollowUp lifecycle state and makes a cancelled plan read-only", async () => {
@@ -144,7 +122,7 @@ describe("V1-07 full FollowUp screens", () => {
     );
 
     expect(await screen.findByRole("heading", { name: "Send the promised notes" })).toBeInTheDocument();
-    expect(screen.getByText("Future pending")).toBeInTheDocument();
+    expect(screen.getByText("Planned")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Follow-up planned" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Cancel follow-up" }));
 
@@ -178,66 +156,38 @@ describe("V1-07 full FollowUp screens", () => {
       .getByText("Completed without contact")).toBeInTheDocument();
   });
 
-  it("creates a plan and cadence from the Profile and keeps the Person follow-up view consistent", async () => {
-    await seedPerson("person-sarah", "Sarah Jones");
+  it("keeps stored schedules and frequency while the Profile no longer promotes follow-up planning", async () => {
+    const person = await seedPerson("person-sarah", "Sarah Jones");
+    await (await getDatabase()).put("people", {
+      ...person,
+      contactCadence: { value: 2, unit: "weeks" },
+      updatedAt: new Date().toISOString()
+    });
+    await seedFollowUp("person-sarah", addDaysToLocalDate(today(), 5), "Send the pilot update");
     window.history.replaceState({ fromPath: "/people" }, "", "/people/person-sarah");
-    const user = userEvent.setup();
     render(<App />);
 
     await screen.findByRole("heading", { name: "Sarah Jones" });
-    const personActions = screen.getByRole("group", { name: "Person actions" });
-    await user.click(within(personActions).getByRole("button", { name: "Plan follow-up" }));
-    let dialog = await screen.findByRole("dialog", { name: "Plan a follow-up" });
-    await user.type(within(dialog).getByLabelText(/^Reason/), "Send the pilot update");
-    await user.selectOptions(within(dialog).getByLabelText(/^Action type/), "send_update");
-    const date = within(dialog).getByLabelText(/^Date/);
-    await user.clear(date);
-    await user.type(date, addDaysToLocalDate(today(), 5));
-    await user.click(within(dialog).getByRole("button", { name: "Save follow-up" }));
-
-    const planCard = await screen.findByRole("heading", { name: "Current plan" });
-    const planSection = planCard.closest("section");
-    expect(planSection).not.toBeNull();
-    expect(within(planSection!).getByText("Send the pilot update")).toBeInTheDocument();
-    expect((await readAllData(await getDatabase())).followUps).toHaveLength(1);
-
-    await user.click(within(personActions).getByRole("button", { name: "Cadence" }));
-    dialog = await screen.findByRole("dialog", { name: "Contact cadence" });
-    await user.selectOptions(within(dialog).getByLabelText("Recurring cadence"), "90");
-    await user.click(within(dialog).getByRole("button", { name: "Save cadence" }));
-    await waitFor(async () => {
-      const data = await readAllData(await getDatabase());
-      expect(data.people[0]?.contactCadence).toEqual({ value: 3, unit: "months" });
-      expect(data.people[0]?.contactCadenceDays).toBeUndefined();
-      expect(data.followUps).toHaveLength(1);
-    });
-
-    await user.click(within(planSection!).getByRole("button", { name: "See all" }));
-    expect(window.location.pathname).toBe("/people/person-sarah/follow-ups");
-    expect(await screen.findByRole("heading", { name: "Follow-ups" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Send the pilot update" })).toBeInTheDocument();
+    expect(screen.getByText("2 weeks")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Plan follow-up" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cadence" })).not.toBeInTheDocument();
+    expect((await readAllData(await getDatabase())).followUps).toEqual([
+      expect.objectContaining({ reason: "Send the pilot update", status: "pending" })
+    ]);
   });
 
-  it("makes Add follow-up the contextual first Global Add action from Upcoming", async () => {
+  it("keeps legacy follow-up routes but removes planner entry points from Upcoming", async () => {
     await seedPerson("person-sarah", "Sarah Jones");
     window.history.replaceState({}, "", "/upcoming");
-    const user = userEvent.setup();
     render(<App />);
-    await screen.findByRole("heading", { name: "Nothing planned yet." });
-
-    await user.click(screen.getByRole("button", { name: "Add person" }));
-    const addSheet = await screen.findByRole("dialog", { name: "Add to PeopleOS" });
-    const actionLabels = Array.from(addSheet.querySelectorAll(".global-add-actions > button"), (button) => button.textContent);
-    expect(actionLabels[0]).toBe("Add follow-up");
-    await user.click(within(addSheet).getByRole("button", { name: "Add follow-up" }));
-    const picker = await screen.findByRole("dialog", { name: "Choose a person" });
-    const sarah = await within(picker).findByRole("button", { name: /Sarah Jones/ });
-    expect(sarah).toBeInTheDocument();
-    await user.click(sarah);
-    expect(await screen.findByRole("dialog", { name: "Plan a follow-up" })).toBeInTheDocument();
+    await screen.findByText("No one is scheduled yet.");
+    expect(screen.queryByRole("button", { name: "Add" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Relationship filter" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add follow-up" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Plan a follow-up" })).not.toBeInTheDocument();
   });
 
-  it("returns from a Person opened through Follow-up Detail to the same plan", async () => {
+  it("keeps a legacy Follow-up Detail reachable through browser history after opening its Person", async () => {
     await seedPerson("person-sarah", "Sarah Jones");
     const followUp = await seedFollowUp(
       "person-sarah",
@@ -251,8 +201,8 @@ describe("V1-07 full FollowUp screens", () => {
     await screen.findByRole("heading", { name: "Share the fellowship notes" });
     await user.click(screen.getByRole("button", { name: "Sarah Jones" }));
     expect(window.location.pathname).toBe("/people/person-sarah");
-    const back = await screen.findByRole("button", { name: "← Back to follow-up" });
-    await user.click(back);
+    expect(await screen.findByRole("heading", { name: "Sarah Jones" })).toBeInTheDocument();
+    window.history.back();
     await waitFor(() => expect(window.location.pathname).toBe(`/follow-ups/${followUp.id}`));
     expect(await screen.findByRole("heading", { name: "Share the fellowship notes" })).toBeInTheDocument();
   });

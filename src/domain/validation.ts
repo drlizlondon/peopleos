@@ -4,6 +4,7 @@ import {
   type AppSettings,
   type BackupEnvelope,
   type ContactMethod,
+  type ConversationStarter,
   type DataStoreName,
   type FollowUp,
   type FollowUpEvent,
@@ -94,6 +95,7 @@ function validatePerson(value: unknown): value is Person {
     && strings(value.tags)
     && (value.contactCadence === undefined || isValidContactCadence(value.contactCadence))
     && (value.contactCadenceDays === undefined || (Number.isInteger(value.contactCadenceDays) && Number(value.contactCadenceDays) >= 1 && Number(value.contactCadenceDays) <= 3_650))
+    && optionalDate(value.todayPausedUntilDate)
     && optionalInstant(value.archivedAt)
     && optionalString(value.mergedIntoPersonId)
     && optionalCommandFingerprint(value.mergeCommandFingerprint)
@@ -243,7 +245,37 @@ export function validateAppSettings(value: unknown): value is AppSettings {
     && Number(value.alreadyContactedDefaultReminderDays) <= 3_650
     && (reminder === undefined || [1, 7, 14, 30].includes(Number(reminder)))
     && typeof value.todaySummaryNotificationsEnabled === "boolean"
-    && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(value.todaySummaryNotificationTime));
+    && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(value.todaySummaryNotificationTime))
+    && validateConversationStarters(value.conversationStarters);
+}
+
+export function validateConversationStarters(value: unknown): value is ConversationStarter[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 100) return false;
+  const ids = new Set<string>();
+  let supportsPersonal = false;
+  let supportsProfessional = false;
+  for (const starter of value) {
+    if (!object(starter)
+      || typeof starter.id !== "string"
+      || starter.id.trim() !== starter.id
+      || starter.id.length < 1
+      || starter.id.length > 120
+      || typeof starter.template !== "string"
+      || starter.template.trim() !== starter.template
+      || starter.template.length < 1
+      || starter.template.length > 240
+      || !starter.template.includes("{name}")
+      || !["personal", "professional", "both"].includes(String(starter.relationshipMode))
+      || ids.has(starter.id)) return false;
+    ids.add(starter.id);
+    if (starter.relationshipMode === "personal" || starter.relationshipMode === "both") {
+      supportsPersonal = true;
+    }
+    if (starter.relationshipMode === "professional" || starter.relationshipMode === "both") {
+      supportsProfessional = true;
+    }
+  }
+  return supportsPersonal && supportsProfessional;
 }
 
 const storeValidators: Record<DataStoreName, (value: unknown) => boolean> = {

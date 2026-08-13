@@ -1,14 +1,15 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AppSettings } from "../domain/schema";
+import { DEFAULT_CONVERSATION_STARTERS, type AppSettings } from "../domain/schema";
 import NotificationSettingsSection from "./NotificationSettingsSection";
 
 const mocks = vi.hoisted(() => ({
   runtime: {
     supported: true,
     permission: "prompt" as "prompt" | "granted" | "denied",
-    scheduledCount: 0
+    scheduledCount: 0,
+    incompleteRegularScheduleCount: 0
   },
   enable: vi.fn(),
   disable: vi.fn(),
@@ -36,6 +37,7 @@ const settings: AppSettings = {
   alreadyContactedDefaultReminderDays: 14,
   todaySummaryNotificationsEnabled: false,
   todaySummaryNotificationTime: "12:00",
+  conversationStarters: DEFAULT_CONVERSATION_STARTERS.map((starter) => ({ ...starter })),
   createdAt: "2026-08-01T09:00:00.000Z",
   updatedAt: "2026-08-01T09:00:00.000Z"
 };
@@ -44,6 +46,7 @@ beforeEach(() => {
   mocks.runtime.supported = true;
   mocks.runtime.permission = "prompt";
   mocks.runtime.scheduledCount = 0;
+  mocks.runtime.incompleteRegularScheduleCount = 0;
   mocks.enable.mockReset();
   mocks.disable.mockReset();
   mocks.changeTime.mockReset();
@@ -99,6 +102,17 @@ describe("Today notification Settings", () => {
     render(<NotificationSettingsSection settings={settings} onSettingsChanged={vi.fn()} />);
     expect(screen.getByText("Off · Permission denied")).toBeInTheDocument();
     expect(screen.getByText(/allow them in iPhone Settings/i)).toBeInTheDocument();
+  });
+
+  it("does not call an incomplete regular schedule an empty Today list", () => {
+    mocks.runtime.permission = "granted";
+    mocks.runtime.incompleteRegularScheduleCount = 1;
+    render(<NotificationSettingsSection
+      settings={{ ...settings, todaySummaryNotificationsEnabled: true }}
+      onSettingsChanged={vi.fn()}
+    />);
+    expect(screen.getByText("On · Regular contact needs a start date")).toBeInTheDocument();
+    expect(screen.queryByText("On · Nothing is waiting in Today")).not.toBeInTheDocument();
   });
 
   it("reloads settings changed by iCloud instead of repeatedly saving a stale revision", async () => {

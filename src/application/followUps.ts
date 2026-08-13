@@ -5,6 +5,7 @@ import {
   interactionCountsAsContact,
   interactionKindIsManuallySelectable
 } from "../domain/interactionPolicy";
+import { regularContactSetupState } from "../domain/regularContactSchedule";
 import {
   contactCadenceOf,
   contactCadencesEqual,
@@ -773,7 +774,7 @@ export async function updateContactCadence(
     contactCadence: command.cadence,
     contactCadenceDays: command.cadenceDays
   });
-  const tx = db.transaction(["people", "metadata"], "readwrite");
+  const tx = db.transaction(["people", "interactions", "followUps", "metadata"], "readwrite");
   try {
     const people = tx.objectStore("people");
     const current = requireWritablePerson(await people.get(command.personId));
@@ -801,6 +802,13 @@ export async function updateContactCadence(
       revision: current.revision + 1,
       updatedAt: command.occurredAt
     };
+    const [interactions, followUps] = await Promise.all([
+      tx.objectStore("interactions").index("by-person").getAll(current.id),
+      tx.objectStore("followUps").index("by-person").getAll(current.id)
+    ]);
+    if (regularContactSetupState(updated, interactions, followUps) === "incomplete") {
+      throw new ValidationError(["Choose Today or Tomorrow to start regular contact."]);
+    }
     assertValidRecord("people", updated);
     await people.put(updated);
     await updateMetadata(tx.objectStore("metadata"), command.occurredAt);

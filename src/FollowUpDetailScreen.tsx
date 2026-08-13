@@ -52,10 +52,10 @@ function currentLocalDate(): string {
 function statusLabel(detail: FollowUpDetail): string {
   if (detail.followUp.status === "pending") {
     return {
-      overdue: "Overdue",
-      due_today: "Due today",
-      snoozed: "Snoozed",
-      future_pending: "Future pending"
+      overdue: "Ready",
+      due_today: "Today",
+      snoozed: "Later",
+      future_pending: "Planned"
     }[pendingFollowUpTemporalState(detail.followUp, currentLocalDate())!];
   }
   if (detail.followUp.status === "completed") {
@@ -68,7 +68,7 @@ function statusLabel(detail: FollowUpDetail): string {
 }
 
 function eventSummary(event: FollowUpEvent): string | undefined {
-  if (event.kind === "created" && event.toDate) return `Due ${localDateLabel(event.toDate)}`;
+  if (event.kind === "created" && event.toDate) return `Planned for ${localDateLabel(event.toDate)}`;
   if ((event.kind === "snoozed" || event.kind === "rescheduled") && event.toDate) {
     return `${event.fromDate ? `${localDateLabel(event.fromDate)} → ` : ""}${localDateLabel(event.toDate)}`;
   }

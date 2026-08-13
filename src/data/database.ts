@@ -3,6 +3,7 @@ import {
   DATABASE_NAME,
   DATABASE_VERSION,
   DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS,
+  DEFAULT_CONVERSATION_STARTERS,
   DEFAULT_TODAY_NOTIFICATION_TIME,
   DATA_STORE_NAMES,
   type AppMetadata,
@@ -65,6 +66,7 @@ export function createDefaultSettings(now = new Date().toISOString()): AppSettin
     alreadyContactedDefaultReminderDays: DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS,
     todaySummaryNotificationsEnabled: false,
     todaySummaryNotificationTime: DEFAULT_TODAY_NOTIFICATION_TIME,
+    conversationStarters: DEFAULT_CONVERSATION_STARTERS.map((starter) => ({ ...starter })),
     revision: 1,
     createdAt: now,
     updatedAt: now
@@ -79,11 +81,14 @@ function migrateAppSettings(settings: AppSettings): AppSettings {
       ?? DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS,
     todaySummaryNotificationsEnabled: legacy.todaySummaryNotificationsEnabled ?? false,
     todaySummaryNotificationTime: legacy.todaySummaryNotificationTime
-      ?? DEFAULT_TODAY_NOTIFICATION_TIME
+      ?? DEFAULT_TODAY_NOTIFICATION_TIME,
+    conversationStarters: legacy.conversationStarters
+      ?? DEFAULT_CONVERSATION_STARTERS.map((starter) => ({ ...starter }))
   };
   return legacy.alreadyContactedDefaultReminderDays === undefined
     || legacy.todaySummaryNotificationsEnabled === undefined
     || legacy.todaySummaryNotificationTime === undefined
+    || legacy.conversationStarters === undefined
     ? migrated
     : settings;
 }

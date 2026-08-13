@@ -103,7 +103,44 @@ describe("native Today notification reconciliation", () => {
     );
     expect(native.cancelled).toEqual([[1_520_260_731]]);
     expect(native.scheduled[0]).toHaveLength(30);
-    expect(state).toEqual({ supported: true, permission: "granted", scheduledCount: 30 });
+    expect(state).toEqual({
+      supported: true,
+      permission: "granted",
+      scheduledCount: 30,
+      incompleteRegularScheduleCount: 0
+    });
+  });
+
+  it("reports an incomplete regular schedule and installs no private reminder for it", async () => {
+    const db = await openSeededDatabase("incomplete-regular-schedule", true);
+    const person = (await db.get("people", "person-sarah"))!;
+    await db.put("people", {
+      ...person,
+      contactCadence: { value: 1, unit: "days" },
+      contactCadenceDays: undefined,
+      revision: person.revision + 1
+    });
+    await db.clear("interactions");
+    await db.clear("followUps");
+    await db.clear("followUpEvents");
+    await db.clear("todaySkips");
+
+    const native = fakeAdapter("granted");
+    const state = await reconcileTodayNotifications(
+      db,
+      native.adapter,
+      new Date("2026-08-01T09:00:00.000Z")
+    );
+
+    expect(state).toEqual({
+      supported: true,
+      permission: "granted",
+      scheduledCount: 0,
+      incompleteRegularScheduleCount: 1
+    });
+    expect(native.scheduled).toEqual([]);
+    expect(native.cancelled).toEqual([[1_520_260_731]]);
+    expect(native.pending).toEqual(new Set());
   });
 
   it.each(["prompt", "denied"] as const)("schedules nothing when permission is %s", async (permission) => {

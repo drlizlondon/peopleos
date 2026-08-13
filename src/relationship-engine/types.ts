@@ -40,6 +40,11 @@ export type RelationshipPersonBundle = {
   triggeringInteractionId?: string;
 };
 
+export type RelationshipScheduleState =
+  | { kind: "scheduled"; localDate: LocalDate }
+  | { kind: "incomplete_regular_schedule" }
+  | { kind: "not_scheduled" };
+
 export type ExplanationFact = {
   label: string;
   value: string;
@@ -157,6 +162,7 @@ export type RelationshipAssessment = {
   displayName: string;
   importance: Person["importance"];
   active: boolean;
+  scheduleState: RelationshipScheduleState;
   today?: TodayAssessment;
   relationshipStage: RelationshipStageProjection;
   memoryCue?: MemoryCueProjection;

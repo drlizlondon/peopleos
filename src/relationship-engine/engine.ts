@@ -8,6 +8,7 @@ import {
   localDateForInstant
 } from "../domain/followUpPolicy";
 import { interactionCountsAsContact } from "../domain/interactionPolicy";
+import { regularContactSetupState } from "../domain/regularContactSchedule";
 import {
   deriveReachOutDisplayState,
   type ReachOutDisplayState
@@ -37,6 +38,7 @@ import {
   type RelationshipAssessment,
   type RelationshipClock,
   type RelationshipPersonBundle,
+  type RelationshipScheduleState,
   type RelationshipStageProjection,
   type SuggestedReminderProjection,
   type TodayAssessment,
@@ -462,6 +464,14 @@ function followUpExplanation(
   );
 }
 
+function activeTodayPauseDate(
+  person: RelationshipPersonBundle["person"],
+  localDate: LocalDate
+): LocalDate | undefined {
+  const pausedUntil = person.todayPausedUntilDate;
+  return pausedUntil && pausedUntil > localDate ? pausedUntil : undefined;
+}
+
 function buildTodayAssessment(
   bundle: RelationshipPersonBundle,
   contacts: readonly Interaction[],
@@ -469,6 +479,7 @@ function buildTodayAssessment(
   timeZone: string
 ): TodayAssessment | undefined {
   if (bundle.person.archivedAt || bundle.person.identityStatus === "merged") return undefined;
+  if (activeTodayPauseDate(bundle.person, localDate)) return undefined;
   const followUps = bundle.followUps.filter((followUp) => followUp.personId === bundle.person.id);
   const pending = followUps.filter((followUp) => followUp.status === "pending");
   const due = pending
@@ -556,13 +567,20 @@ function buildTodayAssessment(
  * rules wins. Once eligible, the Person remains eligible until relationship
  * data changes; date-specific Today skips are applied by the caller.
  */
-export function nextTodayEligibleLocalDate(
+export function resolveRelationshipScheduleState(
   bundle: RelationshipPersonBundle,
   clock: RelationshipClock
-): LocalDate | undefined {
+): RelationshipScheduleState {
   const localDate = assertClock(clock);
-  if (bundle.person.archivedAt || bundle.person.identityStatus === "merged") return undefined;
+  if (bundle.person.archivedAt || bundle.person.identityStatus === "merged") {
+    return { kind: "not_scheduled" };
+  }
 
+  if (regularContactSetupState(bundle.person, bundle.interactions, bundle.followUps) === "incomplete") {
+    return { kind: "incomplete_regular_schedule" };
+  }
+
+  const pausedUntil = activeTodayPauseDate(bundle.person, localDate);
   const contacts = contactInteractions(bundle.interactions, bundle.person.id);
   const followUps = bundle.followUps.filter((followUp) => followUp.personId === bundle.person.id);
   const pending = followUps
@@ -570,7 +588,11 @@ export function nextTodayEligibleLocalDate(
     .sort(compareFollowUpsByEffectiveDate);
   if (pending[0]) {
     const effectiveDate = effectiveFollowUpDate(pending[0]);
-    return effectiveDate < localDate ? localDate : effectiveDate;
+    const scheduledDate = effectiveDate < localDate ? localDate : effectiveDate;
+    return {
+      kind: "scheduled",
+      localDate: pausedUntil && pausedUntil > scheduledDate ? pausedUntil : scheduledDate
+    };
   }
 
   const candidates: LocalDate[] = [];
@@ -588,8 +610,22 @@ export function nextTodayEligibleLocalDate(
   }
 
   const earliest = candidates.sort()[0];
-  if (!earliest) return undefined;
-  return earliest < localDate ? localDate : earliest;
+  if (earliest) {
+    const scheduledDate = earliest < localDate ? localDate : earliest;
+    return {
+      kind: "scheduled",
+      localDate: pausedUntil && pausedUntil > scheduledDate ? pausedUntil : scheduledDate
+    };
+  }
+  return { kind: "not_scheduled" };
+}
+
+export function nextTodayEligibleLocalDate(
+  bundle: RelationshipPersonBundle,
+  clock: RelationshipClock
+): LocalDate | undefined {
+  const state = resolveRelationshipScheduleState(bundle, clock);
+  return state.kind === "scheduled" ? state.localDate : undefined;
 }
 
 function buildOverdueFollowUp(
@@ -785,6 +821,7 @@ export function assessRelationship(
   );
   const lastContact = buildLastContact(contacts, clock.timeZone);
   const active = !bundle.person.archivedAt && bundle.person.identityStatus !== "merged";
+  const scheduleState = resolveRelationshipScheduleState(bundle, clock);
   const today = buildTodayAssessment(bundle, contacts, localDate, clock.timeZone);
   const searchContextCue = buildFallbackMemoryCue(bundle, clock.timeZone);
   const memoryCue = buildMemoryCue(dueFollowUps, searchContextCue);
@@ -801,6 +838,7 @@ export function assessRelationship(
     displayName: bundle.person.displayName,
     importance: bundle.person.importance,
     active,
+    scheduleState,
     ...(today ? { today } : {}),
     relationshipStage: buildStage(contacts, clock.timeZone, bundle.person.createdAt, bundle.person.id),
     ...(memoryCue ? { memoryCue } : {}),

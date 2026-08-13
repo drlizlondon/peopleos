@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { ContactNowTarget } from "./application/contactNow";
-import { addDaysToLocalDate } from "./domain/followUpPolicy";
+import { addDaysToLocalDate, addMonthsToLocalDate } from "./domain/followUpPolicy";
 import type { LocalDate } from "./domain/schema";
 import { formatEngineLocalDate } from "./relationship-engine";
 
@@ -18,6 +18,7 @@ type ContactMethodChoiceSheetProps = ModalProps & {
   onCopy?: () => void;
   onAddPhone: () => void;
   onManage: () => void;
+  requestedChannel?: "call" | "message";
 };
 
 type ExplanationSheetProps = ModalProps & {
@@ -38,6 +39,13 @@ type NextReminderSheetProps = ModalProps & {
   onRetry?: () => void;
 };
 
+type PauseTodaySheetProps = ModalProps & {
+  todayDate: LocalDate;
+  saving: boolean;
+  error?: string;
+  onChooseDate: (date: LocalDate) => void;
+};
+
 function useModalSheet(
   prefix: string,
   onClose: () => void,
@@ -54,7 +62,14 @@ function useModalSheet(
   useEffect(() => {
     const id = `${prefix}-${modalId}`;
     window.dispatchEvent(new CustomEvent("peopleos:modal-open", {
-      detail: { id, dismiss: () => { if (!disabledRef.current) closeRef.current(); } }
+      detail: {
+        id,
+        dismiss: () => {
+          if (disabledRef.current) return false;
+          closeRef.current();
+          return true;
+        }
+      }
     }));
     return () => {
       window.dispatchEvent(new CustomEvent("peopleos:modal-close", { detail: { id } }));
@@ -104,6 +119,7 @@ export function ContactMethodChoiceSheet({
   onCopy,
   onAddPhone,
   onManage,
+  requestedChannel,
   onClose
 }: ContactMethodChoiceSheetProps) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -112,7 +128,7 @@ export function ContactMethodChoiceSheet({
     <div className="sheet-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section ref={sheetRef} className="contact-sheet today-sheet" role="dialog" aria-modal="true" aria-labelledby="today-contact-choice-title">
         <div className="sheet-heading">
-          <div><p className="eyebrow">Contact now</p><h3 id="today-contact-choice-title">Contact {personName}</h3></div>
+          <div><p className="eyebrow">{requestedChannel === "message" ? "Message" : requestedChannel === "call" ? "Call" : "Contact"}</p><h3 id="today-contact-choice-title">Contact {personName}</h3></div>
           <button ref={closeButtonRef} type="button" aria-label="Close contact method choice" onClick={onClose}>×</button>
         </div>
         {error && <p className="form-alert" role="alert">{error}</p>}
@@ -121,20 +137,94 @@ export function ContactMethodChoiceSheet({
             {targets.map((target) => (
               <li key={target.id}>
                 <button type="button" onClick={() => onChoose(target.id)}>
-                  <span>{target.channel === "phone_call" ? "Call" : "Email"} · {target.label}</span>
+                  <span>{target.channel === "phone_call" ? (requestedChannel === "message" ? "WhatsApp" : "Call") : "Email"} · {target.label}</span>
                   <strong>{target.familiarValue}</strong>
                   {target.isPreferred && <small>Preferred</small>}
                 </button>
               </li>
             ))}
           </ul>
-        ) : <p className="muted-copy">No contact details available.</p>}
+        ) : <p className="muted-copy">{requestedChannel === "call" ? "No phone number available." : "No message contact available."}</p>}
+        {requestedChannel === "message" && targets.some((target) => target.channel === "phone_call") && (
+          <p className="muted-copy">WhatsApp opens with a draft. Nothing is sent until you press Send.</p>
+        )}
         <div className="button-row sheet-actions">
           {copyValue && onCopy && <button type="button" onClick={onCopy}>Copy contact detail</button>}
           {!hasPhone && <button className="primary-action" type="button" onClick={onAddPhone}>Add phone number</button>}
           <button type="button" onClick={onManage}>Manage contact methods</button>
           <button type="button" onClick={onClose}>Cancel</button>
         </div>
+      </section>
+    </div>
+  );
+}
+
+export function PauseTodaySheet({
+  personName,
+  todayDate,
+  saving,
+  error,
+  onChooseDate,
+  onClose
+}: PauseTodaySheetProps) {
+  const firstChoiceRef = useRef<HTMLButtonElement>(null);
+  const dateRef = useRef<HTMLInputElement>(null);
+  const dateId = `today-pause-date-${useId()}`;
+  const [choosingDate, setChoosingDate] = useState(false);
+  const [pickedDate, setPickedDate] = useState("");
+  const [dateError, setDateError] = useState("");
+  const sheetRef = useModalSheet("today-pause", onClose, firstChoiceRef, saving);
+
+  function showDatePicker() {
+    setChoosingDate(true);
+    setDateError("");
+    requestAnimationFrame(() => dateRef.current?.focus());
+  }
+
+  function savePickedDate() {
+    if (!pickedDate || pickedDate <= todayDate) {
+      setDateError("Choose a date after today.");
+      requestAnimationFrame(() => dateRef.current?.focus());
+      return;
+    }
+    setDateError("");
+    onChooseDate(pickedDate as LocalDate);
+  }
+
+  return (
+    <div className="sheet-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) onClose(); }}>
+      <section ref={sheetRef} className="contact-sheet today-sheet" role="dialog" aria-modal="true" aria-labelledby={`${dateId}-title`}>
+        <div className="sheet-heading">
+          <div><p className="eyebrow">{personName}</p><h3 id={`${dateId}-title`}>Pause from Today</h3></div>
+          <button type="button" aria-label="Close Pause" onClick={onClose} disabled={saving}>×</button>
+        </div>
+        <p className="muted-copy">They’ll return to Today on the date you choose.</p>
+        <div className="today-reminder-options" aria-label="Pause length">
+          <button ref={firstChoiceRef} type="button" disabled={saving} onClick={() => onChooseDate(addDaysToLocalDate(todayDate, 7))}>1 week</button>
+          <button type="button" disabled={saving} onClick={() => onChooseDate(addMonthsToLocalDate(todayDate, 1))}>1 month</button>
+          <button type="button" disabled={saving} onClick={showDatePicker}>Choose date</button>
+        </div>
+        {choosingDate && (
+          <div className="today-date-picker form-field">
+            <label htmlFor={dateId}>Return to Today</label>
+            <input
+              ref={dateRef}
+              id={dateId}
+              type="date"
+              min={addDaysToLocalDate(todayDate, 1)}
+              value={pickedDate}
+              aria-invalid={Boolean(dateError) || undefined}
+              aria-describedby={dateError ? `${dateId}-error` : undefined}
+              onChange={(event) => { setPickedDate(event.target.value); setDateError(""); }}
+              disabled={saving}
+            />
+            {dateError && <p id={`${dateId}-error`} className="field-error" role="alert">{dateError}</p>}
+            <button className="primary-action" type="button" onClick={savePickedDate} disabled={saving}>Pause until this date</button>
+          </div>
+        )}
+        {error && <p className="form-alert" role="alert">{error}</p>}
+        {saving && <p className="screen-status" role="status">Saving…</p>}
+        <div className="button-row sheet-actions"><button type="button" onClick={onClose} disabled={saving}>Cancel</button></div>
       </section>
     </div>
   );

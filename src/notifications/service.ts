@@ -10,7 +10,10 @@ import {
   type TodayNotificationAdapter,
   type TodayNotificationPermission
 } from "./capacitorAdapter";
-import { buildTodayNotificationPlan } from "./policy";
+import {
+  buildTodayNotificationPlanningResult,
+  type TodayNotificationPlanEntry
+} from "./policy";
 
 export const OPEN_TODAY_FROM_NOTIFICATION_EVENT = "peopleos:open-today-from-notification";
 
@@ -18,6 +21,7 @@ export type TodayNotificationRuntimeState = {
   supported: boolean;
   permission: TodayNotificationPermission;
   scheduledCount: number;
+  incompleteRegularScheduleCount: number;
   error?: string;
 };
 
@@ -27,7 +31,8 @@ const listeners = new Set<RuntimeListener>();
 let runtimeState: TodayNotificationRuntimeState = {
   supported: false,
   permission: "prompt",
-  scheduledCount: 0
+  scheduledCount: 0,
+  incompleteRegularScheduleCount: 0
 };
 let started = false;
 let reconcileTimer: number | undefined;
@@ -91,7 +96,7 @@ async function cancelAndVerify(
 
 async function installAndVerifyPlan(
   adapter: TodayNotificationAdapter,
-  plan: ReturnType<typeof buildTodayNotificationPlan>,
+  plan: TodayNotificationPlanEntry[],
   existingIds: number[]
 ): Promise<number> {
   const desiredIds = new Set(plan.map((entry) => entry.id));
@@ -137,21 +142,23 @@ export async function reconcileTodayNotifications(
     return {
       supported: true,
       permission,
-      scheduledCount: 0
+      scheduledCount: 0,
+      incompleteRegularScheduleCount: 0
     };
   }
 
-  const plan = buildTodayNotificationPlan(await readAllData(db), {
+  const planning = buildTodayNotificationPlanningResult(await readAllData(db), {
     now,
     timeZone: currentTimeZone(),
     time: settings.todaySummaryNotificationTime,
     activeMode: readActiveRelationshipMode()
   });
-  const scheduledCount = await installAndVerifyPlan(adapter, plan, pendingIds);
+  const scheduledCount = await installAndVerifyPlan(adapter, planning.entries, pendingIds);
   return {
     supported: true,
     permission,
-    scheduledCount
+    scheduledCount,
+    incompleteRegularScheduleCount: planning.incompleteRegularSchedulePersonIds.length
   };
 }
 
@@ -162,7 +169,12 @@ async function runReconcile(): Promise<void> {
   }
   const adapter = createCapacitorTodayNotificationAdapter();
   if (!adapter) {
-    publish({ supported: false, permission: "prompt", scheduledCount: 0 });
+    publish({
+      supported: false,
+      permission: "prompt",
+      scheduledCount: 0,
+      incompleteRegularScheduleCount: 0
+    });
     return;
   }
   running = (async () => {
@@ -211,7 +223,12 @@ export function startTodayNotificationService(): () => void {
   if (started) return () => undefined;
   const adapter = createCapacitorTodayNotificationAdapter();
   if (!adapter) {
-    publish({ supported: false, permission: "prompt", scheduledCount: 0 });
+    publish({
+      supported: false,
+      permission: "prompt",
+      scheduledCount: 0,
+      incompleteRegularScheduleCount: 0
+    });
     return () => undefined;
   }
   started = true;
@@ -292,12 +309,18 @@ export async function enableTodayNotifications(
       : settings;
     try {
       await adapter.cancel(await adapter.pendingIds());
-      publish({ supported: true, permission, scheduledCount: 0 });
+      publish({
+        supported: true,
+        permission,
+        scheduledCount: 0,
+        incompleteRegularScheduleCount: 0
+      });
     } catch {
       publish({
         supported: true,
         permission,
         scheduledCount: 0,
+        incompleteRegularScheduleCount: 0,
         error: "PeopleOS could not cancel pending reminders yet."
       });
       requestTodayNotificationReconcile();
@@ -316,7 +339,12 @@ export async function disableTodayNotifications(
   const saved = await saveSettings(settings, false, settings.todaySummaryNotificationTime);
   const adapter = adapterOverride ?? createCapacitorTodayNotificationAdapter();
   if (!adapter) {
-    publish({ supported: false, permission: "prompt", scheduledCount: 0 });
+    publish({
+      supported: false,
+      permission: "prompt",
+      scheduledCount: 0,
+      incompleteRegularScheduleCount: 0
+    });
     return saved;
   }
   try {
@@ -324,7 +352,8 @@ export async function disableTodayNotifications(
     publish({
       supported: true,
       permission: await adapter.checkPermission(),
-      scheduledCount: 0
+      scheduledCount: 0,
+      incompleteRegularScheduleCount: 0
     });
   } catch {
     publish({

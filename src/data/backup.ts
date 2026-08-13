@@ -1,6 +1,7 @@
 import {
   BACKUP_SCHEMA_VERSION,
   DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS,
+  DEFAULT_CONVERSATION_STARTERS,
   DEFAULT_TODAY_NOTIFICATION_TIME,
   DATA_STORE_NAMES,
   emptyPeopleOsData,
@@ -43,6 +44,13 @@ type SchemaThreeBackupEnvelope = {
 type SchemaFourBackupEnvelope = {
   product: "peopleos";
   schemaVersion: 4;
+  exportedAt: string;
+  data?: unknown;
+};
+
+type SchemaFiveBackupEnvelope = {
+  product: "peopleos";
+  schemaVersion: 5;
   exportedAt: string;
   data?: unknown;
 };
@@ -108,6 +116,24 @@ function addTodayNotificationSettings(data: unknown): unknown {
   };
 }
 
+function addConversationStarters(data: unknown): unknown {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return data;
+  const record = data as Record<string, unknown>;
+  if (!Array.isArray(record.appSettings)) return data;
+  return {
+    ...record,
+    appSettings: record.appSettings.map((settings) => {
+      if (typeof settings !== "object" || settings === null || Array.isArray(settings)) return settings;
+      const settingRecord = settings as Record<string, unknown>;
+      if (settingRecord.conversationStarters !== undefined) return settings;
+      return {
+        ...settingRecord,
+        conversationStarters: DEFAULT_CONVERSATION_STARTERS.map((starter) => ({ ...starter }))
+      };
+    })
+  };
+}
+
 function migrateLegacyBackup(value: LegacyBackupEnvelope): BackupPreview {
   if (!isIsoInstant(value.exportedAt)) throw new ValidationError(["legacy backup exportedAt is invalid"]);
   const defaults = emptyPeopleOsData(createDefaultSettings(value.exportedAt));
@@ -117,7 +143,7 @@ function migrateLegacyBackup(value: LegacyBackupEnvelope): BackupPreview {
     product: "peopleos",
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: value.exportedAt,
-    data: validatePeopleOsData(addTodayNotificationSettings(addRelationshipModes(migrateAlreadyContactedDefault(migrated))))
+    data: validatePeopleOsData(addConversationStarters(addTodayNotificationSettings(addRelationshipModes(migrateAlreadyContactedDefault(migrated)))))
   };
   return { envelope, counts: countData(envelope.data), migratedFromVersion: 0 };
 }
@@ -128,7 +154,7 @@ function migrateSchemaOneBackup(value: SchemaOneBackupEnvelope): BackupPreview {
     product: "peopleos",
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: value.exportedAt,
-    data: validatePeopleOsData(addTodayNotificationSettings(addRelationshipModes(addExternalIdentities(migrateAlreadyContactedDefault(value.data)))))
+    data: validatePeopleOsData(addConversationStarters(addTodayNotificationSettings(addRelationshipModes(addExternalIdentities(migrateAlreadyContactedDefault(value.data))))))
   };
   return { envelope, counts: countData(envelope.data), migratedFromVersion: 1 };
 }
@@ -144,7 +170,7 @@ function migrateSchemaTwoBackup(value: SchemaTwoBackupEnvelope): BackupPreview {
     product: "peopleos",
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: value.exportedAt,
-    data: validatePeopleOsData(addTodayNotificationSettings(addRelationshipModes(addExternalIdentities(value.data))))
+    data: validatePeopleOsData(addConversationStarters(addTodayNotificationSettings(addRelationshipModes(addExternalIdentities(value.data)))))
   };
   return { envelope, counts: countData(envelope.data), migratedFromVersion: 2 };
 }
@@ -155,7 +181,7 @@ function migrateSchemaThreeBackup(value: SchemaThreeBackupEnvelope): BackupPrevi
     product: "peopleos",
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: value.exportedAt,
-    data: validatePeopleOsData(addTodayNotificationSettings(addRelationshipModes(value.data)))
+    data: validatePeopleOsData(addConversationStarters(addTodayNotificationSettings(addRelationshipModes(value.data))))
   };
   return { envelope, counts: countData(envelope.data), migratedFromVersion: 3 };
 }
@@ -166,9 +192,20 @@ function migrateSchemaFourBackup(value: SchemaFourBackupEnvelope): BackupPreview
     product: "peopleos",
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: value.exportedAt,
-    data: validatePeopleOsData(addTodayNotificationSettings(value.data))
+    data: validatePeopleOsData(addConversationStarters(addTodayNotificationSettings(value.data)))
   };
   return { envelope, counts: countData(envelope.data), migratedFromVersion: 4 };
+}
+
+function migrateSchemaFiveBackup(value: SchemaFiveBackupEnvelope): BackupPreview {
+  if (!isIsoInstant(value.exportedAt)) throw new ValidationError(["backup exportedAt is invalid"]);
+  const envelope: BackupEnvelope = {
+    product: "peopleos",
+    schemaVersion: BACKUP_SCHEMA_VERSION,
+    exportedAt: value.exportedAt,
+    data: validatePeopleOsData(addConversationStarters(value.data))
+  };
+  return { envelope, counts: countData(envelope.data), migratedFromVersion: 5 };
 }
 
 export function previewBackup(input: string | unknown): BackupPreview {
@@ -190,6 +227,7 @@ export function previewBackup(input: string | unknown): BackupPreview {
   if (candidate.schemaVersion === 2) return migrateSchemaTwoBackup(value as SchemaTwoBackupEnvelope);
   if (candidate.schemaVersion === 3) return migrateSchemaThreeBackup(value as SchemaThreeBackupEnvelope);
   if (candidate.schemaVersion === 4) return migrateSchemaFourBackup(value as SchemaFourBackupEnvelope);
+  if (candidate.schemaVersion === 5) return migrateSchemaFiveBackup(value as SchemaFiveBackupEnvelope);
   const envelope = validateBackupEnvelope(value);
   return { envelope, counts: countData(envelope.data) };
 }

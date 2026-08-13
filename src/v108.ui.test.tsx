@@ -6,7 +6,9 @@ import * as reachOutIdentityActions from "./application/reachOutIdentity";
 import * as reachOutQueryActions from "./application/reachOutQueries";
 import {
   createReachOut,
-  prepareCreateReachOutCommand
+  moveReachOutToDormant,
+  prepareCreateReachOutCommand,
+  prepareReachOutStatusCommand
 } from "./application/reachOut";
 import { closeDatabase, getDatabase } from "./data/client";
 import { deletePeopleOsDatabase, readAllData } from "./data/database";
@@ -20,6 +22,7 @@ import {
   type Person
 } from "./domain/schema";
 import { validatePeopleOsData } from "./domain/validation";
+import { OPEN_TODAY_FROM_NOTIFICATION_EVENT } from "./notifications/service";
 
 function today(): LocalDate {
   const now = new Date();
@@ -64,180 +67,172 @@ describe("V1-08 Reach Out UI", () => {
     await resetDatabase();
   });
 
-  it("quick-captures one provisional Person and reciprocal reminder from the canonical empty state", async () => {
+  it("adds a new confirmed Person with one optional note and no follow-up", async () => {
     window.history.replaceState({}, "", "/reach-out");
     const user = userEvent.setup();
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "People you mean to contact" })).toBeInTheDocument();
-    expect(screen.getByText("You can even add someone if all you remember is where you met them.")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Add someone" }));
+    expect(await screen.findByRole("heading", { name: "Reach Out" })).toBeInTheDocument();
+    expect(screen.getByText("People you mean to contact.")).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Add someone" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "Who do you want to reach out to?" });
-    const identity = within(dialog).getByLabelText(/^Person or description/);
-    await waitFor(() => expect(identity).toHaveFocus());
-    await user.click(within(dialog).getByRole("button", { name: "Add to Reach Out" }));
-    expect(within(dialog).getByRole("alert")).toHaveTextContent("Choose an existing person");
-    await user.type(identity, "Hackathon organiser");
-    await user.click(within(dialog).getByRole("button", { name: /Use “Hackathon organiser”/ }));
-    await user.type(within(dialog).getByLabelText(/^Why I want to reach out/), "Thank them for bringing everyone together");
-    await user.selectOptions(within(dialog).getByLabelText(/^Intended next action/), "research_contact_route");
-    await user.click(within(dialog).getByRole("button", { name: "Tomorrow" }));
-    await user.type(within(dialog).getByLabelText(/^Add context/), "NHS AI Hackathon");
+    const dialog = await screen.findByRole("dialog", { name: "Add someone" });
+    const identity = await within(dialog).findByLabelText(/^Person/, {}, { timeout: 10_000 });
+    expect(identity).toHaveAttribute("maxLength", "120");
+    expect(identity).not.toHaveFocus();
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Close Reach Out" })).toHaveFocus());
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("Choose a person");
+    await user.type(identity, "Simon");
+    expect(within(dialog).queryByText(/temporary description/i)).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "+ Add Simon" }));
 
-    const form = within(dialog).getByRole("button", { name: "Add to Reach Out" }).closest("form");
+    const addPerson = within(dialog).getByRole("group", { name: "Add someone" });
+    expect(within(addPerson).getByLabelText(/^Name/)).toHaveValue("Simon");
+    const lists = within(addPerson).getByRole("group", { name: "Lists" });
+    expect(within(lists).getByRole("checkbox", { name: "Personal" })).toBeChecked();
+    await user.click(within(lists).getByRole("checkbox", { name: "Professional" }));
+    await user.click(within(addPerson).getByRole("button", { name: "Add person" }));
+
+    expect(await within(dialog).findByText("Selected")).toBeInTheDocument();
+    expect(within(dialog).getByText("Simon")).toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText(/^Note/), "Catch up about fellowship");
+    expect(within(dialog).queryByLabelText(/Reminder date|Intended next action|Context|Action type/)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/More details|Tomorrow|No reminder/)).not.toBeInTheDocument();
+
+    const form = within(dialog).getByRole("button", { name: "Save" }).closest("form");
     fireEvent.submit(form!);
     fireEvent.submit(form!);
 
-    expect(await screen.findByRole("heading", { name: "Hackathon organiser" })).toBeInTheDocument();
-    expect(window.location.pathname).toMatch(/^\/reach-out\/reach-out-/);
-    expect(screen.getAllByText("Thank them for bringing everyone together").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("NHS AI Hackathon")).toBeInTheDocument();
+    await waitFor(async () => {
+      expect((await readAllData(await getDatabase())).reachOutEntries).toHaveLength(1);
+    });
 
     const data = await readAllData(await getDatabase());
     expect(data.people).toHaveLength(1);
-    expect(data.people[0]).toMatchObject({ displayName: "Hackathon organiser", identityStatus: "provisional" });
-    expect(data.reachOutEntries).toHaveLength(1);
-    expect(data.followUps).toHaveLength(1);
-    expect(data.reachOutEntries[0]?.currentFollowUpId).toBe(data.followUps[0]?.id);
-    expect(data.followUps[0]).toMatchObject({ reachOutEntryId: data.reachOutEntries[0]?.id, dueDate: addDaysToLocalDate(today(), 1) });
+    expect(data.people[0]).toMatchObject({ displayName: "Simon", identityStatus: "confirmed", relationshipMode: "both" });
+    expect(data.reachOutEntries).toEqual([expect.objectContaining({ reason: "Catch up about fellowship", intentStatus: "active" })]);
+    expect(data.followUps).toHaveLength(0);
+    expect(data.reachOutContexts).toHaveLength(0);
     expect(validatePeopleOsData(data)).toBeTruthy();
   });
 
-  it("adds an existing Person without duplication and makes Reach Out the contextual first global Add action", async () => {
+  it("keeps a dirty Reach Out draft when a Today notification is declined", async () => {
+    window.history.replaceState({}, "", "/reach-out");
+    const confirm = vi.mocked(window.confirm).mockReturnValue(false);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Add someone" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add someone" });
+    await user.type(await within(dialog).findByLabelText(/^Person/), "Dr Smith");
+    window.dispatchEvent(new Event(OPEN_TODAY_FROM_NOTIFICATION_EVENT));
+
+    expect(confirm).toHaveBeenCalledWith("Discard changes?");
+    expect(window.location.pathname).toBe("/reach-out");
+    expect(screen.getByRole("dialog", { name: "Add someone" })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/^Person/)).toHaveValue("Dr Smith");
+
+    confirm.mockReturnValue(true);
+    await user.click(within(dialog).getByRole("button", { name: "Close Reach Out" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/"));
+    expect(screen.getByRole("link", { name: "Today" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("selects an existing Person without making a duplicate", async () => {
     await seedPerson();
     window.history.replaceState({}, "", "/reach-out");
     const user = userEvent.setup();
     render(<App />);
-    await screen.findByRole("heading", { name: "People you mean to contact" });
+    await screen.findByRole("heading", { name: "Reach Out" });
 
-    await user.click(screen.getByRole("button", { name: "Add person" }));
-    const addSheet = await screen.findByRole("dialog", { name: "Add to PeopleOS" });
-    const labels = Array.from(addSheet.querySelectorAll(".global-add-actions > button"), (button) => button.textContent);
-    expect(labels[0]).toBe("Add to Reach Out");
-    await user.click(within(addSheet).getByRole("button", { name: "Add to Reach Out" }));
-
-    const editor = await screen.findByRole("dialog", { name: "Who do you want to reach out to?" });
-    await user.type(within(editor).getByLabelText(/^Person or description/), "Sarah");
+    await user.click(await screen.findByRole("button", { name: "Add someone" }));
+    const editor = await screen.findByRole("dialog", { name: "Add someone" });
+    await user.type(await within(editor).findByLabelText(/^Person/), "Sarah");
+    const matches = await within(editor).findByRole("list", { name: "Matching people" });
+    expect(within(matches).getByRole("button", { name: /Sarah Jones/ })).toBeInTheDocument();
+    expect(within(editor).queryByRole("button", { name: "+ Add Sarah" })).not.toBeInTheDocument();
     await user.click(within(editor).getByRole("button", { name: /Sarah Jones/ }));
-    await user.click(within(editor).getByRole("button", { name: "Add to Reach Out" }));
+    await user.click(within(editor).getByRole("button", { name: "Save" }));
 
-    expect(await screen.findByRole("heading", { name: "Sarah Jones" })).toBeInTheDocument();
-    expect(screen.getByText("Add why")).toBeInTheDocument();
-    expect(screen.getByText("Choose next action")).toBeInTheDocument();
+    await waitFor(async () => {
+      expect((await readAllData(await getDatabase())).reachOutEntries).toHaveLength(1);
+    });
     const data = await readAllData(await getDatabase());
     expect(data.people).toHaveLength(1);
     expect(data.reachOutEntries).toHaveLength(1);
     expect(data.followUps).toHaveLength(0);
   });
 
-  it("shows one authoritative plan consistently in Reach Out, Detail, Profile, Upcoming and Timeline", async () => {
+  it("shows only the note and contact actions, then Done removes the item but retains the Person", async () => {
     const person = await seedPerson();
     const created = await createReachOut(await getDatabase(), prepareCreateReachOutCommand({
       person,
-      reason: "Send the pilot update",
+      reason: "Catch up about fellowship",
       intendedActionType: "send_update",
-      reminderDate: addDaysToLocalDate(today(), 7),
-      newContexts: [{ kind: "fellowship", label: "AI Fellowship" }]
-    }, { localDate: today(), idFactory: sequence("consistent") }));
+      actionDetail: "Legacy action detail",
+      notes: "Legacy extra notes",
+      reminderDate: today(),
+      newContexts: [{ kind: "fellowship", label: "Legacy fellowship" }]
+    }, { localDate: today(), idFactory: sequence("complete") }));
     window.history.replaceState({}, "", "/reach-out");
     const user = userEvent.setup();
     render(<App />);
 
-    const queue = await screen.findByRole("list", { name: "Current Reach Out queue" });
-    expect(within(queue).getByText("Send the pilot update")).toBeInTheDocument();
-    expect(within(queue).getByText("Waiting")).toBeInTheDocument();
-    expect(within(queue).getByText("AI Fellowship")).toBeInTheDocument();
-    await user.click(within(queue).getByRole("button", { name: "Open plan" }));
+    const list = await screen.findByRole("list", { name: "Reach Out list" });
+    const card = within(list).getByRole("article", { name: "Sarah Jones" });
+    expect(within(card).getByText("Catch up about fellowship")).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Message" })).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Call" })).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Done" })).toBeInTheDocument();
+    expect(within(card).queryByText(/Legacy action detail|Legacy extra notes|Legacy fellowship|Waiting|Planned/)).not.toBeInTheDocument();
 
-    expect(await screen.findByRole("heading", { name: "Sarah Jones" })).toBeInTheDocument();
-    expect(screen.getAllByText("Send the pilot update").length).toBeGreaterThanOrEqual(1);
-    await user.click(screen.getByRole("button", { name: "Open Person" }));
-    const profileReachOut = (await screen.findByRole("heading", { name: "Reach Out" })).closest("section")!;
-    expect(await within(profileReachOut).findByText("Send the pilot update")).toBeInTheDocument();
-    expect(within(profileReachOut).getByText("Waiting")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "See full timeline" }));
-    expect(await screen.findByRole("heading", { name: "Added to Reach Out" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Reach Out reminder linked" })).toBeInTheDocument();
-    await user.click(screen.getByRole("link", { name: "Upcoming" }));
-    expect(await screen.findByRole("heading", { name: "Send the pilot update" })).toBeInTheDocument();
-    expect((await readAllData(await getDatabase())).followUps.filter((followUp) => followUp.status === "pending"))
-      .toEqual([expect.objectContaining({ id: created.followUp!.id, reachOutEntryId: created.entry.id })]);
-  });
-
-  it("completes outreach without claiming contact and retains the lifecycle in history", async () => {
-    const person = await seedPerson();
-    const created = await createReachOut(await getDatabase(), prepareCreateReachOutCommand({
-      person,
-      reason: "Research the contact route",
-      reminderDate: today()
-    }, { localDate: today(), idFactory: sequence("complete") }));
-    window.history.replaceState({ fromPath: "/reach-out" }, "", `/reach-out/${created.entry.id}`);
-    const user = userEvent.setup();
-    render(<App />);
-    await screen.findByRole("heading", { name: "Sarah Jones" });
-    await user.click(screen.getByRole("button", { name: "Mark outreach complete" }));
-    const dialog = await screen.findByRole("dialog", { name: "Complete outreach" });
-    await user.click(within(dialog).getByRole("radio", { name: "Complete without logging contact" }));
-    await user.click(within(dialog).getByRole("radio", { name: "No, complete this outreach" }));
-    await user.click(within(dialog).getByRole("button", { name: "Complete outreach" }));
-
-    expect(await screen.findByText("Completed")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Outreach completed", level: 3 })).toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "Done" }));
+    expect(await screen.findByRole("heading", { name: "Reach Out" })).toBeInTheDocument();
     const data = await readAllData(await getDatabase());
-    expect(data.reachOutEntries[0]).toMatchObject({ intentStatus: "completed" });
-    expect(data.followUps[0]).toMatchObject({ status: "completed" });
+    expect(data.people).toEqual([expect.objectContaining({ id: person.id, displayName: person.displayName })]);
+    expect(data.reachOutEntries).toEqual([expect.objectContaining({ id: created.entry.id, intentStatus: "completed" })]);
+    expect(data.followUps).toEqual([expect.objectContaining({ id: created.followUp!.id, status: "completed" })]);
     expect(data.interactions).toEqual([expect.objectContaining({ kind: "follow_up_completed" })]);
     expect(data.reachOutEvents.filter((event) => event.kind === "completed")).toHaveLength(1);
   });
 
-  it("associates outreach-completion choice errors with their choice groups", async () => {
+  it("offers a dormant legacy entry as a simple Add back action", async () => {
     const person = await seedPerson();
     const created = await createReachOut(await getDatabase(), prepareCreateReachOutCommand({
       person,
-      reason: "Reconnect after the fellowship"
-    }, { localDate: today(), idFactory: sequence("completion-a11y") }));
-    window.history.replaceState({}, "", `/reach-out/${created.entry.id}`);
-    const user = userEvent.setup();
-    render(<App />);
-    await screen.findByRole("heading", { name: "Sarah Jones" });
-    await user.click(screen.getByRole("button", { name: "Mark outreach complete" }));
-
-    const dialog = await screen.findByRole("dialog", { name: "Complete outreach" });
-    await user.click(within(dialog).getByRole("button", { name: "Complete outreach" }));
-
-    expect(within(dialog).getByRole("group", { name: /What happened/ }))
-      .toHaveAccessibleDescription("Choose whether contact happened.");
-    expect(within(dialog).getByRole("group", { name: /Do you want another follow-up/ }))
-      .toHaveAccessibleDescription("Choose whether you want another follow-up.");
-  });
-
-  it("moves a plan through Dormant, reactivation and removal without losing history", async () => {
-    const person = await seedPerson();
-    const created = await createReachOut(await getDatabase(), prepareCreateReachOutCommand({
-      person,
+      reason: "Reconnect later",
       reminderDate: addDaysToLocalDate(today(), 5)
-    }, { localDate: today(), idFactory: sequence("status") }));
-    window.history.replaceState({}, "", `/reach-out/${created.entry.id}`);
+    }, { localDate: today(), idFactory: sequence("dormant") }));
+    const dormant = await moveReachOutToDormant(await getDatabase(), prepareReachOutStatusCommand(
+      created.entry,
+      person,
+      created.followUp,
+      "moved_to_dormant",
+      { idFactory: sequence("dormant-status") }
+    ));
+    window.history.replaceState({}, "", "/reach-out");
     const user = userEvent.setup();
     render(<App />);
-    await screen.findByRole("heading", { name: "Sarah Jones" });
 
-    await user.click(screen.getByRole("button", { name: "Move to Dormant" }));
-    expect(await screen.findByText("Dormant")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Reactivate" }));
-    expect(await screen.findByText("Active")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Remove from Reach Out" }));
-    expect(await screen.findByText("Removed")).toBeInTheDocument();
-    expect(screen.getByText("This retained plan is read-only.")).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Add someone" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add someone" });
+    await user.type(await within(dialog).findByLabelText(/^Person/), "Sarah");
+    await user.click(await within(dialog).findByRole("button", { name: /Sarah Jones/ }));
+    expect(await within(dialog).findByText(/Add them back to your Reach Out list/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Add back" }));
 
+    await waitFor(async () => {
+      expect(await (await getDatabase()).get("reachOutEntries", created.entry.id)).toMatchObject({ intentStatus: "active" });
+    });
     const data = await readAllData(await getDatabase());
-    expect(data.reachOutEntries[0]?.removedAt).toBeTruthy();
-    expect(data.followUps[0]).toMatchObject({ status: "cancelled" });
-    expect(data.reachOutEvents.map((event) => event.kind)).toEqual(expect.arrayContaining([
-      "added", "follow_up_linked", "moved_to_dormant", "activated", "removed"
-    ]));
+    expect(data.reachOutEntries).toEqual([expect.objectContaining({
+      id: dormant.entry.id,
+      intentStatus: "active",
+      reason: "Reconnect later"
+    })]);
+    expect(data.followUps).toEqual([expect.objectContaining({ id: created.followUp!.id, status: "cancelled" })]);
+    expect(data.people).toHaveLength(1);
   });
 
   it("completes a provisional identity in place from the Reach Out plan", async () => {
@@ -270,9 +265,6 @@ describe("V1-08 Reach Out UI", () => {
     expect((await (await getDatabase()).getAllFromIndex("affiliations", "by-person", created.person.id))[0])
       .toMatchObject({ organisationName: "Watford Health", role: "Chief Information Officer" });
 
-    await user.click(screen.getByRole("button", { name: /Back to Reach Out plan/ }));
-    expect(window.location.pathname).toBe(`/reach-out/${created.entry.id}`);
-    expect(await screen.findByRole("heading", { name: "Alex Morgan" })).toBeInTheDocument();
   });
 
   it("shows an accessible resolver load error and retries in place", async () => {
@@ -390,9 +382,6 @@ describe("V1-08 Reach Out UI", () => {
     expect(data.reachOutContexts.find((context) => context.label === "Digital Fellowship")).toBeTruthy();
     expect(validatePeopleOsData(data)).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: /Back to Reach Out plan/ }));
-    expect(window.location.pathname).toBe(`/reach-out/${created.entry.id}`);
-    expect(await screen.findByRole("heading", { name: "Simon Jones" })).toBeInTheDocument();
   });
 
   it("guards dirty resolver work on Cancel, primary-tab navigation and browser back", async () => {
@@ -425,30 +414,13 @@ describe("V1-08 Reach Out UI", () => {
     expect(window.location.pathname).toBe(`/reach-out/${created.entry.id}`);
   });
 
-  it("restores focus to the actual Reach Out capture opener", async () => {
+  it("restores focus to the Reach Out empty-state capture opener", async () => {
     window.history.replaceState({}, "", "/reach-out");
     const user = userEvent.setup();
     render(<App />);
     const emptyOpener = await screen.findByRole("button", { name: "Add someone" });
     await user.click(emptyOpener);
-    await user.click(within(await screen.findByRole("dialog", { name: "Who do you want to reach out to?" })).getByRole("button", { name: "Cancel" }));
+    await user.click(await within(await screen.findByRole("dialog", { name: "Add someone" })).findByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(emptyOpener).toHaveFocus());
-
-    const headerOpener = screen.getByRole("button", { name: "Add person" });
-    await user.click(headerOpener);
-    await user.click(within(await screen.findByRole("dialog", { name: "Add to PeopleOS" })).getByRole("button", { name: "Add to Reach Out" }));
-    await user.click(within(await screen.findByRole("dialog", { name: "Who do you want to reach out to?" })).getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(headerOpener).toHaveFocus());
-  });
-
-  it("restores focus to the Person Profile Reach Out action", async () => {
-    const person = await seedPerson();
-    window.history.replaceState({ fromPath: "/people" }, "", `/people/${person.id}`);
-    const user = userEvent.setup();
-    render(<App />);
-    const opener = await screen.findByRole("button", { name: "Add to Reach Out" });
-    await user.click(opener);
-    await user.click(within(await screen.findByRole("dialog", { name: "Who do you want to reach out to?" })).getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(opener).toHaveFocus());
   });
 });

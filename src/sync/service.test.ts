@@ -26,6 +26,13 @@ afterEach(async () => {
 });
 
 describe("iCloud Sync service controls", () => {
+  it("reports an unreadable sync state instead of leaving an unhandled publication", async () => {
+    const onError = vi.fn();
+    const unsubscribe = subscribeToSync(vi.fn(), onError);
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+    unsubscribe();
+  });
+
   it("turns sync off in storage and publishes the paused state", async () => {
     databaseName = `peopleos-sync-service-${crypto.randomUUID()}`;
     mocks.database = await openPeopleOsDatabase(databaseName, "2026-08-01T09:00:00.000Z");

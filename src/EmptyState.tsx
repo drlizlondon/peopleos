@@ -14,7 +14,7 @@ export default function EmptyState({ eyebrow, title, description, note, action, 
     <section className={`empty-state${mark === "check" ? " empty-state-complete" : ""}`} aria-labelledby="empty-state-title">
       {mark === "check"
         ? <div className="empty-check" aria-hidden="true">✓</div>
-        : <div className="empty-mark" aria-hidden="true"><span /><span /><span /></div>}
+        : <img className="empty-mark" src="/peopleos-mark.svg" alt="" aria-hidden="true" />}
       {eyebrow && <p className="eyebrow">{eyebrow}</p>}
       <h2 id="empty-state-title">{title}</h2>
       <p className="empty-description">{description}</p>

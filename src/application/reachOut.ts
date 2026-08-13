@@ -394,8 +394,8 @@ export function prepareCreateReachOutCommand(
   let displayName: string;
   if ("provisionalLabel" in input.person) {
     const label = input.person.provisionalLabel.trim();
-    if (!label) throw new ValidationError(["Add a person or temporary description."]);
-    if (label.length > 120) throw new ValidationError(["Temporary description must be 120 characters or fewer."]);
+    if (!label) throw new ValidationError(["Add a person or recognisable description."]);
+    if (label.length > 120) throw new ValidationError(["Name or description must be 120 characters or fewer."]);
     const record: Person = {
       id: stableId("person", idFactory),
       revision: 1,

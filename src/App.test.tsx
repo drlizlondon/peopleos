@@ -1,6 +1,6 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { OPEN_TODAY_FROM_NOTIFICATION_EVENT } from "./notifications/service";
 
@@ -30,7 +30,7 @@ describe("PeopleOS shell", () => {
     expect(screen.getByRole("button", { name: "Professional" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("renders all five primary destinations in the accepted order", async () => {
+  it("keeps Upcoming under Today and renders four primary destinations", async () => {
     const user = userEvent.setup();
     render(<App />);
     const links = screen.getByRole("navigation", { name: "Primary navigation" }).querySelectorAll("a");
@@ -38,46 +38,40 @@ describe("PeopleOS shell", () => {
       "Today",
       "Reach Out",
       "People",
-      "Upcoming",
       "Settings"
     ]);
+    expect(screen.queryByRole("link", { name: "Upcoming" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Today" })).toHaveAttribute("aria-current", "page");
-    await user.click(screen.getByRole("button", { name: "Add person" }));
-    const dialog = screen.getByRole("dialog", { name: "Add to PeopleOS" });
-    expect(within(dialog).getByRole("button", { name: "Add person" })).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Add follow-up" })).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Log interaction" })).toBeInTheDocument();
+    expect(document.querySelector(".brand-mark")).toHaveAttribute("src", "/peopleos-mark.svg");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    expect(window.location.pathname).toBe("/people/new");
+    expect(screen.getByRole("heading", { name: "Add someone" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Add to PeopleOS" })).not.toBeInTheDocument();
   });
 
-  it("navigates to Reach Out and preserves its canonical empty-state wording", async () => {
+  it("navigates to the concise Reach Out empty state", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("link", { name: "Reach Out" }));
     expect(window.location.pathname).toBe("/reach-out");
-    expect(await screen.findByRole("heading", { name: "People you mean to contact" })).toBeInTheDocument();
-    expect(screen.getByText("You can even add someone if all you remember is where you met them.")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Reach Out" })).toBeInTheDocument();
+    expect(screen.getByText("People you mean to contact.")).toBeInTheDocument();
   });
 
-  it("renders the contained iCloud section and existing Settings sections in order", async () => {
+  it("renders only actionable Settings sections in order", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("link", { name: "Settings" }));
     const headings = screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent);
     expect(headings).toEqual([
-      "iCloud Sync",
-      "General",
-      "Modes",
-      "Today",
-      "Reach Out",
-      "Interactions",
       "Notifications",
-      "Privacy & Security",
-      "Data",
-      "About"
+      "iCloud Sync",
+      "PeopleOS",
+      "Privacy & Data"
     ]);
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.getByText(/Local reminders are available in the iPhone app/)).toBeInTheDocument();
-    expect(screen.getByText("1.0.0")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Conversation starters" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Add person" })).not.toBeInTheDocument();
   });
 
@@ -92,7 +86,7 @@ describe("PeopleOS shell", () => {
     expect(screen.getByText(/Previews contain only a count or general reminder/i)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "← Settings" }));
     expect(window.location.pathname).toBe("/settings");
-    expect(screen.getByRole("heading", { name: "Global application preferences" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
   });
 
   it("routes a notification tap from another screen into Today", async () => {
@@ -110,7 +104,7 @@ describe("PeopleOS shell", () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("link", { name: "People" }));
-    await user.click(screen.getByRole("link", { name: "Upcoming" }));
+    await user.click(screen.getByRole("link", { name: "Settings" }));
     window.history.back();
     await waitFor(() => {
       expect(window.location.pathname).toBe("/people");
@@ -135,5 +129,45 @@ describe("PeopleOS shell", () => {
     await user.click(screen.getByRole("link", { name: "Restore backup" }));
     expect(window.location.pathname).toBe("/settings/restore");
     expect(screen.getByRole("heading", { name: "Restore backup" })).toBeInTheDocument();
+  });
+
+  it("keeps focused form controls above the iPhone keyboard and provides a Done control", async () => {
+    const originalViewport = Object.getOwnPropertyDescriptor(window, "visualViewport");
+    const viewport = new EventTarget() as EventTarget & { height: number; offsetTop: number };
+    viewport.height = 400;
+    viewport.offsetTop = 0;
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+    const user = userEvent.setup();
+    const view = render(<App />);
+    try {
+      await user.click(screen.getByRole("button", { name: "Add" }));
+      const name = screen.getByLabelText("Name");
+      const scrollIntoView = vi.fn();
+      Object.defineProperty(name, "scrollIntoView", { configurable: true, value: scrollIntoView });
+      vi.spyOn(name, "getBoundingClientRect").mockReturnValue({
+        x: 0,
+        y: 360,
+        top: 360,
+        right: 200,
+        bottom: 410,
+        left: 0,
+        width: 200,
+        height: 50,
+        toJSON: () => ({})
+      });
+      name.focus();
+      viewport.dispatchEvent(new Event("resize"));
+
+      await waitFor(() => {
+        expect(document.documentElement).toHaveAttribute("data-keyboard-open", "true");
+        expect(scrollIntoView).toHaveBeenCalled();
+      });
+      await user.click(screen.getByRole("button", { name: "Done" }));
+      expect(name).not.toHaveFocus();
+    } finally {
+      view.unmount();
+      if (originalViewport) Object.defineProperty(window, "visualViewport", originalViewport);
+      else Reflect.deleteProperty(window, "visualViewport");
+    }
   });
 });

@@ -7,6 +7,7 @@ import type {
   RelationshipEvent
 } from "./schema";
 import {
+  conservativeFullNameDuplicateKey,
   detectDuplicatePeople,
   normaliseDuplicateText,
   type DuplicateDetectionInput,
@@ -121,9 +122,47 @@ describe("duplicate text normalisation", () => {
     expect(normaliseDuplicateText("Sarah   Jones")).toBe("sarah jones");
     expect(normaliseDuplicateText("Élodie")).toBe(normaliseDuplicateText("E\u0301LODIE"));
   });
+
+  it("recognises only plausible full names for name-only duplicate review", () => {
+    expect(conservativeFullNameDuplicateKey(" Sarah  Ahmed ")).toBe("sarah ahmed");
+    expect(conservativeFullNameDuplicateKey("Sarah")).toBeUndefined();
+    expect(conservativeFullNameDuplicateKey("bibi@example.com")).toBeUndefined();
+    expect(conservativeFullNameDuplicateKey("07912 345678")).toBeUndefined();
+  });
 });
 
 describe("deterministic duplicate evidence", () => {
+  it("flags an exact full-name match for review but never a first-name-only match", () => {
+    const fullNameCandidate = person("person-candidate", " SÁRAH—JONES ");
+    const fullNameExisting = person("person-existing", "sarah jones");
+    const fullNameResult = detectDuplicatePeople(input({ person: fullNameCandidate }, {
+      people: [fullNameExisting]
+    }));
+
+    expect(fullNameResult).toMatchObject([{
+      person: { id: fullNameExisting.id },
+      strength: "review",
+      evidence: [{
+        code: "same_full_name",
+        normalisedName: "sarah jones",
+        candidateSourceIds: [fullNameCandidate.id],
+        existingSourceIds: [fullNameExisting.id]
+      }]
+    }]);
+
+    expect(detectDuplicatePeople(input({ person: person("person-first-candidate", "Sarah") }, {
+      people: [person("person-first-existing", "SARAH")]
+    }))).toEqual([]);
+  });
+
+  it("does not treat phone or email display fallbacks as full-name evidence", () => {
+    for (const value of ["07912 345678", "+44 7912 345678", "bibi@example.com"]) {
+      expect(detectDuplicatePeople(input({ person: person("candidate", value) }, {
+        people: [person("existing", value)]
+      })), value).toEqual([]);
+    }
+  });
+
   it("aggregates exact active canonical phone and email evidence as a strong match", () => {
     const candidatePerson = person("person-candidate", "Candidate");
     const existing = person("person-existing", "Existing");
@@ -157,7 +196,7 @@ describe("deterministic duplicate evidence", () => {
 
   it("ignores archived contact methods, archived or non-current affiliations, and inactive People", () => {
     const candidatePerson = person("person-candidate", "Sarah Jones");
-    const active = person("person-active", "Sarah Jones");
+    const active = person("person-active", "Sarah Smith");
     const archived = person("person-archived", "Sarah Jones", { archivedAt: now });
     const merged = person("person-merged", "Sarah Jones", {
       identityStatus: "merged",
@@ -183,7 +222,7 @@ describe("deterministic duplicate evidence", () => {
     expect(result).toEqual([]);
   });
 
-  it("requires normalised-name equality plus a current organisation for organisation review", () => {
+  it("requires normalised-name equality plus a current organisation for organisation evidence", () => {
     const candidatePerson = person("person-candidate", " SÁRAH—JONES ");
     const organisationMatch = person("person-org", "sarah jones");
     const nameOnly = person("person-name-only", "Sarah Jones");
@@ -199,20 +238,27 @@ describe("deterministic duplicate evidence", () => {
       ]
     }));
 
-    expect(result.map((match) => match.person.id)).toEqual([organisationMatch.id]);
+    expect(result.map((match) => match.person.id)).toEqual([nameOnly.id, organisationMatch.id]);
     expect(result[0]).toMatchObject({
       strength: "review",
-      evidence: [{
-        code: "similar_name_same_organisation",
-        candidateSourceIds: ["candidate-org"],
-        existingSourceIds: ["match-org"],
-        normalisedOrganisation: "nhs england"
-      }]
+      evidence: [{ code: "same_full_name" }]
     });
-    expect(result[0].evidence[0].explanation).toContain("same organisation");
+    expect(result[1]).toMatchObject({
+      strength: "review",
+      evidence: [
+        { code: "same_full_name" },
+        {
+          code: "similar_name_same_organisation",
+          candidateSourceIds: ["candidate-org"],
+          existingSourceIds: ["match-org"],
+          normalisedOrganisation: "nhs england"
+        }
+      ]
+    });
+    expect(result[1].evidence[1].explanation).toContain("same organisation");
   });
 
-  it("requires normalised-name equality plus an explicit shared Event ID for event review", () => {
+  it("requires normalised-name equality plus an explicit shared Event ID for event evidence", () => {
     const candidatePerson = person("person-candidate", "Aaron Smith");
     const eventMatch = person("person-event", "AARON SMITH");
     const wrongName = person("person-wrong-name", "Aaron Smyth");
@@ -230,8 +276,8 @@ describe("deterministic duplicate evidence", () => {
       events: [event("event-hackathon", "NHS AI Hackathon")]
     }));
 
-    expect(result.map((match) => match.person.id)).toEqual([eventMatch.id]);
-    expect(result[0].evidence[0]).toMatchObject({
+    expect(result.map((match) => match.person.id)).toEqual([eventMatch.id, wrongEvent.id]);
+    expect(result[0].evidence[1]).toMatchObject({
       code: "similar_name_same_event",
       eventId: "event-hackathon",
       eventName: "NHS AI Hackathon",
@@ -239,6 +285,7 @@ describe("deterministic duplicate evidence", () => {
       existingSourceIds: ["existing-met"],
       explanation: "Same name after normalisation and same event: NHS AI Hackathon"
     });
+    expect(result[1].evidence).toMatchObject([{ code: "same_full_name" }]);
   });
 
   it("excludes the candidate Person itself during an existing-Person edit", () => {
@@ -284,8 +331,8 @@ describe("deterministic duplicate evidence", () => {
       strongPhone.id,
       strongEmailB.id,
       strongEmailA.id,
-      reviewOrganisation.id,
-      reviewEvent.id
+      reviewEvent.id,
+      reviewOrganisation.id
     ]);
   });
 

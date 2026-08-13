@@ -3,7 +3,8 @@ export {
   assessRelationshipStage,
   buildToday,
   calendarDaysBetween,
-  nextTodayEligibleLocalDate
+  nextTodayEligibleLocalDate,
+  resolveRelationshipScheduleState
 } from "./engine";
 
 export { deriveReachOutDisplayState } from "../domain/reachOutPolicy";

@@ -68,6 +68,24 @@ describe("V1-03 Person queries", () => {
     db.close();
   });
 
+  it("can return archived summaries for the name-only recovery directory", async () => {
+    const db = await openDatabase();
+    const repositories = createRepositories(db);
+    const draft = createManualPersonCaptureDraft({ now: fixedNow });
+    draft.displayName = "Archived person";
+    const archived = {
+      ...(await captureManualPerson(db, draft, "GB")).person,
+      archivedAt: fixedNow,
+      updatedAt: fixedNow
+    };
+    await repositories.people.update(archived, archived.revision, fixedNow);
+
+    expect(await listPeopleSummaries(db)).toEqual([]);
+    expect((await listPeopleSummaries(db, "personal", "archived")).map((item) => item.person.id))
+      .toEqual([archived.id]);
+    db.close();
+  });
+
   it("selects the display affiliation by documented stable rules", () => {
     const base = {
       revision: 1,

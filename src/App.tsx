@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "./icons";
-import { followUpDetailPath, personProfilePath, reachOutDetailPath, routeFromPath, routes, type Route } from "./navigation";
+import { personProfilePath, reachOutDetailPath, routeFromPath, routes, type Route } from "./navigation";
 import { SettingsScreen } from "./screens";
 import TodayScreen from "./TodayScreen";
 import {
@@ -16,11 +16,8 @@ import { ExportBackupScreen, RestoreBackupScreen } from "./dataScreens";
 import { getDatabase } from "./data/client";
 import { ImportContactsScreen, ImportResultsScreen } from "./importScreens";
 import TimelineScreen from "./TimelineScreen";
-import GlobalAddSheet from "./GlobalAddSheet";
-import InteractionEditorSheet from "./InteractionEditorSheet";
 import MemoryFactsScreen from "./MemoryFactsScreen";
 import AffiliationsScreen from "./AffiliationsScreen";
-import FollowUpEditorSheet from "./FollowUpEditorSheet";
 import FollowUpDetailScreen from "./FollowUpDetailScreen";
 import PersonFollowUpsScreen from "./PersonFollowUpsScreen";
 import UpcomingScreen from "./UpcomingScreen";
@@ -30,8 +27,17 @@ import ResolveProvisionalPersonScreen from "./ResolveProvisionalPersonScreen";
 import ReachOutEditorSheet from "./ReachOutEditorSheet";
 import EditPersonScreen from "./EditPersonScreen";
 import PrivacyScreen from "./PrivacyScreen";
-import type { PersonPickerOption } from "./application/interactionQueries";
-import type { ContactImportSession } from "./application/contactImport";
+import ConversationStarterSettingsScreen from "./ConversationStarterSettingsScreen";
+import PostAddRelationshipScreen from "./PostAddRelationshipScreen";
+import {
+  prepareContactImportFromPickerResult,
+  type ContactImportSession
+} from "./application/contactImport";
+import { getAppSettings } from "./application/peopleQueries";
+import {
+  getIPhoneContactsAdapter,
+  isIPhoneContactsSupported
+} from "./contacts/capacitorAdapter";
 import type { Person } from "./domain/schema";
 import type { ActiveRelationshipMode } from "./domain/relationshipMode";
 import { readActiveRelationshipMode, writeActiveRelationshipMode } from "./relationshipModePreference";
@@ -44,7 +50,7 @@ import {
 
 type ModalBackHandler = {
   id: string;
-  dismiss: () => void;
+  dismiss: () => boolean | void;
   historyState: unknown;
 };
 
@@ -72,11 +78,9 @@ export default function App() {
   const [importedPeopleFilter, setImportedPeopleFilter] = useState<string[] | null>(null);
   const [suspendedCapture, setSuspendedCapture] = useState<ManualCaptureResumeState | null>(null);
   const [suspendedContactEditor, setSuspendedContactEditor] = useState<ContactEditorResumeState | null>(null);
-  const [globalAddOpen, setGlobalAddOpen] = useState(false);
-  const [globalInteractionPerson, setGlobalInteractionPerson] = useState<PersonPickerOption | null>(null);
-  const [globalFollowUpPerson, setGlobalFollowUpPerson] = useState<PersonPickerOption | null>(null);
   const [globalReachOutOpen, setGlobalReachOutOpen] = useState(false);
   const [globalReachOutPerson, setGlobalReachOutPerson] = useState<Person | undefined>();
+  const [reachOutRefreshVersion, setReachOutRefreshVersion] = useState(0);
   const routeRef = useRef(route);
   const activeHistoryStateRef = useRef<Record<string, unknown>>(window.history.state ?? {});
   const unsavedChangesRef = useRef(false);
@@ -84,6 +88,7 @@ export default function App() {
   const pendingNotificationTodayRef = useRef(false);
   const modalBackHandlerRef = useRef<ModalBackHandler | null>(null);
   const globalAddButtonRef = useRef<HTMLButtonElement>(null);
+  const keyboardDismissBarRef = useRef<HTMLDivElement>(null);
   const reachOutCaptureOpenerRef = useRef<HTMLElement | null>(null);
   const captureOriginRef = useRef<string | undefined>(
     typeof window.history.state?.fromPath === "string" ? window.history.state.fromPath : undefined
@@ -116,7 +121,7 @@ export default function App() {
 
   useEffect(() => {
     const registerModal = (event: Event) => {
-      const detail = (event as CustomEvent<{ id: string; dismiss: () => void }>).detail;
+      const detail = (event as CustomEvent<{ id: string; dismiss: () => boolean | void }>).detail;
       modalBackHandlerRef.current = {
         ...detail,
         historyState: window.history.state
@@ -124,7 +129,10 @@ export default function App() {
     };
     const unregisterModal = (event: Event) => {
       const detail = (event as CustomEvent<{ id: string }>).detail;
-      if (modalBackHandlerRef.current?.id === detail.id) modalBackHandlerRef.current = null;
+      if (modalBackHandlerRef.current?.id === detail.id) {
+        modalBackHandlerRef.current = null;
+        replayPendingNotificationTap();
+      }
     };
     window.addEventListener("peopleos:modal-open", registerModal);
     window.addEventListener("peopleos:modal-close", unregisterModal);
@@ -132,7 +140,7 @@ export default function App() {
       window.removeEventListener("peopleos:modal-open", registerModal);
       window.removeEventListener("peopleos:modal-close", unregisterModal);
     };
-  }, []);
+  }, [replayPendingNotificationTap]);
 
   useEffect(() => {
     const onPopState = () => {
@@ -178,12 +186,12 @@ export default function App() {
         return;
       }
       pendingNotificationTodayRef.current = false;
-      modalBackHandlerRef.current?.dismiss();
+      if (modalBackHandlerRef.current?.dismiss() === false) {
+        pendingNotificationTodayRef.current = true;
+        return;
+      }
       modalBackHandlerRef.current = null;
       setUnsavedCapture(false);
-      setGlobalAddOpen(false);
-      setGlobalInteractionPerson(null);
-      setGlobalFollowUpPerson(null);
       setGlobalReachOutOpen(false);
       window.history.replaceState({}, "", "/");
       activeHistoryStateRef.current = {};
@@ -204,10 +212,71 @@ export default function App() {
     }
   }, [route]);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    const viewport = window.visualViewport;
+    let focusFrame = 0;
+
+    const updateViewport = () => {
+      const height = viewport?.height ?? window.innerHeight;
+      const offsetTop = viewport?.offsetTop ?? 0;
+      const keyboardInset = Math.max(0, window.innerHeight - height - offsetTop);
+      root.style.setProperty("--peopleos-viewport-height", `${height}px`);
+      root.style.setProperty("--peopleos-viewport-offset-top", `${offsetTop}px`);
+      root.style.setProperty("--peopleos-keyboard-inset", `${keyboardInset}px`);
+      const keyboardOpen = keyboardInset > 80;
+      root.dataset.keyboardOpen = keyboardOpen ? "true" : "false";
+      keyboardDismissBarRef.current?.toggleAttribute("hidden", !keyboardOpen);
+
+      const active = document.activeElement;
+      if (!(active instanceof HTMLInputElement
+        || active instanceof HTMLTextAreaElement
+        || active instanceof HTMLSelectElement)) return;
+      cancelAnimationFrame(focusFrame);
+      focusFrame = requestAnimationFrame(() => {
+        const bounds = active.getBoundingClientRect();
+        const visibleTop = offsetTop + 12;
+        // Keep the focused control clear of both the keyboard accessory and
+        // the fixed form actions used while the iOS visual viewport is short.
+        const visibleBottom = offsetTop + height - (keyboardOpen ? 148 : 16);
+        if (bounds.top < visibleTop || bounds.bottom > visibleBottom) {
+          active.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+        }
+      });
+    };
+
+    const dismissKeyboardOnBlankTap = (event: PointerEvent) => {
+      const active = document.activeElement;
+      if (!(active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement)) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("input, textarea, select, button, a, label, [role='button']")) return;
+      active.blur();
+    };
+
+    updateViewport();
+    viewport?.addEventListener("resize", updateViewport);
+    viewport?.addEventListener("scroll", updateViewport);
+    window.addEventListener("resize", updateViewport);
+    document.addEventListener("focusin", updateViewport);
+    document.addEventListener("pointerdown", dismissKeyboardOnBlankTap);
+    return () => {
+      cancelAnimationFrame(focusFrame);
+      viewport?.removeEventListener("resize", updateViewport);
+      viewport?.removeEventListener("scroll", updateViewport);
+      window.removeEventListener("resize", updateViewport);
+      document.removeEventListener("focusin", updateViewport);
+      document.removeEventListener("pointerdown", dismissKeyboardOnBlankTap);
+      delete root.dataset.keyboardOpen;
+      keyboardDismissBarRef.current?.setAttribute("hidden", "");
+      root.style.removeProperty("--peopleos-viewport-height");
+      root.style.removeProperty("--peopleos-viewport-offset-top");
+      root.style.removeProperty("--peopleos-keyboard-inset");
+    };
+  }, []);
+
   function navigate(next: Route, options: { replace?: boolean; state?: Record<string, unknown> } = {}) {
     if (navigationLockedRef.current) return;
     if (next.path === route.path) return;
-    setGlobalAddOpen(false);
     if (unsavedChangesRef.current) {
       if (!window.confirm("Discard changes?")) return;
       setUnsavedCapture(false);
@@ -216,10 +285,19 @@ export default function App() {
     let defaultState: Record<string, unknown> = {};
     if (next.id === "add-person") {
       defaultState = { fromPath: captureOriginRef.current };
+    } else if (next.id === "post-add-relationship") {
+      const existingOrigin = window.history.state?.fromPath;
+      defaultState = {
+        fromPath: typeof existingOrigin === "string"
+          ? existingOrigin
+          : captureOriginRef.current ?? "/people"
+      };
     } else if (next.id === "import-contacts") {
       const existingOrigin = window.history.state?.fromPath;
       const fromPath = route.id === "import-results" && typeof existingOrigin === "string"
         ? existingOrigin
+        : route.id === "add-person" && typeof existingOrigin === "string"
+          ? existingOrigin
         : ["today", "people", "settings"].includes(route.id)
           ? route.path
           : "/people";
@@ -359,10 +437,39 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "instant" });
   }
 
+  async function chooseFromIPhoneContacts(): Promise<"selected" | "cancelled"> {
+    if (unsavedChangesRef.current && !window.confirm("Discard changes?")) return "cancelled";
+    const adapter = getIPhoneContactsAdapter();
+    if (!adapter) throw Object.assign(new Error("iPhone Contacts are unavailable."), { code: "unavailable" });
+    const result = await adapter.pickContacts();
+    if (result.status === "cancelled") return "cancelled";
+    const db = await getDatabase();
+    const settings = await getAppSettings(db);
+    const session = await prepareContactImportFromPickerResult(
+      db,
+      result,
+      settings.defaultPhoneRegion
+    );
+    if (!session) return "cancelled";
+    setImportSession(session);
+    setUnsavedCapture(false);
+    const fromPath = captureOriginRef.current
+      ?? (typeof window.history.state?.fromPath === "string" ? window.history.state.fromPath : "/people");
+    navigatePath("/people/import", { state: { fromPath } });
+    return "selected";
+  }
+
   function renderScreen() {
     switch (route.id) {
-      case "today": return <TodayScreen activeMode={activeRelationshipMode} navigate={navigatePath} onAddFollowUp={() => setGlobalAddOpen(true)} />;
-      case "reach-out": return <ReachOutScreen activeMode={activeRelationshipMode} navigate={navigatePath} onAdd={(opener) => openReachOutCapture(undefined, opener)} />;
+      case "today": return <TodayScreen activeMode={activeRelationshipMode} navigate={navigatePath} />;
+      case "reach-out": return (
+        <ReachOutScreen
+          key={reachOutRefreshVersion}
+          activeMode={activeRelationshipMode}
+          navigate={navigatePath}
+          onAdd={(opener) => openReachOutCapture(undefined, opener)}
+        />
+      );
       case "people": return (
         <PeopleScreen
           navigate={navigatePath}
@@ -373,6 +480,13 @@ export default function App() {
       );
       case "upcoming": return <UpcomingScreen activeMode={activeRelationshipMode} navigate={navigatePath} />;
       case "settings": return <SettingsScreen navigate={navigatePath} />;
+      case "conversation-starters": return (
+        <ConversationStarterSettingsScreen
+          navigate={navigatePath}
+          onDirtyChange={setUnsavedCapture}
+          onSavingChange={setNavigationLocked}
+        />
+      );
       case "privacy": return <PrivacyScreen navigate={navigatePath} />;
       case "add-person": return (
         <AddPersonScreen
@@ -380,9 +494,22 @@ export default function App() {
           dismiss={dismissCapture}
           onDirtyChange={setUnsavedCapture}
           onSavingChange={setNavigationLocked}
+          iPhoneContactsSupported={isIPhoneContactsSupported()}
+          onChooseIPhoneContacts={chooseFromIPhoneContacts}
           initialCapture={window.history.state?.resumeCapture ? suspendedCapture : null}
+          defaultRelationshipMode={activeRelationshipMode === "professional" ? "professional" : "personal"}
           onOpenDuplicatePerson={openExistingFromCapture}
           onCaptureFinished={() => setSuspendedCapture(null)}
+        />
+      );
+      case "post-add-relationship": return (
+        <PostAddRelationshipScreen
+          personId={route.personId ?? ""}
+          navigate={navigatePath}
+          onSavingChange={setNavigationLocked}
+          closePath={typeof window.history.state?.fromPath === "string"
+            ? window.history.state.fromPath
+            : undefined}
         />
       );
       case "person-profile": return (
@@ -391,6 +518,8 @@ export default function App() {
           navigate={navigatePath}
           backPath={typeof window.history.state?.fromPath === "string" ? window.history.state.fromPath : "/people"}
           onAddToReachOut={(person, opener) => openReachOutCapture(person, opener)}
+          onDirtyChange={setUnsavedCapture}
+          onSavingChange={setNavigationLocked}
         />
       );
       case "contact-methods": return (
@@ -592,36 +721,29 @@ export default function App() {
     }
   }
 
-  const showGlobalAdd = ["today", "reach-out", "people", "upcoming"].includes(route.id);
-
-  function closeGlobalAdd() {
-    setGlobalAddOpen(false);
-    requestAnimationFrame(() => globalAddButtonRef.current?.focus());
-  }
-
-  function closeGlobalInteraction() {
-    setGlobalInteractionPerson(null);
-    requestAnimationFrame(() => globalAddButtonRef.current?.focus());
-  }
-
-  function closeGlobalFollowUp() {
-    setGlobalFollowUpPerson(null);
-    requestAnimationFrame(() => globalAddButtonRef.current?.focus());
-  }
+  const showGlobalAdd = ["today", "reach-out", "people"].includes(route.id);
 
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">Skip to content</a>
       <header className="app-header">
         <a className="brand" href="/" onClick={(event) => { event.preventDefault(); navigate(routes[0]); }} aria-label="PeopleOS home">
-          <span className="brand-mark" aria-hidden="true"><span /><span /></span>
+          <img className="brand-mark" src="/peopleos-mark.svg" alt="" aria-hidden="true" />
           <span>PeopleOS</span>
         </a>
         <div className="header-actions">
           <p>Remember people.</p>
           {showGlobalAdd && (
-            <button ref={globalAddButtonRef} className="header-add-person" type="button" onClick={() => setGlobalAddOpen(true)}>
-              <Icon name="plus" /> Add person
+            <button
+              ref={globalAddButtonRef}
+              className="header-add-person"
+              type="button"
+              onClick={(event) => {
+                if (route.id === "reach-out") openReachOutCapture(undefined, event.currentTarget);
+                else navigatePath("/people/new");
+              }}
+            >
+              <Icon name="plus" /> Add
             </button>
           )}
         </div>
@@ -646,6 +768,19 @@ export default function App() {
       {storageError && <p className="storage-error" role="alert">PeopleOS could not open local storage. Your data actions are unavailable.</p>}
       {renderScreen()}
 
+      <div ref={keyboardDismissBarRef} className="keyboard-dismiss-bar" aria-label="Keyboard controls" hidden>
+        <button
+          type="button"
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={() => {
+            const active = document.activeElement;
+            if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement) {
+              active.blur();
+            }
+          }}
+        >Done</button>
+      </div>
+
       <nav className="primary-nav" aria-label="Primary navigation">
         {routes.map((item) => (
           <a
@@ -665,49 +800,6 @@ export default function App() {
         ))}
       </nav>
 
-      {globalAddOpen && (
-        <GlobalAddSheet
-          activeMode={activeRelationshipMode}
-          onClose={closeGlobalAdd}
-          onNavigate={(path) => { setGlobalAddOpen(false); navigatePath(path); }}
-          onLogInteraction={(person) => {
-            setGlobalAddOpen(false);
-            setGlobalInteractionPerson(person);
-          }}
-          onAddFollowUp={(person) => {
-            setGlobalAddOpen(false);
-            setGlobalFollowUpPerson(person);
-          }}
-          onAddReachOut={() => {
-            setGlobalAddOpen(false);
-            openReachOutCapture(undefined, globalAddButtonRef.current);
-          }}
-          preferFollowUp={route.id === "upcoming"}
-          preferReachOut={route.id === "reach-out"}
-        />
-      )}
-      {globalInteractionPerson && (
-        <InteractionEditorSheet
-          activeMode={activeRelationshipMode}
-          personId={globalInteractionPerson.person.id}
-          personName={globalInteractionPerson.person.displayName}
-          onClose={closeGlobalInteraction}
-          onSaved={closeGlobalInteraction}
-          onDeleted={closeGlobalInteraction}
-        />
-      )}
-      {globalFollowUpPerson && (
-        <FollowUpEditorSheet
-          mode="create"
-          personId={globalFollowUpPerson.person.id}
-          personName={globalFollowUpPerson.person.displayName}
-          onClose={closeGlobalFollowUp}
-          onSaved={(followUp) => {
-            setGlobalFollowUpPerson(null);
-            navigatePath(followUpDetailPath(followUp.id));
-          }}
-        />
-      )}
       {globalReachOutOpen && (
         <ReachOutEditorSheet
           activeMode={activeRelationshipMode}
@@ -718,17 +810,19 @@ export default function App() {
             setGlobalReachOutPerson(undefined);
             restoreReachOutCaptureFocus();
           }}
-          onSaved={(entry) => {
+          onSaved={() => {
             setGlobalReachOutOpen(false);
             setGlobalReachOutPerson(undefined);
             reachOutCaptureOpenerRef.current = null;
-            navigatePath(reachOutDetailPath(entry.id));
+            setReachOutRefreshVersion((current) => current + 1);
+            if (route.id !== "reach-out") navigatePath("/reach-out");
           }}
-          onOpenExisting={(entryId) => {
+          onOpenExisting={() => {
             setGlobalReachOutOpen(false);
             setGlobalReachOutPerson(undefined);
             reachOutCaptureOpenerRef.current = null;
-            navigatePath(reachOutDetailPath(entryId));
+            setReachOutRefreshVersion((current) => current + 1);
+            if (route.id !== "reach-out") navigatePath("/reach-out");
           }}
         />
       )}

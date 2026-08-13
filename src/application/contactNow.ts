@@ -66,9 +66,9 @@ function targetForMethod(method: ContactMethod, displayRegion: string): ContactN
 }
 
 /**
- * Resolve executable V1-10 targets without choosing a preferred channel.
- * WhatsApp is deliberately absent until V1-13; target count, rather than
- * ContactMethod count, decides direct launch versus the chooser.
+ * Resolve validated contact targets without choosing how a phone number will
+ * be handed off. Today can use the same phone target for Call or a WhatsApp
+ * draft while keeping validation and ordering in one place.
  */
 export function resolveContactNowTargets(
   contactMethods: readonly ContactMethod[],
@@ -83,10 +83,22 @@ export function resolveContactNowTargets(
   };
 }
 
-export function contactNowTargetHref(target: ContactNowTarget): string {
-  return target.channel === "phone_call"
-    ? `tel:${target.canonicalValue}`
-    : `mailto:${encodeURIComponent(target.canonicalValue).replace(/%40/gi, "@")}`;
+export function contactNowTargetHref(target: ContactNowTarget, draft?: string): string {
+  if (target.channel === "phone_call") return `tel:${target.canonicalValue}`;
+  const address = encodeURIComponent(target.canonicalValue).replace(/%40/gi, "@");
+  const body = draft?.trim();
+  return `mailto:${address}${body ? `?body=${encodeURIComponent(body)}` : ""}`;
+}
+
+/**
+ * Build a WhatsApp handoff for a validated phone target. This only opens a
+ * draft: the user still chooses whether to press Send in WhatsApp.
+ */
+export function whatsappTargetHref(target: ContactNowTarget, draft?: string): string {
+  if (target.channel !== "phone_call") throw new Error("WhatsApp requires a phone number.");
+  const number = target.canonicalValue.replace(/\D/g, "");
+  const text = draft?.trim();
+  return `https://wa.me/${number}${text ? `?text=${encodeURIComponent(text)}` : ""}`;
 }
 
 function activePerson(person: Person | undefined): person is Person {

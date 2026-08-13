@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { BACKUP_SCHEMA_VERSION, type AppSettings } from "../domain/schema";
+import {
+  BACKUP_SCHEMA_VERSION,
+  DEFAULT_CONVERSATION_STARTERS,
+  type AppSettings
+} from "../domain/schema";
 import { createDefaultSettings, deletePeopleOsDatabase, openPeopleOsDatabase, readAllData } from "./database";
 import { createAppendOnlyRecord, createRepositories, RecordConflictError, StaleRevisionError } from "./repositories";
 import { completeData, fixedNow } from "../test/fixtures";
@@ -67,6 +71,7 @@ describe("PeopleOS IndexedDB foundation", () => {
       alreadyContactedDefaultReminderDays: 14,
       todaySummaryNotificationsEnabled: false,
       todaySummaryNotificationTime: "12:00",
+      conversationStarters: DEFAULT_CONVERSATION_STARTERS,
       revision: 1
     });
     expect(settings?.reachOutDefaultReminderDays).toBeUndefined();
@@ -128,14 +133,19 @@ describe("PeopleOS IndexedDB foundation", () => {
   });
 
   it("uses the same deterministic Settings shape when called directly", () => {
-    expect(createDefaultSettings(fixedNow)).toMatchObject({
+    const first = createDefaultSettings(fixedNow);
+    const second = createDefaultSettings(fixedNow);
+    expect(first).toMatchObject({
       id: "app",
       captureMode: "standard",
       alreadyContactedDefaultReminderDays: 14,
       todaySummaryNotificationsEnabled: false,
       todaySummaryNotificationTime: "12:00",
+      conversationStarters: DEFAULT_CONVERSATION_STARTERS,
       revision: 1
     });
+    expect(first.conversationStarters).not.toBe(second.conversationStarters);
+    expect(first.conversationStarters[0]).not.toBe(second.conversationStarters[0]);
   });
 
   it("migrates an existing Settings singleton once without changing its other fields or metadata", async () => {
@@ -160,7 +170,8 @@ describe("PeopleOS IndexedDB foundation", () => {
       ...legacy,
       alreadyContactedDefaultReminderDays: 14,
       todaySummaryNotificationsEnabled: false,
-      todaySummaryNotificationTime: "12:00"
+      todaySummaryNotificationTime: "12:00",
+      conversationStarters: DEFAULT_CONVERSATION_STARTERS.map((starter) => ({ ...starter }))
     });
     expect(await migratedDb.get("metadata", "app")).toEqual(metadata);
     migratedDb.close();

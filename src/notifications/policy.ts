@@ -2,8 +2,8 @@ import { addDaysToLocalDate, localDateForInstant } from "../domain/followUpPolic
 import { personMatchesActiveMode, type ActiveRelationshipMode } from "../domain/relationshipMode";
 import type { PeopleOsData } from "../domain/schema";
 import {
-  nextTodayEligibleLocalDate,
   RELATIONSHIP_ENGINE_POLICY_VERSION,
+  resolveRelationshipScheduleState,
   type RelationshipClock
 } from "../relationship-engine";
 import { groupRelationshipData, relationshipBundleFromGroups } from "../application/relationshipEngineQueries";
@@ -32,6 +32,16 @@ export type TodayNotificationPlanOptions = {
   time: string;
   activeMode: ActiveRelationshipMode;
   limit?: number;
+};
+
+export type TodayNotificationPlanningResult = {
+  entries: TodayNotificationPlanEntry[];
+  /**
+   * App-internal identifiers for people whose regular-contact frequency cannot
+   * yet produce a date. These identifiers are never passed to iOS or included
+   * in notification content.
+   */
+  incompleteRegularSchedulePersonIds: string[];
 };
 
 function parseTime(time: string): { hour: number; minute: number } {
@@ -89,10 +99,10 @@ function countBody(count: number): string {
  * It is rebuilt whenever the local dataset, selected mode, time or permission
  * intent changes, and whenever the native app returns to the foreground.
  */
-export function buildTodayNotificationPlan(
+export function buildTodayNotificationPlanningResult(
   data: PeopleOsData,
   options: TodayNotificationPlanOptions
-): TodayNotificationPlanEntry[] {
+): TodayNotificationPlanningResult {
   const limit = options.limit ?? TODAY_NOTIFICATION_LIMIT;
   if (!Number.isInteger(limit) || limit < 1 || limit > TODAY_NOTIFICATION_LIMIT) {
     throw new RangeError(`Notification limit must be between 1 and ${TODAY_NOTIFICATION_LIMIT}.`);
@@ -104,16 +114,28 @@ export function buildTodayNotificationPlan(
     policyVersion: RELATIONSHIP_ENGINE_POLICY_VERSION
   };
   const grouped = groupRelationshipData(data);
+  const incompleteRegularSchedulePersonIds: string[] = [];
   const eligible = data.people.flatMap((person) => {
     if (!personMatchesActiveMode(person, options.activeMode)) return [];
     try {
-      const localDate = nextTodayEligibleLocalDate(relationshipBundleFromGroups(grouped, person), clock);
-      return localDate ? [{ personId: person.id, localDate }] : [];
+      const scheduleState = resolveRelationshipScheduleState(
+        relationshipBundleFromGroups(grouped, person),
+        clock
+      );
+      if (scheduleState.kind === "incomplete_regular_schedule") {
+        incompleteRegularSchedulePersonIds.push(person.id);
+        return [];
+      }
+      return scheduleState.kind === "scheduled"
+        ? [{ personId: person.id, localDate: scheduleState.localDate }]
+        : [];
     } catch {
       return [];
     }
   });
-  if (eligible.length === 0) return [];
+  if (eligible.length === 0) {
+    return { entries: [], incompleteRegularSchedulePersonIds };
+  }
 
   const skipped = new Set(data.todaySkips.map((skip) => `${skip.personId}:${skip.localDate}`));
   const skippedDates = new Set(data.todaySkips.map((skip) => skip.localDate));
@@ -144,5 +166,12 @@ export function buildTodayNotificationPlan(
     }
     localDate = addDaysToLocalDate(localDate, 1);
   }
-  return plan;
+  return { entries: plan, incompleteRegularSchedulePersonIds };
+}
+
+export function buildTodayNotificationPlan(
+  data: PeopleOsData,
+  options: TodayNotificationPlanOptions
+): TodayNotificationPlanEntry[] {
+  return buildTodayNotificationPlanningResult(data, options).entries;
 }

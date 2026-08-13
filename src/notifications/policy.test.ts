@@ -5,6 +5,7 @@ import { RELATIONSHIP_ENGINE_POLICY_VERSION } from "../relationship-engine";
 import { completeData } from "../test/fixtures";
 import {
   buildTodayNotificationPlan,
+  buildTodayNotificationPlanningResult,
   isTodayNotificationId,
   todayNotificationId,
   TODAY_NOTIFICATION_LIMIT
@@ -20,6 +21,20 @@ function plan(data = completeData()) {
     time: "12:00",
     activeMode: "all"
   });
+}
+
+function incompleteRegularScheduleData() {
+  const data = completeData();
+  data.people[0] = {
+    ...data.people[0]!,
+    contactCadence: { value: 1, unit: "days" },
+    contactCadenceDays: undefined
+  };
+  data.interactions = [];
+  data.followUps = [];
+  data.followUpEvents = [];
+  data.todaySkips = [];
+  return data;
 }
 
 function engineCount(data: ReturnType<typeof completeData>, localDate: string): number {
@@ -42,6 +57,70 @@ function firstEngineDate(data: ReturnType<typeof completeData>, start = "2026-08
 }
 
 describe("Today notification planning", () => {
+  it("reports an incomplete regular schedule without sending it to the native scheduler", () => {
+    const data = incompleteRegularScheduleData();
+    const planning = buildTodayNotificationPlanningResult(data, {
+      now,
+      timeZone,
+      time: "12:00",
+      activeMode: "all"
+    });
+
+    expect(planning).toEqual({
+      entries: [],
+      incompleteRegularSchedulePersonIds: ["person-sarah"]
+    });
+    expect(buildTodayNotificationPlan(data, {
+      now,
+      timeZone,
+      time: "12:00",
+      activeMode: "all"
+    })).toEqual([]);
+  });
+
+  it("keeps incomplete regular schedules out of notifications across a London date boundary", () => {
+    const data = incompleteRegularScheduleData();
+    for (const instant of ["2026-03-28T23:59:00.000Z", "2026-03-29T00:01:00.000Z"]) {
+      const planning = buildTodayNotificationPlanningResult(data, {
+        now: new Date(instant),
+        timeZone,
+        time: "12:00",
+        activeMode: "all"
+      });
+      expect(planning.entries).toEqual([]);
+      expect(planning.incompleteRegularSchedulePersonIds).toEqual(["person-sarah"]);
+    }
+  });
+
+  it("begins notification planning only after the regular schedule has a start date", () => {
+    const data = incompleteRegularScheduleData();
+    data.followUps = [{
+      id: "initial-schedule-sarah",
+      revision: 1,
+      personId: "person-sarah",
+      dueDate: "2026-08-02",
+      reason: "Keep in touch",
+      actionType: "message",
+      status: "pending",
+      suggestedByRule: "initial_schedule",
+      createdAt: "2026-08-01T09:00:00.000Z",
+      updatedAt: "2026-08-01T09:00:00.000Z"
+    }];
+
+    const planning = buildTodayNotificationPlanningResult(data, {
+      now,
+      timeZone,
+      time: "12:00",
+      activeMode: "all"
+    });
+    expect(planning.incompleteRegularSchedulePersonIds).toEqual([]);
+    expect(planning.entries[0]).toMatchObject({
+      localDate: "2026-08-02",
+      body: "People are waiting on your list today."
+    });
+    expect(JSON.stringify(planning.entries)).not.toContain("person-sarah");
+  });
+
   it("precomputes a private rolling schedule from the authoritative Today rules", () => {
     const entries = plan();
     expect(entries).toHaveLength(TODAY_NOTIFICATION_LIMIT);
@@ -96,6 +175,19 @@ describe("Today notification planning", () => {
       createdAt: "2026-08-01T10:00:00.000Z"
     });
     expect(plan(skipped)[0]?.localDate).toBe("2026-08-09");
+  });
+
+  it("moves notification forecasting to a Person’s chosen Today return date", () => {
+    const paused = completeData();
+    paused.people[0] = {
+      ...paused.people[0]!,
+      todayPausedUntilDate: "2026-08-20"
+    };
+
+    const entries = plan(paused);
+    expect(entries[0]?.localDate).toBe("2026-08-20");
+    expect(entries[0]?.localDate).toBe(firstEngineDate(paused));
+    expect(JSON.stringify(entries)).not.toContain("person-sarah");
   });
 
   it("matches the first non-empty engine date for FollowUp, new-relationship and cadence rules", () => {

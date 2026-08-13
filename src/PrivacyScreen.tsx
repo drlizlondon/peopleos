@@ -27,6 +27,12 @@ export default function PrivacyScreen({ navigate }: Props) {
         <p>Notifications are optional, scheduled on the iPhone and use no notification backend or remote push service. Previews contain only a count or general reminder—not names, contact details, notes or relationship details.</p>
       </section>
 
+      <section className="data-panel" aria-labelledby="privacy-contacts">
+        <h3 id="privacy-contacts">Selective Apple Contacts transfer</h3>
+        <p>Apple's contact picker shares only the people you finish choosing, without giving PeopleOS general address-book access. PeopleOS imports only names, phone numbers, email addresses, organisation and job title.</p>
+        <p>If you explicitly choose to save a new person to iPhone Contacts too, iOS asks for Contacts permission. PeopleOS never copies lists, reminders, notes, memories, history or other relationship data into the Apple contact. These are one-time transfers, not ongoing sync.</p>
+      </section>
+
       <section className="data-panel" aria-labelledby="privacy-control">
         <h3 id="privacy-control">Your choices</h3>
         <p>You can edit or archive records, export and restore a JSON backup, turn reminders off, pause iCloud Sync, or remove PeopleOS and its local data through the operating system.</p>

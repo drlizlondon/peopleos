@@ -41,4 +41,4 @@ node marketing/validate.mjs
 python3 -m http.server 8080 --directory marketing
 ```
 
-This surface has no analytics, cookies, form submission, remote fonts or client-side JavaScript. `marketing/vercel.json` supplies the clean route rewrites and restrictive security headers when this directory is configured as a Vercel project root.
+This surface has no analytics, cookies, form submission or remote fonts. One small local script cycles the homepage through the real PeopleOS loop: add a person, add the phone/cadence and starting contact needed for recurring reminders, opt into private name-free reminders, open Today with a curated conversation starter, then prepare an unsent WhatsApp draft. The visitor can choose each moment directly and cycle the starter. Without JavaScript or when reduced motion is preferred, all five moments remain visible as a static storyboard. `marketing/vercel.json` supplies the clean route rewrites and restrictive security headers when this directory is configured as a Vercel project root.

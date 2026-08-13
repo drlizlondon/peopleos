@@ -179,7 +179,7 @@ The accepted Today amendment supersedes the historical POS-4 action labels below
 
 ## Later planning, not approved implementation
 
-- Capacitor/native contact creation
+- Existing PeopleOS profile → Save to iPhone Contacts — a future one-time, explicit user action using the existing exact phone/email duplicate checks. It must remain one-way, introduce no continuous synchronisation or stored Apple identifier, and never write PeopleOS-only metadata into Apple Contacts.
 - Multi-device sync and accounts
 - Encrypted backup or hosted storage
 - Additional communication channels

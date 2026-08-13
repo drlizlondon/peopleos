@@ -16,7 +16,9 @@ import { RELATIONSHIP_ENGINE_POLICY_VERSION } from "../relationship-engine";
 import { notToday } from "./followUps";
 import {
   alreadyContacted,
+  pauseToday,
   prepareAlreadyContactedCommand,
+  preparePauseTodayCommand,
   prepareNotTodayFromContext
 } from "./todayActions";
 import { getTodayActionContext, getTodayScreenProjection } from "./todayQueries";
@@ -213,6 +215,30 @@ describe("V1-10 Already contacted command", () => {
     db.close();
   });
 
+  it("keeps a generated regular schedule identifiable without marking manual plans", async () => {
+    const db = await openDatabase();
+    await seedExplicit(db);
+    const manualResult = await alreadyContacted(db, prepareAlreadyContactedCommand(
+      await actionContext(db),
+      "2026-08-21",
+      { now, idFactory: sequenceIdFactory() }
+    ));
+    expect(manualResult.nextFollowUp).not.toHaveProperty("suggestedByRule");
+    db.close();
+
+    const generatedDb = await openDatabase();
+    await seedExplicit(generatedDb);
+    const generatedPrimary = await generatedDb.get("followUps", "follow-up-primary");
+    await generatedDb.put("followUps", { ...generatedPrimary!, suggestedByRule: "initial_schedule" });
+    const generatedResult = await alreadyContacted(generatedDb, prepareAlreadyContactedCommand(
+      await actionContext(generatedDb),
+      "2026-08-21",
+      { now, idFactory: sequenceIdFactory() }
+    ));
+    expect(generatedResult.nextFollowUp).toMatchObject({ suggestedByRule: "today_already_contacted" });
+    generatedDb.close();
+  });
+
   it("completes and reciprocally relinks the same Reach Out entry before writing the primary completion", async () => {
     const db = await openDatabase();
     const { primary, entry } = await seedExplicit(db, { reachOut: true, includeAdditional: true });
@@ -325,6 +351,62 @@ describe("V1-10 Already contacted command", () => {
     });
     expect(await db.get("followUps", additional!.id)).toEqual(additional);
     expect(await db.count("interactions")).toBe(0);
+    db.close();
+  });
+
+  it("pauses the whole Person until the chosen date without changing frequency or contact history", async () => {
+    const db = await openDatabase();
+    const { person, primary, additional } = await seedExplicit(db, { includeAdditional: true });
+    await db.put("people", { ...person, contactCadence: { value: 1, unit: "weeks" } });
+    const beforeFollowUps = await db.getAllFromIndex("followUps", "by-person", person.id);
+    const command = preparePauseTodayCommand(await actionContext(db), "2026-08-21", { now });
+
+    const first = await pauseToday(db, command);
+    expect(await pauseToday(db, command)).toEqual(first);
+    expect(first.person).toMatchObject({
+      id: person.id,
+      revision: 2,
+      contactCadence: { value: 1, unit: "weeks" },
+      todayPausedUntilDate: "2026-08-21"
+    });
+    expect(first.todaySkip).toMatchObject({
+      id: "person-sarah:2026-08-14",
+      personId: person.id,
+      localDate: "2026-08-14"
+    });
+    expect(await db.getAllFromIndex("followUps", "by-person", person.id)).toEqual(beforeFollowUps);
+    expect(await db.get("followUps", primary.id)).toEqual(primary);
+    expect(await db.get("followUps", additional!.id)).toEqual(additional);
+    expect(await db.count("followUpEvents")).toBe(0);
+    expect(await db.count("interactions")).toBe(0);
+    expect((await db.get("metadata", "app"))?.datasetRevision).toBe(11);
+
+    expect((await getTodayScreenProjection(db, clock)).result.totalCount).toBe(0);
+    expect((await getTodayScreenProjection(db, {
+      ...clock,
+      now: "2026-08-20T12:00:00.000Z"
+    })).result.totalCount).toBe(0);
+    expect((await getTodayScreenProjection(db, {
+      ...clock,
+      now: "2026-08-21T12:00:00.000Z"
+    })).cards.map((card) => card.person.id)).toEqual([person.id]);
+    db.close();
+  });
+
+  it("validates the Pause date and rolls back the Person, skip and metadata together", async () => {
+    const db = await openDatabase();
+    await seedExplicit(db);
+    const context = await actionContext(db);
+    expect(() => preparePauseTodayCommand(context, "2026-08-14", { now })).toThrow("Choose a date after today.");
+
+    const before = await readAllData(db);
+    const metadataBefore = await db.get("metadata", "app");
+    const command = preparePauseTodayCommand(context, "2026-08-21", { now });
+    await expect(pauseToday(db, command, {
+      beforeCommit: () => { throw new Error("injected pause failure"); }
+    })).rejects.toThrow("injected pause failure");
+    expect(await readAllData(db)).toEqual(before);
+    expect(await db.get("metadata", "app")).toEqual(metadataBefore);
     db.close();
   });
 });

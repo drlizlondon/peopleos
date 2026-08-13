@@ -6,15 +6,22 @@ import {
   followUpDetailPath,
   memoryFactsPath,
   personFollowUpsPath,
+  postAddRelationshipPath,
   personProfilePath,
   resolvePersonPath,
   reachOutDetailPath,
   resolveProvisionalPath,
   routeFromPath,
+  routes,
   timelinePath
 } from "./navigation";
 
 describe("People secondary routes", () => {
+  it("defines only the four primary product areas and keeps Upcoming under Today", () => {
+    expect(routes.map((route) => route.id)).toEqual(["today", "reach-out", "people", "settings"]);
+    expect(routeFromPath("/upcoming")).toMatchObject({ id: "upcoming", primaryId: "today" });
+  });
+
   it("resolves manual capture as a People secondary route", () => {
     expect(routeFromPath("/people/new")).toMatchObject({ id: "add-person", primaryId: "people" });
     expect(routeFromPath("/people/new/")).toMatchObject({ id: "add-person", path: "/people/new" });
@@ -33,9 +40,18 @@ describe("People secondary routes", () => {
     });
   });
 
+  it("resolves conversation starters as a Settings secondary route", () => {
+    expect(routeFromPath("/settings/conversation-starters")).toMatchObject({
+      id: "conversation-starters",
+      label: "Conversation starters",
+      primaryId: "settings"
+    });
+  });
+
   it("round-trips safe Person IDs through every Person-owned secondary path", () => {
     const personId = "person-one/two";
     const profilePath = personProfilePath(personId);
+    const keepInTouchPath = postAddRelationshipPath(personId);
     const methodsPath = contactMethodsPath(personId);
     const editPath = editPersonPath(personId);
     const resolvePath = resolvePersonPath(personId);
@@ -44,6 +60,7 @@ describe("People secondary routes", () => {
     const historyPath = timelinePath(personId);
     const plansPath = personFollowUpsPath(personId);
     expect(routeFromPath(profilePath)).toMatchObject({ id: "person-profile", personId, primaryId: "people" });
+    expect(routeFromPath(keepInTouchPath)).toMatchObject({ id: "post-add-relationship", personId, primaryId: "people" });
     expect(routeFromPath(methodsPath)).toMatchObject({ id: "contact-methods", personId, primaryId: "people" });
     expect(routeFromPath(editPath)).toMatchObject({ id: "edit-person", personId, primaryId: "people" });
     expect(routeFromPath(resolvePath)).toMatchObject({ id: "resolve-provisional", personId, primaryId: "people" });
@@ -58,7 +75,7 @@ describe("People secondary routes", () => {
     expect(routeFromPath(followUpDetailPath(followUpId))).toMatchObject({
       id: "follow-up-detail",
       followUpId,
-      primaryId: "upcoming"
+      primaryId: "today"
     });
   });
 

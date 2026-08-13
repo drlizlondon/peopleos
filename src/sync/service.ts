@@ -4,6 +4,7 @@ import { runCloudSync, setCloudSyncEnabled } from "./coordinator";
 import type { SyncState } from "./types";
 
 type Listener = (state: SyncState | undefined, running: boolean) => void;
+type ErrorListener = () => void;
 const listeners = new Set<Listener>();
 let running = false;
 let started = false;
@@ -17,9 +18,9 @@ async function publish(): Promise<void> {
   listeners.forEach((listener) => listener(state, running));
 }
 
-export function subscribeToSync(listener: Listener): () => void {
+export function subscribeToSync(listener: Listener, onError?: ErrorListener): () => void {
   listeners.add(listener);
-  void publish();
+  void publish().catch(() => onError?.());
   return () => listeners.delete(listener);
 }
 
@@ -65,7 +66,7 @@ export function startCloudSyncService(): () => void {
     observedRevision = metadata?.datasetRevision ?? observedRevision;
   }, 2_000);
   periodicTimer = window.setInterval(() => { if (document.visibilityState === "visible") scheduleSync(); }, 5 * 60_000);
-  void publish().then(() => scheduleSync());
+  void publish().then(() => scheduleSync()).catch(() => undefined);
   return () => {
     started = false;
     document.removeEventListener("visibilitychange", onActive);

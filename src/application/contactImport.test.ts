@@ -12,9 +12,12 @@ import { fixedNow } from "../test/fixtures";
 import {
   chooseCreateSeparate,
   chooseLinkDetails,
+  chooseLinkDetailsForExistingPerson,
   contactImportCounts,
   importSelectedContacts,
   prepareContactImport,
+  prepareContactImportFromPickerResult,
+  prepareContactImportFromSelectedContacts,
   reviewContactImportSessionFromRow,
   reviewContactImportRow,
   skipContactImportRow,
@@ -93,6 +96,7 @@ describe("reviewed contact import", () => {
     ]), "people.vcf", "GB", { now: fixedNow, idFactory: stableIds() });
 
     expect(session.rows).toHaveLength(2);
+    expect(session).toMatchObject({ sourceKind: "vcard", fileName: "people.vcf" });
     expect(session.rows.map((row) => row.status)).toEqual(["ready", "ready"]);
     expect(session.rows[0].prepared?.contactMethods).toMatchObject([
       { kind: "phone", canonicalValue: "+447900123456" },
@@ -103,6 +107,192 @@ describe("reviewed contact import", () => {
       ...session.rows[0].draft.contactMethods.map((record) => record.id),
       session.rows[0].id
     ]).size).toBe(4);
+    expect(await db.count("people")).toBe(0);
+    expect(await db.count("contactMethods")).toBe(0);
+    expect(await db.get("metadata", "app")).toEqual(revisionBefore);
+  });
+
+  it("prepares ordered Apple-selected contacts through the same reviewed import pipeline", async () => {
+    const db = await openDatabase("selected-contacts");
+    const revisionBefore = await db.get("metadata", "app");
+    const session = await prepareContactImportFromSelectedContacts(db, [{
+      displayName: "Sarah Ahmed",
+      phoneNumbers: [
+        { value: "07900 123456", label: "Mobile" },
+        { value: "+44 20 7946 0018", label: "Work" }
+      ],
+      emailAddresses: [
+        { value: "sarah@example.com", label: "Personal" },
+        { value: "sarah@peopleos.test", label: "Work" }
+      ],
+      organisation: "PeopleOS",
+      jobTitle: "Founder"
+    }, {
+      displayName: "Dad",
+      phoneNumbers: [],
+      emailAddresses: []
+    }], "GB", { now: fixedNow, idFactory: stableIds() });
+
+    expect(session).toMatchObject({
+      sourceKind: "iphone_contacts",
+      fileName: "iPhone Contacts"
+    });
+    expect(session.rows).toHaveLength(2);
+    expect(session.rows.map((row) => row.sourceIndex)).toEqual([0, 1]);
+    expect(session.rows.map((row) => row.status)).toEqual(["ready", "ready"]);
+    expect(session.rows[0].draft.contactMethods.map(({ kind, value, label }) => ({ kind, value, label }))).toEqual([
+      { kind: "phone", value: "07900 123456", label: "Mobile" },
+      { kind: "phone", value: "+44 20 7946 0018", label: "Work" },
+      { kind: "email", value: "sarah@example.com", label: "Personal" },
+      { kind: "email", value: "sarah@peopleos.test", label: "Work" }
+    ]);
+    expect(session.rows[0].prepared?.contactMethods.map(({ kind, isPreferred }) => ({ kind, isPreferred }))).toEqual([
+      { kind: "phone", isPreferred: true },
+      { kind: "phone", isPreferred: false },
+      { kind: "email", isPreferred: true },
+      { kind: "email", isPreferred: false }
+    ]);
+    expect(session.rows[0].prepared?.affiliation).toMatchObject({
+      organisationName: "PeopleOS",
+      role: "Founder"
+    });
+    expect(session.rows[1].prepared).toMatchObject({
+      person: { displayName: "Dad" },
+      contactMethods: []
+    });
+    expect(await db.count("people")).toBe(0);
+    expect(await db.count("contactMethods")).toBe(0);
+    expect(await db.get("metadata", "app")).toEqual(revisionBefore);
+  });
+
+  it("accepts a selected contact without a name when it has a phone or email identity", async () => {
+    const db = await openDatabase("selected-contact-identifiers");
+    const session = await prepareContactImportFromSelectedContacts(db, [{
+      displayName: "",
+      phoneNumbers: [{ value: "07912 345678", label: "Mobile" }],
+      emailAddresses: [{ value: "bibi@example.com" }]
+    }, {
+      displayName: "",
+      phoneNumbers: [],
+      emailAddresses: [{ value: "email-only@example.com" }]
+    }], "GB", { now: fixedNow, idFactory: stableIds() });
+
+    expect(session.rows.map((row) => row.status)).toEqual(["ready", "ready"]);
+    expect(session.rows[0].prepared?.person.displayName).toBe("07912 345678");
+    expect(session.rows[0].prepared?.contactMethods).toMatchObject([
+      { kind: "phone", canonicalValue: "+447912345678" },
+      { kind: "email", canonicalValue: "bibi@example.com" }
+    ]);
+    expect(session.rows[1].prepared?.person.displayName).toBe("email-only@example.com");
+  });
+
+  it("requires at least one name, phone or email identity in an imported row", async () => {
+    const db = await openDatabase("selected-contact-blank");
+    const session = await prepareContactImportFromSelectedContacts(db, [{
+      displayName: "",
+      phoneNumbers: [],
+      emailAddresses: []
+    }], "GB", { now: fixedNow, idFactory: stableIds() });
+
+    expect(session.rows[0]).toMatchObject({
+      status: "needs_review",
+      prepared: undefined,
+      issues: [{ field: "displayName", message: "Add a name, mobile number or email address." }]
+    });
+  });
+
+  it("shortlists exact full names conservatively while ignoring a first name alone", async () => {
+    const db = await openDatabase("selected-contact-full-name");
+    const repositories = createRepositories(db);
+    await repositories.people.create(person("person-sarah-jones", "Sarah Jones"));
+    await repositories.people.create(person("person-bibi", "Bibi"));
+
+    const session = await prepareContactImportFromSelectedContacts(db, [{
+      displayName: " SÁRAH—JONES ",
+      phoneNumbers: [],
+      emailAddresses: []
+    }, {
+      displayName: "bibi",
+      phoneNumbers: [],
+      emailAddresses: []
+    }], "GB", { now: fixedNow, idFactory: stableIds() });
+
+    expect(session.rows[0]).toMatchObject({
+      status: "needs_review",
+      duplicateMatches: [{
+        person: { id: "person-sarah-jones" },
+        strength: "review",
+        evidence: [{ code: "same_full_name" }]
+      }]
+    });
+    expect(session.rows[1]).toMatchObject({ status: "ready", duplicateMatches: [] });
+  });
+
+  it("reconciles equivalent UK phone formats through the existing canonical duplicate path", async () => {
+    const db = await openDatabase("selected-contact-equivalent-phone");
+    const repositories = createRepositories(db);
+    await repositories.people.create(person("person-existing-phone", "Existing person"));
+    await repositories.contactMethods.create({
+      id: "contact-existing-phone",
+      revision: 1,
+      personId: "person-existing-phone",
+      kind: "phone",
+      rawValue: "07912 345678",
+      canonicalValue: "+447912345678",
+      region: "GB",
+      isPreferred: true,
+      createdAt: fixedNow,
+      updatedAt: fixedNow
+    });
+
+    const session = await prepareContactImportFromSelectedContacts(db, [{
+      displayName: "Different name",
+      phoneNumbers: [{ value: "+44 7912 345678" }],
+      emailAddresses: []
+    }], "GB", { now: fixedNow, idFactory: stableIds() });
+
+    expect(session.rows[0]).toMatchObject({
+      status: "needs_review",
+      duplicateMatches: [{
+        person: { id: "person-existing-phone" },
+        strength: "strong",
+        evidence: [{ code: "same_phone", canonicalValue: "+447912345678" }]
+      }]
+    });
+  });
+
+  it("detects duplicates inside one Apple contact selection without preview writes", async () => {
+    const db = await openDatabase("selected-duplicates");
+    const session = await prepareContactImportFromSelectedContacts(db, [{
+      displayName: "First",
+      phoneNumbers: [],
+      emailAddresses: [{ value: "shared@example.com" }]
+    }, {
+      displayName: "Second",
+      phoneNumbers: [],
+      emailAddresses: [{ value: "Shared@Example.com" }]
+    }], "GB", { now: fixedNow, idFactory: stableIds() });
+
+    expect(session.rows.map((row) => row.status)).toEqual(["ready", "needs_review"]);
+    expect(session.rows[1].duplicateMatches).toMatchObject([{
+      source: "import",
+      person: { id: session.rows[0].draft.personId },
+      evidence: [expect.objectContaining({ code: "same_email" })]
+    }]);
+    expect(await db.count("people")).toBe(0);
+  });
+
+  it("treats cancelling the Apple contact picker as a no-op", async () => {
+    const db = await openDatabase("picker-cancel");
+    const revisionBefore = await db.get("metadata", "app");
+
+    await expect(prepareContactImportFromPickerResult(
+      db,
+      { status: "cancelled", contacts: [] },
+      "GB",
+      { now: fixedNow, idFactory: stableIds() }
+    )).resolves.toBeNull();
+
     expect(await db.count("people")).toBe(0);
     expect(await db.count("contactMethods")).toBe(0);
     expect(await db.get("metadata", "app")).toEqual(revisionBefore);
@@ -226,7 +416,10 @@ describe("reviewed contact import", () => {
     expect(session.rows[0].duplicateMatches[0]).toMatchObject({ strength: "strong" });
     expect(session.rows[0].duplicateMatches[0].source).toBe("stored");
     expect(session.rows[0].duplicateMatches[0].evidence[0].code).toBe("same_email");
-    expect(session.rows[1].duplicateMatches[0].evidence[0].code).toBe("similar_name_same_organisation");
+    expect(session.rows[1].duplicateMatches[0].evidence.map((evidence) => evidence.code)).toEqual([
+      "same_full_name",
+      "similar_name_same_organisation"
+    ]);
     expect(session.rows[2].status).toBe("ready");
   });
 
@@ -322,6 +515,106 @@ describe("reviewed contact import", () => {
     expect(data.contactMethods.find((record) => record.id === emailId)).toMatchObject({ personId: "person-existing" });
     expect(data.affiliations).toHaveLength(1);
     expect(data.interactions).toEqual([]);
+  });
+
+  it("enriches an explicitly opened name-only Person without creating the picker candidate or other selected contacts", async () => {
+    const db = await openDatabase("profile-link");
+    const repositories = createRepositories(db);
+    const target = person("person-sarah", "Sarah");
+    await repositories.people.create(target);
+    const session = await prepareContactImportFromSelectedContacts(db, [{
+      displayName: "Sarah Jones",
+      phoneNumbers: [
+        { value: "+44 7900 123456", label: "Mobile" },
+        { value: "+44 20 7946 0111", label: "Home" }
+      ],
+      emailAddresses: [{ value: "sarah@example.com", label: "Personal" }],
+      organisation: "PeopleOS",
+      jobTitle: "Founder"
+    }, {
+      displayName: "Someone else",
+      phoneNumbers: [{ value: "+44 7900 999999" }],
+      emailAddresses: []
+    }], "GB", { now: fixedNow, idFactory: stableIds() });
+    const selected = session.rows[0];
+
+    expect(selected.duplicateMatches).toEqual([]);
+    expect(selected.prepared).toBeDefined();
+    const linked: ContactImportSession = {
+      ...session,
+      rows: [
+        chooseLinkDetailsForExistingPerson(
+          selected,
+          target,
+          selected.prepared?.contactMethods.map((contact) => contact.id) ?? [],
+          true
+        ),
+        skipContactImportRow(session.rows[1])
+      ]
+    };
+
+    const result = await importSelectedContacts(db, linked);
+    const data = await readAllData(db);
+
+    expect(result.rows.map((row) => row.status)).toEqual(["added_details", "skipped"]);
+    expect(data.people).toHaveLength(1);
+    expect(data.people[0]).toMatchObject({ id: target.id, displayName: "Sarah", revision: 2 });
+    expect(data.contactMethods).toHaveLength(3);
+    expect(data.contactMethods.every((contact) => contact.personId === target.id)).toBe(true);
+    expect(data.contactMethods.map((contact) => contact.canonicalValue).sort()).toEqual([
+      "+442079460111",
+      "+447900123456",
+      "sarah@example.com"
+    ]);
+    expect(data.affiliations).toMatchObject([{
+      personId: target.id,
+      organisationName: "PeopleOS",
+      role: "Founder"
+    }]);
+    expect(data.interactions).toEqual([]);
+    expect(data.followUps).toEqual([]);
+  });
+
+  it("can explicitly enrich a phone-only Person with the reviewed iPhone contact name", async () => {
+    const db = await openDatabase("picker-name-enrichment");
+    const repositories = createRepositories(db);
+    await repositories.people.create(person("person-existing", "07900 123456"));
+    await repositories.contactMethods.create({
+      id: "contact-existing-phone",
+      revision: 1,
+      personId: "person-existing",
+      kind: "phone",
+      rawValue: "07900 123456",
+      canonicalValue: "+447900123456",
+      region: "GB",
+      isPreferred: true,
+      createdAt: fixedNow,
+      updatedAt: fixedNow
+    });
+    const session = await prepareContactImportFromSelectedContacts(db, [{
+      displayName: "Bibi Jones",
+      phoneNumbers: [{ value: "+44 7900 123456", label: "Mobile" }],
+      emailAddresses: []
+    }], "GB", { now: fixedNow, idFactory: stableIds() });
+    const row = session.rows[0];
+    const match = row.duplicateMatches[0];
+    expect(match).toMatchObject({ person: { id: "person-existing" }, strength: "strong" });
+
+    const result = await importSelectedContacts(db, {
+      ...session,
+      rows: [chooseLinkDetails(row, match, [], false, true)]
+    });
+
+    expect(result.rows[0]).toMatchObject({
+      status: "added_details",
+      resultPersonId: "person-existing"
+    });
+    expect(await db.count("people")).toBe(1);
+    expect(await db.count("contactMethods")).toBe(1);
+    expect(await db.get("people", "person-existing")).toMatchObject({
+      displayName: "Bibi Jones",
+      revision: 2
+    });
   });
 
   it("reruns detection before create unless the user explicitly chose Create separate", async () => {

@@ -5,9 +5,14 @@ import {
   type PeopleOsDatabase
 } from "../data/database";
 import { StaleRevisionError } from "../data/repositories";
+import { DEFAULT_CONVERSATION_STARTERS } from "../domain/schema";
 import { ValidationError } from "../domain/validation";
 import { fixedNow } from "../test/fixtures";
-import { updateAlreadyContactedDefault, updateTodaySummaryNotificationSettings } from "./settings";
+import {
+  updateAlreadyContactedDefault,
+  updateConversationStarters,
+  updateTodaySummaryNotificationSettings
+} from "./settings";
 
 const names = new Set<string>();
 const connections = new Set<PeopleOsDatabase>();
@@ -156,5 +161,46 @@ describe("MVP Today notification Settings command", () => {
       .rejects.toThrow("Injected failure");
     expect(await db.get("appSettings", "app")).toEqual(beforeSettings);
     expect(await db.get("metadata", "app")).toEqual(beforeMetadata);
+  });
+});
+
+describe("Conversation starter Settings command", () => {
+  const customBank = [
+    { id: "personal-one", template: "Thinking of you, {name}.", relationshipMode: "personal" as const },
+    { id: "professional-one", template: "How is the work going, {name}?", relationshipMode: "professional" as const },
+    { id: "shared-one", template: "How are things, {name}?", relationshipMode: "both" as const }
+  ];
+
+  it("updates the bank once and treats an exact retry as a no-op", async () => {
+    const db = await openDatabase("starter-update");
+    expect((await db.get("appSettings", "app"))?.conversationStarters)
+      .toEqual(DEFAULT_CONVERSATION_STARTERS);
+    const command = {
+      expectedRevision: 1,
+      starters: customBank,
+      occurredAt: "2026-08-02T11:00:00.000Z"
+    };
+
+    const saved = await updateConversationStarters(db, command);
+    const metadataAfterFirst = await db.get("metadata", "app");
+    expect(saved).toMatchObject({ conversationStarters: customBank, revision: 2 });
+    await expect(updateConversationStarters(db, command)).resolves.toEqual(saved);
+    expect(await db.get("metadata", "app")).toEqual(metadataAfterFirst);
+  });
+
+  it("rejects invalid and stale updates without changing Settings", async () => {
+    const db = await openDatabase("starter-validation");
+    const before = await db.get("appSettings", "app");
+    await expect(updateConversationStarters(db, {
+      expectedRevision: 1,
+      starters: [{ id: "invalid", template: "No name token", relationshipMode: "both" }],
+      occurredAt: "2026-08-02T11:00:00.000Z"
+    })).rejects.toBeInstanceOf(ValidationError);
+    await expect(updateConversationStarters(db, {
+      expectedRevision: 2,
+      starters: customBank,
+      occurredAt: "2026-08-02T11:00:00.000Z"
+    })).rejects.toBeInstanceOf(StaleRevisionError);
+    expect(await db.get("appSettings", "app")).toEqual(before);
   });
 });

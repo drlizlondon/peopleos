@@ -2,12 +2,13 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import ReachOutEditorSheet from "./ReachOutEditorSheet";
 import { createReachOut, prepareCreateReachOutCommand } from "./application/reachOut";
 import { closeDatabase, getDatabase } from "./data/client";
 import { deletePeopleOsDatabase } from "./data/database";
 import { createRepositories } from "./data/repositories";
 import { addDaysToLocalDate } from "./domain/followUpPolicy";
-import { DATABASE_NAME, type LocalDate, type Person } from "./domain/schema";
+import { DATABASE_NAME, type LocalDate, type Person, type ReachOutEntry } from "./domain/schema";
 
 function today(): LocalDate {
   const now = new Date();
@@ -46,7 +47,7 @@ async function setReminderDefault(days: 1 | 7 | 14 | 30 | undefined) {
   }, settings.revision, new Date().toISOString());
 }
 
-describe("V1-08 Reach Out defaults and overdue editing", () => {
+describe("Reach Out simple capture and legacy preservation", () => {
   beforeEach(async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     await resetDatabase();
@@ -57,7 +58,7 @@ describe("V1-08 Reach Out defaults and overdue editing", () => {
     await resetDatabase();
   });
 
-  it("prefills the saved reminder default, permits a visible override or clear, and never rewrites the saved plan later", async () => {
+  it("ignores the stored Reach Out reminder default in the simple no-date flow", async () => {
     await seedPerson();
     await setReminderDefault(7);
     window.history.replaceState({}, "", "/reach-out");
@@ -65,54 +66,76 @@ describe("V1-08 Reach Out defaults and overdue editing", () => {
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Add someone" }));
-    const dialog = await screen.findByRole("dialog", { name: "Who do you want to reach out to?" });
-    await user.type(within(dialog).getByLabelText(/^Person or description/), "Sarah");
+    const dialog = await screen.findByRole("dialog", { name: "Add someone" });
+    const personInput = within(dialog).getByLabelText(/^Person/);
+    expect(personInput).not.toHaveFocus();
+    expect(within(dialog).queryByLabelText(/Reminder date/)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/Tomorrow|No reminder/)).not.toBeInTheDocument();
+
+    await user.type(personInput, "Sarah");
     await user.click(within(dialog).getByRole("button", { name: /Sarah Ahmed/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
 
-    const date = within(dialog).getByLabelText(/^Reminder date/) as HTMLInputElement;
-    await waitFor(() => expect(date).toHaveValue(addDaysToLocalDate(today(), 7)));
-    await user.click(within(dialog).getByRole("button", { name: "No reminder" }));
-    expect(date).toHaveValue("");
-    await user.click(within(dialog).getByRole("button", { name: "Tomorrow" }));
-    expect(date).toHaveValue(addDaysToLocalDate(today(), 1));
-    await user.click(within(dialog).getByRole("button", { name: "Add to Reach Out" }));
-
-    await screen.findByRole("heading", { name: "Sarah Ahmed" });
+    await waitFor(async () => {
+      expect(await (await getDatabase()).getAll("reachOutEntries")).toHaveLength(1);
+    });
     const db = await getDatabase();
     const entryBefore = (await db.getAll("reachOutEntries"))[0];
-    const followUpBefore = (await db.getAll("followUps"))[0];
-    expect(followUpBefore?.dueDate).toBe(addDaysToLocalDate(today(), 1));
+    expect(await db.getAll("followUps")).toHaveLength(0);
 
     await setReminderDefault(30);
-
     expect(await db.get("reachOutEntries", entryBefore!.id)).toEqual(entryBefore);
-    expect(await db.get("followUps", followUpBefore!.id)).toEqual(followUpBefore);
+    expect(await db.getAll("followUps")).toHaveLength(0);
   });
 
-  it("edits an overdue plan without forcing a reminder change", async () => {
+  it("edits only the visible note while retaining hidden legacy plan data", async () => {
     const person = await seedPerson();
     const yesterday = addDaysToLocalDate(today(), -1);
     const created = await createReachOut(await getDatabase(), prepareCreateReachOutCommand({
       person,
-      reason: "Original reason",
-      reminderDate: yesterday
+      reason: "Original note",
+      intendedActionType: "send_update",
+      actionDetail: "Legacy action detail",
+      notes: "Legacy extra notes",
+      reminderDate: yesterday,
+      newContexts: [{ kind: "fellowship", label: "Legacy fellowship" }]
     }, { now: `${yesterday}T09:00:00.000Z`, localDate: yesterday }));
-    window.history.replaceState({}, "", `/reach-out/${created.entry.id}`);
+    const onSaved = vi.fn<(entry: ReachOutEntry) => void>();
     const user = userEvent.setup();
-    render(<App />);
 
-    await screen.findByRole("heading", { name: "Sarah Ahmed" });
-    await user.click(screen.getByRole("button", { name: "Edit" }));
-    const dialog = await screen.findByRole("dialog", { name: "Edit Reach Out plan" });
-    const reason = within(dialog).getByLabelText(/^Why I want to reach out/);
-    await user.clear(reason);
-    await user.type(reason, "Updated reason");
-    expect(within(dialog).getByLabelText(/^Reminder date/)).toHaveValue(yesterday);
-    await user.click(within(dialog).getByRole("button", { name: "Save plan" }));
+    render(
+      <ReachOutEditorSheet
+        mode="edit"
+        person={person}
+        entry={created.entry}
+        currentFollowUp={created.followUp}
+        onClose={() => undefined}
+        onSaved={onSaved}
+        onOpenExisting={() => undefined}
+      />
+    );
 
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit Reach Out plan" })).not.toBeInTheDocument());
-    expect((await screen.findAllByText("Updated reason")).length).toBeGreaterThanOrEqual(1);
-    const saved = await (await getDatabase()).get("followUps", created.followUp!.id);
-    expect(saved).toMatchObject({ id: created.followUp!.id, dueDate: yesterday, status: "pending" });
+    const dialog = await screen.findByRole("dialog", { name: "Edit note" });
+    expect(within(dialog).queryByLabelText(/Reminder date/)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/Intended next action|Context|More details/)).not.toBeInTheDocument();
+    const note = within(dialog).getByLabelText(/^Note/);
+    await user.clear(note);
+    await user.type(note, "Updated note");
+    await user.click(within(dialog).getByRole("button", { name: "Save note" }));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+    expect(onSaved.mock.calls[0]?.[0]).toMatchObject({
+      id: created.entry.id,
+      reason: "Updated note",
+      intendedActionType: "send_update",
+      actionDetail: "Legacy action detail",
+      notes: "Legacy extra notes",
+      contextIds: created.entry.contextIds
+    });
+    expect(await (await getDatabase()).get("followUps", created.followUp!.id)).toMatchObject({
+      id: created.followUp!.id,
+      dueDate: yesterday,
+      status: "pending"
+    });
   });
 });
