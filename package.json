@@ -13,7 +13,7 @@
     "test": "vitest run --exclude '**/node_modules/**' --exclude '**/*.perf.test.ts'",
     "test:watch": "vitest --exclude '**/node_modules/**' --exclude '**/*.perf.test.ts'",
     "test:perf": "vitest run perf.test.ts",
-    "test:marketing": "node marketing/validate.mjs",
+    "test:marketing": "node marketing/validate.mjs && node --test marketing/waitlist.behavior.mjs",
     "check": "npm run lint && npm run test && npm run test:perf && npm run test:marketing && npm run build",
     "vercel-build": "node scripts/vercel-build.mjs",
     "deploy:production": "node scripts/production-deploy.mjs",

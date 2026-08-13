@@ -8,6 +8,7 @@
     <title>PeopleOS — Keep in touch with the people you mean to</title>
     <link rel="stylesheet" href="/assets/site.css">
     <script src="/assets/story.js" defer></script>
+    <script type="module" src="/assets/waitlist.js"></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -16,15 +17,54 @@
         <img class="brand-mark" src="/assets/peopleos-mark.svg" alt="">
         <span>PeopleOS</span>
       </a>
-      <a class="button button-small button-secondary" href="/download">Join the iPhone beta</a>
+      <a class="button button-small button-secondary" href="#waitlist">Join the iPhone beta waitlist</a>
     </header>
 
     <main id="main">
-      <section class="hero content-width">
+      <section class="hero content-width" id="waitlist">
         <h1>Oops. You forgot to message them again.</h1>
         <p class="hero-promise">Keep in touch with the people you mean to.</p>
         <p class="hero-copy">PeopleOS reminds you when it’s time, with something to say.</p>
-        <a class="button" href="/download">Join the iPhone beta</a>
+        <div class="waitlist-panel waitlist-panel-hero" data-waitlist-root data-waitlist-source="hero">
+          <form class="waitlist-form" data-waitlist-form novalidate hidden>
+            <div class="waitlist-fields">
+              <label class="waitlist-field" for="hero-waitlist-email">
+                <span>Email address</span>
+                <input class="waitlist-input" id="hero-waitlist-email" name="email" type="email" autocomplete="email" inputmode="email" aria-describedby="hero-waitlist-privacy hero-waitlist-error" required>
+              </label>
+              <label class="waitlist-field" for="hero-waitlist-first-name">
+                <span>First name <small>(optional)</small></span>
+                <input class="waitlist-input" id="hero-waitlist-first-name" name="first_name" type="text" autocomplete="given-name">
+              </label>
+              <button class="button waitlist-submit" type="submit" data-waitlist-submit>Join the iPhone beta waitlist</button>
+            </div>
+            <label class="waitlist-trap" for="hero-waitlist-company" aria-hidden="true">Company
+              <input id="hero-waitlist-company" name="_gotcha" type="text" tabindex="-1" autocomplete="off">
+            </label>
+            <p class="waitlist-privacy" id="hero-waitlist-privacy">We’ll only use your email for PeopleOS beta and launch updates. We won’t add you to broader marketing unless you choose that separately. <a href="/privacy">Privacy details</a>.</p>
+            <p class="waitlist-error" id="hero-waitlist-error" data-waitlist-error role="alert" hidden></p>
+          </form>
+          <p class="waitlist-loading" data-waitlist-loading>The secure waitlist is loading. If it doesn’t appear, please refresh and try again.</p>
+          <div class="waitlist-success" data-waitlist-success hidden>
+            <div data-waitlist-announcement>
+              <p class="eyebrow">iPhone beta waitlist</p>
+              <h2 class="waitlist-success-title" data-waitlist-success-title tabindex="-1">You’re on the list.</h2>
+              <p class="waitlist-success-copy">We’ll let you know when the PeopleOS iPhone beta is ready.</p>
+            </div>
+            <div class="waitlist-question" data-waitlist-question>
+              <p class="waitlist-optional">Optional</p>
+              <h3>One quick question before you go: who are you worst at keeping in touch with?</h3>
+              <div class="waitlist-answers" role="group" aria-label="Who are you worst at keeping in touch with?">
+                <button type="button" data-waitlist-answer="family" aria-pressed="false">Family</button>
+                <button type="button" data-waitlist-answer="friends" aria-pressed="false">Friends</button>
+                <button type="button" data-waitlist-answer="professional" aria-pressed="false">Professional contacts</button>
+                <button type="button" data-waitlist-answer="everyone" aria-pressed="false">Honestly, everyone</button>
+              </div>
+              <p class="waitlist-answer-status" data-waitlist-answer-status aria-live="polite"></p>
+            </div>
+          </div>
+          <noscript><p class="waitlist-noscript">Please enable JavaScript to join the waitlist on this page.</p></noscript>
+        </div>
       </section>
 
       <section class="loop-section content-width" aria-labelledby="loop-heading">
@@ -142,7 +182,46 @@
       <section class="final-cta content-width">
         <img class="brand-mark" src="/assets/peopleos-mark.svg" alt="">
         <h2>Remember the people you mean to keep in touch with.</h2>
-        <a class="button" href="/download">Join the iPhone beta</a>
+        <div class="waitlist-panel" data-waitlist-root data-waitlist-source="bottom">
+          <form class="waitlist-form" data-waitlist-form novalidate hidden>
+            <div class="waitlist-fields">
+              <label class="waitlist-field" for="bottom-waitlist-email">
+                <span>Email address</span>
+                <input class="waitlist-input" id="bottom-waitlist-email" name="email" type="email" autocomplete="email" inputmode="email" aria-describedby="bottom-waitlist-privacy bottom-waitlist-error" required>
+              </label>
+              <label class="waitlist-field" for="bottom-waitlist-first-name">
+                <span>First name <small>(optional)</small></span>
+                <input class="waitlist-input" id="bottom-waitlist-first-name" name="first_name" type="text" autocomplete="given-name">
+              </label>
+              <button class="button waitlist-submit" type="submit" data-waitlist-submit>Join the iPhone beta waitlist</button>
+            </div>
+            <label class="waitlist-trap" for="bottom-waitlist-company" aria-hidden="true">Company
+              <input id="bottom-waitlist-company" name="_gotcha" type="text" tabindex="-1" autocomplete="off">
+            </label>
+            <p class="waitlist-privacy" id="bottom-waitlist-privacy">We’ll only use your email for PeopleOS beta and launch updates. We won’t add you to broader marketing unless you choose that separately. <a href="/privacy">Privacy details</a>.</p>
+            <p class="waitlist-error" id="bottom-waitlist-error" data-waitlist-error role="alert" hidden></p>
+          </form>
+          <p class="waitlist-loading" data-waitlist-loading>The secure waitlist is loading. If it doesn’t appear, please refresh and try again.</p>
+          <div class="waitlist-success" data-waitlist-success hidden>
+            <div data-waitlist-announcement>
+              <p class="eyebrow">iPhone beta waitlist</p>
+              <h2 class="waitlist-success-title" data-waitlist-success-title tabindex="-1">You’re on the list.</h2>
+              <p class="waitlist-success-copy">We’ll let you know when the PeopleOS iPhone beta is ready.</p>
+            </div>
+            <div class="waitlist-question" data-waitlist-question>
+              <p class="waitlist-optional">Optional</p>
+              <h3>One quick question before you go: who are you worst at keeping in touch with?</h3>
+              <div class="waitlist-answers" role="group" aria-label="Who are you worst at keeping in touch with?">
+                <button type="button" data-waitlist-answer="family" aria-pressed="false">Family</button>
+                <button type="button" data-waitlist-answer="friends" aria-pressed="false">Friends</button>
+                <button type="button" data-waitlist-answer="professional" aria-pressed="false">Professional contacts</button>
+                <button type="button" data-waitlist-answer="everyone" aria-pressed="false">Honestly, everyone</button>
+              </div>
+              <p class="waitlist-answer-status" data-waitlist-answer-status aria-live="polite"></p>
+            </div>
+          </div>
+          <noscript><p class="waitlist-noscript">Please enable JavaScript to join the waitlist on this page.</p></noscript>
+        </div>
       </section>
     </main>
 

@@ -17,6 +17,8 @@
 
 * { box-sizing: border-box; }
 
+[hidden] { display: none !important; }
+
 html { scroll-behavior: smooth; }
 
 body {
@@ -110,6 +112,15 @@ a { color: inherit; text-underline-offset: 0.18em; }
   box-shadow: 0 13px 28px rgba(127, 23, 63, 0.22);
 }
 
+.button:disabled {
+  color: #fff;
+  background: #9c8d92;
+  border-color: #9c8d92;
+  box-shadow: none;
+  cursor: wait;
+  transform: none;
+}
+
 .button:focus-visible,
 a:focus-visible,
 button:focus-visible {
@@ -175,6 +186,180 @@ h3,
   color: var(--muted);
   font-size: clamp(1.05rem, 2vw, 1.24rem);
   text-wrap: balance;
+}
+
+.waitlist-panel {
+  width: min(100%, 980px);
+  margin-inline: auto;
+  padding: clamp(1.15rem, 2.5vw, 1.65rem);
+  position: relative;
+  color: var(--ink);
+  background: var(--blush);
+  border: 1px solid rgba(173, 49, 93, 0.14);
+  border-radius: 24px;
+  box-shadow: 0 16px 44px rgba(62, 31, 42, 0.08);
+  text-align: left;
+}
+
+.waitlist-panel-hero { margin-top: 2.35rem; }
+
+.waitlist-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.82fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.waitlist-field {
+  min-width: 0;
+  display: grid;
+  gap: 0.38rem;
+  color: #4e4247;
+  font-size: 0.75rem;
+  font-weight: 780;
+  letter-spacing: 0.02em;
+  text-align: left;
+}
+
+.waitlist-field small { color: var(--muted); font-size: 0.72rem; font-weight: 600; }
+
+.waitlist-input {
+  width: 100%;
+  min-height: 54px;
+  padding: 0.8rem 0.95rem;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid rgba(48, 29, 36, 0.2);
+  border-radius: 13px;
+  outline: 0;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.waitlist-input:hover { border-color: rgba(173, 49, 93, 0.42); }
+.waitlist-input:focus {
+  border-color: var(--berry);
+  box-shadow: 0 0 0 3px rgba(173, 49, 93, 0.16);
+}
+
+.waitlist-input[aria-invalid="true"] { border-color: #a62b3f; }
+
+.waitlist-submit {
+  min-height: 54px;
+  max-width: 270px;
+  padding-inline: 1.2rem;
+  text-align: center;
+}
+
+.waitlist-privacy,
+.waitlist-error,
+.waitlist-loading,
+.waitlist-noscript {
+  margin: 0.85rem 0 0;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.waitlist-privacy { color: var(--muted); }
+.waitlist-privacy a { color: var(--berry-dark); font-weight: 700; }
+.waitlist-error { color: #8b1f35; font-weight: 700; }
+.waitlist-loading { color: var(--muted); text-align: center; }
+.waitlist-noscript { color: var(--muted); text-align: center; }
+
+.waitlist-trap {
+  width: 1px;
+  height: 1px;
+  position: absolute;
+  left: -10000px;
+  overflow: hidden;
+}
+
+.waitlist-success { padding: 0.25rem; text-align: center; }
+.waitlist-success .eyebrow { margin-bottom: 0.45rem; }
+.waitlist-success-title {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2rem, 4vw, 2.75rem);
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+}
+
+.waitlist-success-title:focus {
+  outline: 3px solid rgba(173, 49, 93, 0.28);
+  outline-offset: 5px;
+  border-radius: 5px;
+}
+.waitlist-success-copy { margin: 0.55rem auto 0; color: var(--muted); }
+
+.waitlist-question {
+  max-width: 760px;
+  margin: 1.35rem auto 0;
+  padding-top: 1.25rem;
+  border-top: 1px solid rgba(81, 44, 58, 0.14);
+}
+
+.waitlist-optional {
+  margin: 0 0 0.35rem;
+  color: var(--berry);
+  font-size: 0.68rem;
+  font-weight: 830;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.waitlist-question h3 {
+  max-width: 660px;
+  margin: 0 auto;
+  font-family: inherit;
+  font-size: clamp(1rem, 2vw, 1.18rem);
+  font-weight: 780;
+  letter-spacing: -0.015em;
+  line-height: 1.35;
+}
+
+.waitlist-answers {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.waitlist-answers button {
+  min-height: 46px;
+  padding: 0.65rem 0.8rem;
+  color: var(--berry-dark);
+  background: #fff;
+  border: 1px solid rgba(173, 49, 93, 0.27);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 760;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: color 160ms ease, background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.waitlist-answers button:hover:not(:disabled) {
+  border-color: var(--berry);
+  transform: translateY(-1px);
+}
+
+.waitlist-answers button[aria-pressed="true"] {
+  color: #fff;
+  background: var(--berry);
+  border-color: var(--berry);
+}
+
+.waitlist-answers button:disabled { cursor: default; opacity: 0.58; }
+.waitlist-answers button[aria-pressed="true"]:disabled { opacity: 1; }
+
+.waitlist-answer-status {
+  min-height: 1.35em;
+  margin: 0.7rem 0 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 680;
+  text-align: center;
 }
 
 .loop-section {
@@ -691,6 +876,9 @@ html.demo-enhanced .demo-progress {
 .small-print { max-width: 520px; margin: 1.25rem auto 0; }
 
 @media (max-width: 900px) {
+  .waitlist-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr); }
+  .waitlist-submit { max-width: none; grid-column: 1 / -1; }
+  .waitlist-answers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   html.demo-enhanced .demo { grid-template-columns: 1fr; gap: 2rem; }
   html.demo-enhanced .demo-phone { margin-inline: auto; }
   html.demo-enhanced .demo-progress { grid-template-columns: repeat(5, 1fr); gap: 0.2rem; }
@@ -708,7 +896,7 @@ html.demo-enhanced .demo-progress {
   .site-header,
   .site-footer { width: min(100% - 1.5rem, 1120px); }
   .site-header { min-height: 72px; }
-  .site-header .button { padding-inline: 0.8rem; font-size: 0.77rem; }
+  .site-header .button { max-width: 185px; padding-inline: 0.8rem; font-size: 0.77rem; text-align: center; }
   .brand { gap: 0.52rem; font-size: 1rem; }
   .brand-mark { width: 34px; height: 34px; }
   .brand-mark-small { width: 30px; height: 30px; }
@@ -717,6 +905,12 @@ html.demo-enhanced .demo-progress {
   .hero h1 { font-size: clamp(2.65rem, 12.8vw, 3.8rem); line-height: 0.98; }
   .hero-promise { font-size: clamp(1.65rem, 7.7vw, 2.3rem); }
   .hero-copy { font-size: 1rem; }
+  .waitlist-panel { padding: 1rem; border-radius: 19px; }
+  .waitlist-panel-hero { margin-top: 1.9rem; }
+  .waitlist-fields { grid-template-columns: 1fr; }
+  .waitlist-submit { width: 100%; grid-column: auto; }
+  .waitlist-answers { gap: 0.45rem; }
+  .waitlist-answers button { min-height: 48px; padding-inline: 0.55rem; font-size: 0.76rem; }
 
   .loop-section { padding-block: 4.5rem; }
   .loop-heading { margin-bottom: 2.5rem; }
