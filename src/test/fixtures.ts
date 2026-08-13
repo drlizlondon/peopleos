@@ -1,4 +1,4 @@
-import type { PeopleOsData } from "../domain/schema";
+import { DEFAULT_CONVERSATION_STARTERS, type PeopleOsData } from "../domain/schema";
 
 export const fixedNow = "2026-08-01T09:00:00.000Z";
 
@@ -28,6 +28,7 @@ export function completeData(): PeopleOsData {
       createdAt: fixedNow,
       updatedAt: fixedNow
     }],
+    externalIdentities: [],
     affiliations: [{
       id: "affiliation-sarah",
       revision: 1,
@@ -137,6 +138,9 @@ export function completeData(): PeopleOsData {
       captureMode: "standard",
       alreadyContactedDefaultReminderDays: 14,
       reachOutDefaultReminderDays: 7,
+      todaySummaryNotificationsEnabled: false,
+      todaySummaryNotificationTime: "12:00",
+      conversationStarters: DEFAULT_CONVERSATION_STARTERS.map((starter) => ({ ...starter })),
       createdAt: fixedNow,
       updatedAt: fixedNow
     }]

@@ -102,7 +102,13 @@ describe("V1-10 Contact now target projection", () => {
     expect(email.label).toBe("Email");
     expect(contactNowTargetHref(phone)).toBe("tel:+442079460018");
     expect(contactNowTargetHref(email)).toBe("mailto:sarah@example.com");
+    expect(contactNowTargetHref(email, "Hello Sarah & welcome")).toBe(
+      "mailto:sarah@example.com?body=Hello%20Sarah%20%26%20welcome"
+    );
+    expect(contactNowTargetHref(email, "   ")).toBe("mailto:sarah@example.com");
     expect(whatsappTargetHref(phone, "Hello Sarah & welcome")).toBe("https://wa.me/442079460018?text=Hello%20Sarah%20%26%20welcome");
+    expect(whatsappTargetHref(phone, "   ")).toBe("https://wa.me/442079460018");
+    expect(() => whatsappTargetHref(email, "Hello Sarah")).toThrow("WhatsApp requires a phone number.");
     expect(contactNowTargetHref({
       ...email,
       familiarValue: "sarah+intro?private@example.com",

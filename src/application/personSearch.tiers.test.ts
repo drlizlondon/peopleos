@@ -10,7 +10,11 @@
 import { describe, expect, it } from "vitest";
 import { searchPeopleFromData, type PersonSearchSource } from "./personSearch";
 import { RELATIONSHIP_ENGINE_POLICY_VERSION, type RelationshipClock } from "../relationship-engine";
-import type { AppSettings, PeopleOsData } from "../domain/schema";
+import {
+  DEFAULT_CONVERSATION_STARTERS,
+  type AppSettings,
+  type PeopleOsData
+} from "../domain/schema";
 
 const NOW = "2026-08-01T09:00:00.000Z";
 const CLOCK: RelationshipClock = {
@@ -44,13 +48,16 @@ const settings: AppSettings[] = [{
   defaultPhoneRegion: "GB",
   captureMode: "standard",
   alreadyContactedDefaultReminderDays: 14,
+  todaySummaryNotificationsEnabled: false,
+  todaySummaryNotificationTime: "12:00",
+  conversationStarters: DEFAULT_CONVERSATION_STARTERS.map((starter) => ({ ...starter })),
   createdAt: NOW,
   updatedAt: NOW
 }];
 
 function emptyData(): PeopleOsData {
   return {
-    people: [], contactMethods: [], affiliations: [], interactions: [], events: [],
+    people: [], contactMethods: [], externalIdentities: [], affiliations: [], interactions: [], events: [],
     memoryFacts: [], followUps: [], followUpEvents: [], todaySkips: [],
     reachOutEntries: [], reachOutEvents: [], reachOutContexts: [], appSettings: settings
   };

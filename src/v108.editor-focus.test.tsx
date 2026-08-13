@@ -18,7 +18,7 @@ describe("Reach Out editor focus", () => {
     await resetDatabase();
   });
 
-  it("focuses identity after asynchronous capture data finishes loading", async () => {
+  it("opens on a non-input control after asynchronous data finishes loading", async () => {
     const db = await client.getDatabase();
     let releaseLoad: (() => void) | undefined;
     const loadingGate = new Promise<void>((resolve) => { releaseLoad = resolve; });
@@ -36,12 +36,14 @@ describe("Reach Out editor focus", () => {
       />
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent("Loading Reach Out capture");
-    expect(screen.queryByLabelText(/^Person or description/)).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading people");
+    expect(screen.queryByLabelText(/^Person/)).not.toBeInTheDocument();
 
     await act(async () => { releaseLoad?.(); });
 
-    const identity = await screen.findByLabelText(/^Person or description/);
-    await waitFor(() => expect(identity).toHaveFocus());
+    const identity = await screen.findByLabelText(/^Person/);
+    const close = screen.getByRole("button", { name: "Close Reach Out" });
+    await waitFor(() => expect(close).toHaveFocus());
+    expect(identity).not.toHaveFocus();
   });
 });

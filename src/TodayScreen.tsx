@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import EmptyState from "./EmptyState";
 import { Icon } from "./icons";
+import RegularContactStartPrompt from "./RegularContactStartPrompt";
 import TodayCard from "./TodayCard";
-import { ContactMethodChoiceSheet } from "./TodaySheets";
+import { ContactMethodChoiceSheet, PauseTodaySheet } from "./TodaySheets";
 import {
   contactNowTargetHref,
   getContactNowProjection,
@@ -11,14 +12,18 @@ import {
   type ContactNowProjection,
   type ContactNowTarget
 } from "./application/contactNow";
-import { notToday, type NotTodayCommand } from "./application/followUps";
-import { removeTodayNote, saveTodayNote, setTodayNoteCompleted } from "./application/todayNotes";
 import {
   alreadyContacted,
+  pauseToday,
   prepareAlreadyContactedCommand,
-  prepareNotTodayFromContext,
+  preparePauseTodayCommand,
   type AlreadyContactedCommand
 } from "./application/todayActions";
+import {
+  completeReachOut,
+  prepareCompleteReachOutCommand,
+  type CompleteReachOutCommand
+} from "./application/reachOut";
 import {
   getTodayActionContext,
   getTodayScreenProjection,
@@ -30,9 +35,10 @@ import { createRelationshipClock } from "./application/relationshipEngineQueries
 import { getDatabase } from "./data/client";
 // eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { StaleRevisionError } from "./data/repositories";
+import { contactCadenceInDays, contactCadenceOf } from "./domain/cadence";
 import { addDaysToLocalDate, localDateForInstant } from "./domain/followUpPolicy";
-import type { LocalDate } from "./domain/schema";
 import type { ActiveRelationshipMode } from "./domain/relationshipMode";
+import type { LocalDate } from "./domain/schema";
 import type { ContactHandoff } from "./integrations/contactHandoff";
 import { openContactHandoff } from "./integrations/contactHandoff";
 import { contactMethodsPath, personProfilePath } from "./navigation";
@@ -42,6 +48,7 @@ type Navigate = (path: string, options?: { replace?: boolean; state?: Record<str
 type TodayScreenProps = {
   activeMode?: ActiveRelationshipMode;
   navigate: Navigate;
+  /** Retained for test/integration callers; follow-up creation now lives with People. */
   onAddFollowUp?: () => void;
   handoff?: ContactHandoff;
   relationshipFilter?: ReactNode;
@@ -50,7 +57,8 @@ type TodayScreenProps = {
 type CardError = {
   message: string;
   copyValue?: string;
-  retry?: "contact" | "not_today";
+  retry?: "call" | "message" | "done";
+  messageDraft?: string;
 };
 
 type ContactChoice = {
@@ -62,8 +70,22 @@ type ContactChoice = {
   messageDraft?: string;
 };
 
+type PauseChoice = {
+  card: TodayCardProjection;
+  error?: string;
+};
+
+type DoneCommand =
+  | { kind: "regular"; command: AlreadyContactedCommand }
+  | { kind: "reach_out"; command: CompleteReachOutCommand };
+
 function firstIssue(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function initialVisibleCount(): number {
+  const value = window.history.state?.todayVisibleCount;
+  return Number.isInteger(value) && value >= 5 ? value : 5;
 }
 
 function storedFocusPersonId(): string | undefined {
@@ -72,43 +94,65 @@ function storedFocusPersonId(): string | undefined {
     : undefined;
 }
 
-function importAction(navigate: Navigate) {
-  return <button className="secondary-action" type="button" onClick={() => navigate("/people/import")}>Import Contacts</button>;
+function targetsForChannel(
+  projection: ContactNowProjection,
+  channel: "call" | "message" | undefined
+): ContactNowTarget[] {
+  if (channel === "call") return projection.targets.filter((target) => target.channel === "phone_call");
+  if (channel === "message") return projection.targets.filter((target) => target.channel === "phone_call" || target.channel === "email");
+  return [...projection.targets];
 }
 
 function TodayHeading({
   loading = false,
   relationshipFilter,
-  status = ""
+  status = "",
+  onViewUpcoming
 }: {
   loading?: boolean;
   relationshipFilter?: ReactNode;
   status?: string;
+  onViewUpcoming?: () => void;
 }) {
   return (
-    <header className="page-heading compact-heading today-heading">
-      <h2>Today</h2>
-      {!loading && relationshipFilter}
-      <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">{status}</p>
+    <header
+      className={`page-heading compact-heading today-heading${onViewUpcoming ? " today-heading-with-action" : ""}`}
+    >
+      <div>
+        <h2>Today</h2>
+        <p>People you meant to contact.</p>
+        {!loading && relationshipFilter}
+      </div>
+      {!loading && onViewUpcoming && (
+        <button className="text-action" type="button" onClick={onViewUpcoming}>View upcoming</button>
+      )}
+      {!loading && <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">{status}</p>}
     </header>
   );
 }
 
-export default function TodayScreen({ activeMode = "personal", navigate, handoff = openContactHandoff, relationshipFilter }: TodayScreenProps) {
+export default function TodayScreen({
+  activeMode = "personal",
+  navigate,
+  handoff = openContactHandoff,
+  relationshipFilter
+}: TodayScreenProps) {
   const [projection, setProjection] = useState<TodayScreenProjection>();
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState("");
+  const [visibleCount, setVisibleCount] = useState(initialVisibleCount);
   const [busyPersonId, setBusyPersonId] = useState("");
   const [cardErrors, setCardErrors] = useState<Record<string, CardError>>({});
   const [contactChoice, setContactChoice] = useState<ContactChoice>();
+  const [pauseChoice, setPauseChoice] = useState<PauseChoice>();
   const [committedHiddenPersonIds, setCommittedHiddenPersonIds] = useState<Set<string>>(() => new Set());
   const [copiedStatus, setCopiedStatus] = useState("");
   const mountedRef = useRef(true);
   const focusPersonRef = useRef<string | undefined>(storedFocusPersonId());
   const focusIndexRef = useRef<number>();
   const contactOpenerRef = useRef<HTMLButtonElement>();
-  const notTodayCommandsRef = useRef(new Map<string, NotTodayCommand>());
-  const alreadyCommandsRef = useRef(new Map<string, { nextDate: LocalDate; command: AlreadyContactedCommand }>());
+  const pauseOpenerRef = useRef<HTMLButtonElement>();
+  const doneCommandsRef = useRef(new Map<string, DoneCommand>());
   const mutationLocksRef = useRef(new Set<string>());
 
   const load = useCallback(async (showLoading = false) => {
@@ -119,6 +163,7 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
       if (!mountedRef.current) return;
       setProjection(next);
       setCommittedHiddenPersonIds(new Set());
+      setVisibleCount((current) => Math.max(5, Math.min(current, Math.max(5, next.cards.length))));
       return true;
     } catch {
       if (mountedRef.current) setPageError("PeopleOS could not load Today from this device.");
@@ -177,7 +222,7 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
 
   function rememberTodayHistory(personId: string) {
     window.history.replaceState(
-      { ...(window.history.state ?? {}), todayFocusPersonId: personId },
+      { ...(window.history.state ?? {}), todayVisibleCount: visibleCount, todayFocusPersonId: personId },
       "",
       window.location.pathname
     );
@@ -187,7 +232,7 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
     requestAnimationFrame(() => {
       const card = Array.from(document.querySelectorAll<HTMLElement>("[data-today-person-id]"))
         .find((candidate) => candidate.dataset.todayPersonId === personId);
-      const target = Array.from(card?.querySelectorAll<HTMLButtonElement>(".today-card-actions button") ?? [])
+      const target = Array.from(card?.querySelectorAll<HTMLButtonElement>(".today-card-actions button, .today-card-links button") ?? [])
         .find((button) => button.textContent?.trim() === label);
       target?.focus();
     });
@@ -200,6 +245,7 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
         fromPath: "/",
         autoAddPhone,
         todayOriginPrepared: true,
+        todayVisibleCount: visibleCount,
         todayFocusPersonId: card.person.id
       }
     });
@@ -209,150 +255,150 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
     return getContactNowProjection(await getDatabase(), card.person.id);
   }
 
-  async function launchTarget(card: TodayCardProjection, target: ContactNowTarget, href?: string, focusLabel = "Message") {
+  async function launchTarget(
+    card: TodayCardProjection,
+    target: ContactNowTarget,
+    intent: Pick<ContactChoice, "requestedChannel" | "messageDraft"> = {}
+  ) {
     setBusyPersonId(card.person.id);
     setCardError(card.person.id);
     try {
       const current = await revalidateContactNowTarget(await getDatabase(), card.person.id, target);
       if (!current) {
         const next = await latestContactProjection(card);
-        setContactChoice({ card, projection: next, error: "That contact method is no longer available. Choose another option." });
+        setContactChoice({
+          card,
+          projection: { ...next, targets: targetsForChannel(next, intent.requestedChannel) },
+          ...intent,
+          error: "That contact method is no longer available. Choose another option."
+        });
         return;
       }
-      await handoff(href ?? contactNowTargetHref(current));
+      const href = intent.requestedChannel === "message"
+        ? current.channel === "phone_call"
+          ? whatsappTargetHref(current, intent.messageDraft)
+          : contactNowTargetHref(current, intent.messageDraft)
+        : contactNowTargetHref(current);
+      await handoff(href);
       setContactChoice(undefined);
-      focusCardAction(card.person.id, focusLabel);
+      focusCardAction(card.person.id, intent.requestedChannel === "call" ? "Call" : "Message");
     } catch {
       const next = await latestContactProjection(card).catch(() => card.contact);
       setContactChoice({
         card,
-        projection: next,
+        projection: { ...next, targets: targetsForChannel(next, intent.requestedChannel) },
+        ...intent,
         error: "PeopleOS could not open that contact method. Copy it, choose another option, or manage contact details.",
         copyValue: target.canonicalValue
       });
       setCardError(card.person.id, {
         message: "PeopleOS could not open that contact method. You can copy it or manage contact details.",
         copyValue: target.canonicalValue,
-        retry: "contact"
+        ...(intent.requestedChannel ? { retry: intent.requestedChannel } : {}),
+        ...(intent.messageDraft ? { messageDraft: intent.messageDraft } : {})
       });
     } finally {
       setBusyPersonId("");
     }
   }
 
-  async function contactVia(card: TodayCardProjection, channel: "call" | "message", messageDraft?: string) {
-    setBusyPersonId(card.person.id);
-    setCardError(card.person.id);
-    try {
-      const current = await latestContactProjection(card);
-      const targets = channel === "call"
-        ? current.targets.filter((target) => target.channel === "phone_call")
-        : current.targets.filter((target) => target.channel === "phone_call" || target.channel === "email");
-      if (targets.length === 0) return openContactMethods(card, channel === "call");
-      if (targets.length > 1) {
-        setContactChoice({ card, projection: { ...current, targets }, requestedChannel: channel, messageDraft });
-        return;
-      }
-      const target = targets[0];
-      await launchTarget(card, target, channel === "message" && target.channel === "phone_call" ? whatsappTargetHref(target, messageDraft) : undefined, channel === "call" ? "Call" : "Message");
-    } catch {
-      setCardError(card.person.id, { message: `PeopleOS could not open ${channel}.` });
-    } finally {
-      setBusyPersonId("");
-    }
-  }
-
-  async function editTodayNote(card: TodayCardProjection) {
-    const next = window.prompt("Note for today", card.person.todayNote ?? "");
-    if (next === null) return;
-    try {
-      if (next.trim()) await saveTodayNote(await getDatabase(), card.person.id, next);
-      else if (card.person.todayNote) await removeTodayNote(await getDatabase(), card.person.id);
-      await load();
-    } catch (error) {
-      setCardError(card.person.id, { message: firstIssue(error, "PeopleOS could not save this note.") });
-    }
-  }
-
-  async function toggleTodayNote(card: TodayCardProjection, completed: boolean) {
-    try {
-      await setTodayNoteCompleted(await getDatabase(), card.person.id, completed);
-      await load();
-    } catch (error) {
-      setCardError(card.person.id, { message: firstIssue(error, "PeopleOS could not update this note.") });
-    }
-  }
-
-  function openContacted(card: TodayCardProjection) {
-    if (!projection) return;
-    const cadenceDays = card.person.contactCadenceDays;
-    const nextDate = addDaysToLocalDate(projection.result.localDate, cadenceDays ?? 1);
-    void chooseNextReminder(nextDate, card, {
-      suppressNextFollowUp: true,
-      announceNextReminder: Boolean(cadenceDays)
-    });
-  }
-
-  async function contactNow(card: TodayCardProjection, opener?: HTMLButtonElement) {
+  async function contactVia(
+    card: TodayCardProjection,
+    channel: "call" | "message",
+    messageDraft?: string,
+    opener?: HTMLButtonElement
+  ) {
     if (opener) contactOpenerRef.current = opener;
     setBusyPersonId(card.person.id);
     setCardError(card.person.id);
     try {
       const current = await latestContactProjection(card);
-      if (current.targets.length === 0) {
+      const targets = targetsForChannel(current, channel);
+      if (targets.length === 0) {
         openContactMethods(card, true);
-      } else if (current.targets.length === 1) {
-        await launchTarget(card, current.targets[0]);
+      } else if (targets.length === 1) {
+        await launchTarget(card, targets[0], { requestedChannel: channel, messageDraft });
       } else {
-        setContactChoice({ card, projection: current });
+        setContactChoice({
+          card,
+          projection: { ...current, targets },
+          requestedChannel: channel,
+          messageDraft
+        });
       }
     } catch {
-      setCardError(card.person.id, { message: "PeopleOS could not check contact details yet.", retry: "contact" });
+      setCardError(card.person.id, {
+        message: `PeopleOS could not open ${channel} yet.`,
+        retry: channel,
+        ...(messageDraft ? { messageDraft } : {})
+      });
     } finally {
       setBusyPersonId("");
     }
   }
 
-  async function notTodayAction(card: TodayCardProjection) {
+  function openPause(card: TodayCardProjection, opener?: HTMLButtonElement) {
+    if (opener) pauseOpenerRef.current = opener;
+    setCardError(card.person.id);
+    setPauseChoice({ card });
+  }
+
+  function closePause() {
+    if (busyPersonId) return;
+    setPauseChoice(undefined);
+    requestAnimationFrame(() => pauseOpenerRef.current?.focus());
+  }
+
+  async function pauseAction(card: TodayCardProjection, untilDate: LocalDate) {
     if (mutationLocksRef.current.size > 0) return;
     mutationLocksRef.current.add(card.person.id);
     rememberCardPosition(card);
     setBusyPersonId(card.person.id);
+    setPauseChoice({ card });
     setCardError(card.person.id);
     try {
       const clock = createRelationshipClock();
-      let command = notTodayCommandsRef.current.get(card.person.id);
-      if (command && command.localDate !== localDateForInstant(clock.now, clock.timeZone)) {
-        notTodayCommandsRef.current.delete(card.person.id);
+      const currentLocalDate = localDateForInstant(clock.now, clock.timeZone);
+      const openedLocalDate = projection?.result.localDate;
+      if (currentLocalDate !== openedLocalDate) {
+        setPauseChoice(undefined);
         focusPersonRef.current = card.person.id;
         await load();
-        setCardError(card.person.id, { message: "Today moved to a new day. Choose Not today again." });
+        setCardError(card.person.id, {
+          message: "Today moved to a new day. The list has been refreshed; choose Pause again."
+        });
         return;
       }
-      if (!command) {
-        const context = await getTodayActionContext(await getDatabase(), card.person.id, clock, activeMode);
-        if (!context) throw new Error("This person is no longer due today.");
-        command = prepareNotTodayFromContext(context, { now: new Date().toISOString() });
-        notTodayCommandsRef.current.set(card.person.id, command);
-      }
-      await notToday(await getDatabase(), command);
-      notTodayCommandsRef.current.delete(card.person.id);
-      setCommittedHiddenPersonIds((current) => new Set(current).add(card.person.id));
-      const completesToday = projection?.cards.filter((candidate) =>
-        !committedHiddenPersonIds.has(candidate.person.id)
-      ).length === 1 && projection.evaluationIssues.length === 0;
-      setCopiedStatus(`${card.person.displayName} is off Today until tomorrow.${completesToday ? " You’re all caught up." : ""}`);
-      await load();
-    } catch (error) {
-      if (error instanceof StaleRevisionError) {
-        notTodayCommandsRef.current.delete(card.person.id);
+      const context = await getTodayActionContext(await getDatabase(), card.person.id, clock, activeMode);
+      if (!context) throw new Error("This person is no longer due today.");
+      if (context.projection.result.localDate !== openedLocalDate) {
+        setPauseChoice(undefined);
         focusPersonRef.current = card.person.id;
         await load();
-        setCardError(card.person.id, { message: "This changed elsewhere. Today has been reloaded; choose Not today again." });
-      } else {
         setCardError(card.person.id, {
-          message: firstIssue(error, "PeopleOS could not save this yet."),
-          retry: "not_today"
+          message: "Today moved to a new day. The list has been refreshed; choose Pause again."
+        });
+        return;
+      }
+      await pauseToday(
+        await getDatabase(),
+        preparePauseTodayCommand(context, untilDate, { now: clock.now })
+      );
+      setPauseChoice(undefined);
+      await load();
+      setCommittedHiddenPersonIds((current) => new Set(current).add(card.person.id));
+    } catch (error) {
+      if (error instanceof StaleRevisionError) {
+        setPauseChoice(undefined);
+        focusPersonRef.current = card.person.id;
+        await load();
+        setCardError(card.person.id, {
+          message: "This changed elsewhere. Today has been reloaded; choose Pause again."
+        });
+      } else {
+        setPauseChoice({
+          card,
+          error: firstIssue(error, "PeopleOS could not pause this person yet.")
         });
       }
     } finally {
@@ -361,74 +407,89 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
     }
   }
 
-  async function chooseNextReminder(
-    nextDate: LocalDate,
-    selectedCard: TodayCardProjection,
-    options: { suppressNextFollowUp?: boolean; announceNextReminder?: boolean } = {}
-  ) {
-    if (!selectedCard || mutationLocksRef.current.size > 0) return;
-    const card = selectedCard;
+  async function doneAction(card: TodayCardProjection) {
+    if (mutationLocksRef.current.size > 0) return;
     mutationLocksRef.current.add(card.person.id);
     rememberCardPosition(card);
     setBusyPersonId(card.person.id);
+    setCardError(card.person.id);
     try {
       const clock = createRelationshipClock();
       const currentLocalDate = localDateForInstant(clock.now, clock.timeZone);
       const openedLocalDate = projection?.result.localDate;
       if (currentLocalDate !== openedLocalDate) {
-        alreadyCommandsRef.current.delete(card.person.id);
+        doneCommandsRef.current.delete(card.person.id);
         focusPersonRef.current = card.person.id;
         await load();
         setCardError(card.person.id, {
-          message: "Today moved to a new day. Choose Contacted again so the interval starts from today."
+          message: "Today moved to a new day. The list has been refreshed; choose Done again."
         });
         return;
       }
-      let prepared = alreadyCommandsRef.current.get(card.person.id);
+      let prepared = doneCommandsRef.current.get(card.person.id);
       if (prepared && prepared.command.localDate !== currentLocalDate) {
-        alreadyCommandsRef.current.delete(card.person.id);
+        doneCommandsRef.current.delete(card.person.id);
         prepared = undefined;
       }
-      if (!prepared || prepared.nextDate !== nextDate) {
+      if (!prepared) {
         const context = await getTodayActionContext(await getDatabase(), card.person.id, clock, activeMode);
         if (!context) throw new Error("This person is no longer due today.");
         if (context.projection.result.localDate !== openedLocalDate) {
           focusPersonRef.current = card.person.id;
           await load();
           setCardError(card.person.id, {
-            message: "Today moved to a new day. Choose Contacted again so the interval starts from today."
+            message: "Today moved to a new day. The list has been refreshed; choose Done again."
           });
           return;
         }
-        prepared = {
-          nextDate,
-          command: prepareAlreadyContactedCommand(context, nextDate, {
-            now: new Date().toISOString(),
-            suppressNextFollowUp: options.suppressNextFollowUp
-          })
-        };
-        alreadyCommandsRef.current.set(card.person.id, prepared);
+        const occurredAt = new Date().toISOString();
+        if (context.card.reachOut) {
+          prepared = {
+            kind: "reach_out",
+            command: prepareCompleteReachOutCommand(
+              context.card.reachOut.entry,
+              context.card.person,
+              context.card.primaryFollowUp,
+              { logInteraction: { kind: "contacted", occurredAt } },
+              {
+                now: occurredAt,
+                localDate: context.projection.result.localDate,
+                completionOrigin: "already_contacted"
+              }
+            )
+          };
+        } else {
+          const cadence = contactCadenceOf(context.card.person);
+          const reminderDays = cadence
+            ? contactCadenceInDays(cadence)
+            : context.alreadyContactedDefaultReminderDays;
+          const nextDate = addDaysToLocalDate(context.projection.result.localDate, reminderDays);
+          prepared = {
+            kind: "regular",
+            command: prepareAlreadyContactedCommand(context, nextDate, { now: occurredAt })
+          };
+        }
+        doneCommandsRef.current.set(card.person.id, prepared);
       }
-      await alreadyContacted(await getDatabase(), prepared.command);
-      alreadyCommandsRef.current.delete(card.person.id);
-      setCommittedHiddenPersonIds((current) => new Set(current).add(card.person.id));
-      const completesToday = projection?.cards.filter((candidate) =>
-        !committedHiddenPersonIds.has(candidate.person.id)
-      ).length === 1 && projection.evaluationIssues.length === 0;
-      if (options.announceNextReminder !== false) {
-        setCopiedStatus(`Contact recorded. Next reminder: ${new Intl.DateTimeFormat("en-GB").format(new Date(`${nextDate}T12:00:00`))}.${completesToday ? " You’re all caught up." : ""}`);
+      if (prepared.kind === "reach_out") {
+        await completeReachOut(await getDatabase(), prepared.command);
       } else {
-        setCopiedStatus(`Contact recorded.${completesToday ? " You’re all caught up." : ""}`);
+        await alreadyContacted(await getDatabase(), prepared.command);
       }
+      doneCommandsRef.current.delete(card.person.id);
       await load();
+      setCommittedHiddenPersonIds((current) => new Set(current).add(card.person.id));
     } catch (error) {
       if (error instanceof StaleRevisionError) {
-        alreadyCommandsRef.current.delete(card.person.id);
+        doneCommandsRef.current.delete(card.person.id);
         focusPersonRef.current = card.person.id;
         await load();
-        setCardError(card.person.id, { message: "This changed elsewhere. Today has been reloaded; choose Contacted again." });
+        setCardError(card.person.id, { message: "This changed elsewhere. Today has been reloaded; choose Done again." });
       } else {
-        setCardError(card.person.id, { message: firstIssue(error, "PeopleOS could not save this yet.") });
+        setCardError(card.person.id, {
+          message: firstIssue(error, "PeopleOS could not mark this as done yet."),
+          retry: "done"
+        });
       }
     } finally {
       mutationLocksRef.current.delete(card.person.id);
@@ -468,34 +529,58 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
     );
   }
 
-  const visibleCards = projection.cards.filter((card) =>
-    !committedHiddenPersonIds.has(card.person.id)
-  );
+  const visibleCards = projection.cards
+    .filter((card) => !committedHiddenPersonIds.has(card.person.id))
+    .slice(0, visibleCount);
+  const hasMore = projection.cards.length > visibleCount;
+  const incompleteRegularContactPerson = projection.incompleteRegularContactPeople[0];
+  const regularContactPrompt = incompleteRegularContactPerson ? (
+    <RegularContactStartPrompt
+      personId={incompleteRegularContactPerson.id}
+      personName={incompleteRegularContactPerson.displayName}
+      onStarted={async () => { await load(); }}
+    />
+  ) : undefined;
 
   if (visibleCards.length === 0 && projection.totalActivePersonCount === 0) {
     return (
       <main className="screen today-screen" id="main-content" tabIndex={-1}>
         <TodayHeading relationshipFilter={relationshipFilter} status={copiedStatus} />
         <EmptyState
-          title="Start with one person you want to remember."
-          description="PeopleOS will show who needs your attention."
-          headingLevel={3}
-          action={<div className="empty-action-stack"><button className="primary-action" type="button" onClick={() => navigate("/people/new")}><Icon name="plus" /> Add your first person</button>{importAction(navigate)}</div>}
+          title="Who do you want to remember?"
+          description="Add the people you mean to keep in touch with."
+          action={<button className="primary-action" type="button" onClick={() => navigate("/people/new")}><Icon name="plus" /> Add someone</button>}
         />
       </main>
     );
   }
 
-  if (visibleCards.length === 0 && projection.evaluationIssues.length > 0) {
+  if (projection.cards.length === 0 && incompleteRegularContactPerson) {
+    return (
+      <main className="screen today-screen" id="main-content" tabIndex={-1}>
+        <TodayHeading relationshipFilter={relationshipFilter} status={copiedStatus} />
+        {pageError && <div className="section-error"><p role="alert">{pageError}</p><button type="button" onClick={() => void load()}>Retry</button></div>}
+        {projection.evaluationIssues.length > 0 && (
+          <div className="today-evaluation-notice">
+            <p role="status">{projection.evaluationIssues.length === 1 ? "One person could not be checked" : `${projection.evaluationIssues.length} people could not be checked`}</p>
+            <button type="button" onClick={() => void load()}>Retry</button>
+          </div>
+        )}
+        {regularContactPrompt}
+      </main>
+    );
+  }
+
+  if (projection.cards.length === 0 && projection.evaluationIssues.length > 0) {
     return (
       <main className="screen today-screen" id="main-content" tabIndex={-1}>
         <TodayHeading relationshipFilter={relationshipFilter} status={copiedStatus} />
         <div className="today-evaluation-notice">
-          <p role="alert">{projection.evaluationIssues.length === 1 ? "One relationship could not be evaluated" : `${projection.evaluationIssues.length} relationships could not be evaluated`}</p>
+          <p role="alert">{projection.evaluationIssues.length === 1 ? "One person could not be checked" : `${projection.evaluationIssues.length} people could not be checked`}</p>
           <button type="button" onClick={() => void load()}>Retry</button>
         </div>
         <EmptyState
-          title="Today could not check every relationship."
+          title="Today could not check everyone."
           description="Retry before treating the list as complete."
           headingLevel={3}
         />
@@ -503,15 +588,16 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
     );
   }
 
-  if (visibleCards.length === 0) {
+  if (projection.cards.length === 0) {
     return (
       <main className="screen today-screen" id="main-content" tabIndex={-1}>
         <TodayHeading relationshipFilter={relationshipFilter} status={copiedStatus} />
         {pageError && <div className="section-error"><p role="alert">{pageError}</p><button type="button" onClick={() => void load()}>Retry</button></div>}
         <EmptyState
-          title="You’re all caught up."
-          headingLevel={3}
+          title="That’s everyone for today."
+          description="PeopleOS will bring someone back to mind when the time is right."
           mark="check"
+          action={<button className="secondary-action" type="button" onClick={() => navigate("/upcoming")}>View upcoming</button>}
         />
       </main>
     );
@@ -519,11 +605,16 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
 
   return (
     <main className="screen today-screen" id="main-content" tabIndex={-1}>
-      <TodayHeading relationshipFilter={relationshipFilter} status={copiedStatus} />
+      <TodayHeading
+        relationshipFilter={relationshipFilter}
+        status={copiedStatus}
+        onViewUpcoming={() => navigate("/upcoming")}
+      />
+      {regularContactPrompt}
       {pageError && <div className="section-error"><p role="alert">{pageError}</p><button type="button" onClick={() => void load()}>Retry</button></div>}
       {projection.evaluationIssues.length > 0 && (
         <div className="today-evaluation-notice">
-          <p role="status">{projection.evaluationIssues.length === 1 ? "One relationship could not be evaluated" : `${projection.evaluationIssues.length} relationships could not be evaluated`}</p>
+          <p role="status">{projection.evaluationIssues.length === 1 ? "One person could not be checked" : `${projection.evaluationIssues.length} people could not be checked`}</p>
           <button type="button" onClick={() => void load()}>Retry</button>
         </div>
       )}
@@ -537,44 +628,55 @@ export default function TodayScreen({ activeMode = "personal", navigate, handoff
               busy={Boolean(busyPersonId)}
               error={error?.message}
               copyValue={error?.copyValue}
-              onCall={() => void contactVia(card, "call")}
-              onMessage={(draft) => void contactVia(card, "message", draft)}
-              onNotToday={() => void notTodayAction(card)}
-              onAlreadyContacted={() => openContacted(card)}
+              onMessage={(draft) => void contactVia(card, "message", draft, document.activeElement instanceof HTMLButtonElement ? document.activeElement : undefined)}
+              onCall={() => void contactVia(card, "call", undefined, document.activeElement instanceof HTMLButtonElement ? document.activeElement : undefined)}
+              onDone={() => void doneAction(card)}
+              onPause={() => openPause(card, document.activeElement instanceof HTMLButtonElement ? document.activeElement : undefined)}
               onProfile={() => {
                 rememberTodayHistory(card.person.id);
                 navigate(personProfilePath(card.person.id), { state: { fromPath: "/", todayOriginPrepared: true } });
               }}
-              onToggleNote={(completed) => void toggleTodayNote(card, completed)}
-              onEditNote={() => void editTodayNote(card)}
-              onRetry={error?.retry === "contact" ? () => void contactNow(card) : error?.retry === "not_today" ? () => void notTodayAction(card) : undefined}
+              onRetry={error?.retry === "message"
+                ? () => void contactVia(card, "message", error.messageDraft)
+                : error?.retry === "call"
+                  ? () => void contactVia(card, "call")
+                  : error?.retry === "done" ? () => void doneAction(card) : undefined}
               onCopy={error?.copyValue ? () => void copyValue(error.copyValue!) : undefined}
             />
           );
         })}
       </div>
+      {hasMore && <button className="today-show-more" type="button" onClick={() => setVisibleCount((current) => current + 5)}>Show more people</button>}
 
       {contactChoice && (
         <ContactMethodChoiceSheet
           personName={contactChoice.card.person.displayName}
           targets={contactChoice.projection.targets}
           hasPhone={contactChoice.projection.hasActivePhone}
-          requestedChannel={contactChoice.requestedChannel}
           error={contactChoice.error}
           copyValue={contactChoice.copyValue}
+          requestedChannel={contactChoice.requestedChannel}
           onChoose={(targetId) => {
             const target = contactChoice.projection.targets.find((candidate) => candidate.id === targetId);
-            if (target) void launchTarget(
-              contactChoice.card,
-              target,
-              contactChoice.requestedChannel === "message" && target.channel === "phone_call" ? whatsappTargetHref(target, contactChoice.messageDraft) : undefined,
-              contactChoice.requestedChannel === "call" ? "Call" : "Message"
-            );
+            if (target) void launchTarget(contactChoice.card, target, {
+              requestedChannel: contactChoice.requestedChannel,
+              messageDraft: contactChoice.messageDraft
+            });
           }}
           onAddPhone={() => openContactMethods(contactChoice.card, true)}
           onManage={() => openContactMethods(contactChoice.card, false)}
           onCopy={contactChoice.copyValue ? () => void copyValue(contactChoice.copyValue!) : undefined}
           onClose={closeContactChoice}
+        />
+      )}
+      {pauseChoice && (
+        <PauseTodaySheet
+          personName={pauseChoice.card.person.displayName}
+          todayDate={projection.result.localDate}
+          saving={busyPersonId === pauseChoice.card.person.id}
+          error={pauseChoice.error}
+          onChooseDate={(date) => void pauseAction(pauseChoice.card, date)}
+          onClose={closePause}
         />
       )}
     </main>

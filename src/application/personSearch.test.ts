@@ -5,6 +5,7 @@ import {
   type PeopleOsDatabase
 } from "../data/database";
 import {
+  DEFAULT_CONVERSATION_STARTERS,
   emptyPeopleOsData,
   type AppSettings,
   type ContactMethod,
@@ -44,6 +45,9 @@ const settings: AppSettings = {
   defaultPhoneRegion: "GB",
   captureMode: "standard",
   alreadyContactedDefaultReminderDays: 14,
+  todaySummaryNotificationsEnabled: false,
+  todaySummaryNotificationTime: "12:00",
+  conversationStarters: DEFAULT_CONVERSATION_STARTERS.map((starter) => ({ ...starter })),
   createdAt: now,
   updatedAt: now
 };

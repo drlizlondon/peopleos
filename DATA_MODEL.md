@@ -45,7 +45,11 @@ type Person = {
   identityCompletionFingerprint?: string;
   importance: "normal" | "high";
   tags: string[];
-  contactCadenceDays?: number;
+  contactCadence?: {
+    value: number;
+    unit: "days" | "weeks" | "months";
+  };
+  contactCadenceDays?: number; // legacy read compatibility only
   createdAt: string;
   updatedAt: string;
   archivedAt?: string;
@@ -53,6 +57,8 @@ type Person = {
 ```
 
 This is intentionally small. A confirmed Person requires a name. A provisional Person requires only a descriptive `displayName`, such as “Chief Information Officer at Watford” or “Hackathon organiser.” The label is not a second identity system: the provisional record receives a normal permanent `Person.id` and can later be completed or explicitly linked to an existing confirmed Person. `importance`, tags, and cadence describe the user's current relationship preference, not identity. Numerical importance scores are rejected because they imply precision the product does not have.
+
+`contactCadence` preserves the interval exactly as the user entered it. Scheduling converts weeks to seven days and months to thirty days only at the calculation boundary. `contactCadenceDays` remains readable for older records, but all product writes use the structured field.
 
 `mergedIntoPersonId` is set only by the explicit provisional-resolution flow. A merged provisional Person becomes read-only and excluded from active queries. All Reach Out entries and other selected child records are reassigned transactionally after a preview; automatic merging remains prohibited.
 
@@ -433,41 +439,26 @@ type AppSettings = {
   alreadyContactedDefaultReminderDays: number;
   reachOutDefaultReminderDays?: 1 | 7 | 14 | 30;
   todaySummaryNotificationsEnabled: boolean;
+  todaySummaryNotificationTime: string;
   revision: number;
   createdAt: string;
   updatedAt: string;
 };
 ```
 
-This singleton contains only editable global application preferences. Defaults are the supported device region or `GB`, Standard capture mode, 14 days for Already contacted, no Reach Out reminder, and Today summary notifications Off. `alreadyContactedDefaultReminderDays` is an integer from 1 to 3,650; 2, 7, 14, and 30 are presented as presets. Absence of `reachOutDefaultReminderDays` means No reminder. A selected value pre-fills only its future decision surface and never mutates an existing ReachOutEntry or FollowUp.
+This singleton contains only editable global application preferences. Defaults are the supported device region or `GB`, Standard capture mode, 14 days for Already contacted, no Reach Out reminder, Today summary notifications Off, and a 12:00 local reminder time. `alreadyContactedDefaultReminderDays` is an integer from 1 to 3,650; 2, 7, 14, and 30 are presented as presets. Absence of `reachOutDefaultReminderDays` means No reminder. `todaySummaryNotificationTime` is a zero-padded 24-hour `HH:mm` value. A selected value pre-fills only its future decision surface and never mutates an existing ReachOutEntry or FollowUp.
 
 `todaySummaryNotificationsEnabled` stores explicit user intent only. Notification permission, runtime capability, scheduled delivery, device timezone, device locale, application version, and schema version are runtime or device-coordination facts and must not be duplicated here. Restoring `true` never requests permission. `lastBackupGeneratedAt` is backup metadata, not a preference. The singleton is versioned, validated, included in backup/restore, and protected by the same revision/idempotency contract as other mutable records.
 
-Settings evolve through two package-owned forward migrations rather than pulling notification storage into Today early. V1-10 adds `alreadyContactedDefaultReminderDays: 14` to older AppSettings records and preserves every existing field. V1-14 later adds `todaySummaryNotificationsEnabled: false`; backups produced before V1-14 migrate through that same default. The final V1 type above applies after both migrations, and each migration follows the repository revision/idempotency contract.
+Settings evolve through package-owned forward migrations rather than pulling notification storage into Today. V1-10 adds `alreadyContactedDefaultReminderDays: 14`. The chargeable MVP adds `todaySummaryNotificationsEnabled: false` and `todaySummaryNotificationTime: "12:00"`; backups through schema 4 receive the same defaults, schema 5 migrates forward, and current backup schema 6 requires the complete Settings shape including conversation starters. The final type above applies after migration, and each Settings mutation follows the repository revision/idempotency contract.
 
 Do not store Person cadence, importance, communication preference, Reach Out state, or configurable engine weights in AppSettings. Deterministic relationship rules are versioned in code and shared by all users. `SETTINGS_SPEC.md` owns the complete visible behavior.
 
-### TodayNotificationState
+### Today notification scheduling
 
-```ts
-type TodayNotificationState = {
-  id: "today-summary";
-  revision: number;
-  nextEvaluationAt?: string; // UTC ISO instant
-  lastDeliveredLocalDate?: string; // YYYY-MM-DD
-  dismissedThroughLocalDate?: string; // YYYY-MM-DD
-  snoozedUntil?: string; // UTC ISO instant, same local day only
-  activeDeliveryId?: string;
-  createdAt: string;
-  updatedAt: string;
-};
-```
+No notification queue or TodayNotificationState is persisted in IndexedDB. The iPhone adapter owns only the operating system's pending notification requests. Those requests carry a stable integer occurrence ID plus `{ kind: "today-summary", destination: "today" }`; they never carry Person, FollowUp, Reach Out, contact, note, reason, affiliation, explanation, or relationship identifiers/data.
 
-This singleton coordinates delivery only. It never stores Person IDs, FollowUp IDs, Reach Out IDs, copied Today items, eligibility, explanations, names, or counts. The notification application service re-runs the authoritative Today query before every proposed delivery. `activeDeliveryId` makes repeated actions idempotent and lets stale actions be ignored. The fixed policy is 09:00 in the current device timezone and a two-hour same-day Snooze; these are not settings.
-
-Notification **Open**, **Not today**, and **Snooze** may update only this singleton and the platform schedule. Notification Not today sets delivery suppression through the current local date and schedules tomorrow's evaluation; notification Snooze sets an evaluation two hours later only if it remains on the same local date. When it would cross midnight, no same-day re-notification is stored and the ordinary next-day evaluation remains. Neither action may mutate AppSettings or any Person, Interaction, FollowUp, FollowUpEvent, TodaySkip, ReachOutEntry, ReachOutEvent, or Relationship Engine input.
-
-TodayNotificationState is device-local coordination data. Its updates do not increment the relationship dataset revision. It is excluded from backup/export and restore and is discarded when notification intent is turned Off. A failed or cancelled data restore leaves this state and the platform schedule unchanged. After a successful restore transaction, every pre-restore delivery ID becomes stale, the coordinator clears this singleton, cancels/replaces the old platform occurrence, and rebuilds from restored intent plus current capability/permission. Operating-system permission remains a runtime fact rather than a stored field.
+The application derives at most 30 one-off daily occurrences from the same fixed rules as Today. It safely installs and verifies a replacement before removing stale requests on launch, foreground/background transition, relationship-mode change, Settings change, or dataset revision. A same-day occurrence may include the current count; forecast occurrences use generic copy because local notification content is static while the app is closed. Turning reminders Off cancels all PeopleOS summary IDs. Scheduling and tap handling do not increment the relationship dataset revision or mutate domain stores.
 
 ### AppMetadata
 
@@ -529,4 +520,4 @@ PeopleOS uses its own database name and export schema. Imports must validate ref
 
 A later Real Friends or Google Contacts import is explicit, previewable, and non-destructive. Import creates or links PeopleOS entities through application services; it never makes external provider data the live primary model.
 
-The V1 backup envelope is `{ product: "peopleos", schemaVersion, exportedAt, data }`. `data` contains every V1 domain store and the AppSettings singleton, but excludes device-local TodayNotificationState. Restore parses and migrates supported older PeopleOS schemas, validates the complete graph, previews counts, and only then replaces all data stores in one transaction. Restore never requests notification permission; notification delivery state is reconciled separately against current runtime capability. Unsupported future versions, invalid references, cancellation, or any transaction failure leave the current database unchanged.
+The V1 backup envelope is `{ product: "peopleos", schemaVersion, exportedAt, data }`. `data` contains every V1 domain store and the AppSettings singleton, but excludes operating-system pending notifications and permission state. Restore parses and migrates supported older PeopleOS schemas, validates the complete graph, previews counts, and only then replaces all data stores in one transaction. Restore never requests notification permission; notification delivery is reconciled separately against current runtime capability. Unsupported future versions, invalid references, cancellation, or any transaction failure leave the current database unchanged.

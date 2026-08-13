@@ -21,9 +21,11 @@ PeopleOS is not a CRM, sales pipeline, lead-management tool, or a new version of
 
 ## Current status
 
-**V1-01 through V1-09 are complete: the independent shell, local data and backup foundation, manual person capture, duplicate-aware vCard import, interactions with an automatic timeline, structured memory facts with affiliation history, deterministic follow-ups with contact cadence, the first-class Reach Out queue, and the pure explainable Relationship Engine. V1-10 and later packages remain unimplemented.**
+**PeopleOS is at chargeable iPhone MVP release-candidate stage.** V1-01 through V1-11 and the MVP notification package are implemented: local data and backup, manual capture, duplicate-aware vCard import, selective import from iPhone Contacts, optional one-time creation of an iPhone contact, interactions and timeline, memory facts and affiliations, follow-ups and cadence, Reach Out, explainable Today, search and profiles, Personal/Professional views, optional private iCloud sync, and optional private local Today reminders.
 
-The inherited Real Friends codebase was reviewed from `/Users/lizzie/Documents/real-friends`. PeopleOS now has an independent React/Vite PWA shell with five primary destinations and no shared runtime, storage, or product logic. Further implementation must proceed only through the packages in [VERSION1_SCOPE.md](./VERSION1_SCOPE.md), subject to the required corrections in [IMPLEMENTATION_READINESS_REVIEW.md](./IMPLEMENTATION_READINESS_REVIEW.md).
+The release gate is `npm run release:preflight`; every release run must be recorded against a clean, named commit on GitHub `main`. Passing the automated gate and an unsigned iOS simulator build does not make the app ready to upload: distribution signing, the production CloudKit schema, App Store Connect commercial setup, and the signed-iPhone notification and Contacts acceptance matrices remain owner actions. V1-12 batch capture and vCard export are deliberately outside this MVP.
+
+The inherited Real Friends codebase was reviewed from `/Users/lizzie/Documents/real-friends`. PeopleOS now has one shared React/Vite product implementation with four primary destinations and a Capacitor iPhone wrapper. The public marketing site is served at `/`; the browser product is served at `/app`; native builds package the same product source directly. See [docs/platform-architecture.md](./docs/platform-architecture.md) for the short operating model. The current package ledger is [PACKAGE_STATUS.md](./PACKAGE_STATUS.md); the release source of truth is [docs/APP_STORE_RELEASE_CHECKLIST.md](./docs/APP_STORE_RELEASE_CHECKLIST.md).
 
 ## Documentation
 
@@ -49,11 +51,11 @@ The inherited Real Friends codebase was reviewed from `/Users/lizzie/Documents/r
 
 ## Technical baseline
 
-PeopleOS uses React, TypeScript, Vite, `vite-plugin-pwa`, Vitest, IndexedDB through `idb`, and a local-first PWA deployment model. V1-02 establishes the complete versioned V1 storage contract, runtime validation, optimistic revisions, and atomic JSON backup/restore.
+PeopleOS uses React, TypeScript, Vite, `vite-plugin-pwa`, Vitest, IndexedDB through `idb`, and a local-first PWA deployment model. The current local database is version 4 and the current JSON backup schema is version 6; both include migrations for accepted earlier histories. V1-02 established the versioned storage contract, runtime validation, optimistic revisions, and atomic JSON backup/restore.
 
 The V1-03 slice adds `/people/new`, `/people/:personId`, and `/people/:personId/contact-methods`. Manual capture writes a Person and any contact methods, first affiliation, and met context through one application command. Phone parsing uses the `libphonenumber-js/min` entry point; each phone row can use the global or an explicitly selected region, and the stored contact preserves the trimmed input alongside canonical E.164 and parsed region data.
 
-V1-04 adds explained duplicate review to Person creation, contact-method changes, and local contact import. `/people/import` accepts user-selected UTF-8 vCard 3.0/4.0 files up to 5 MiB and 5,000 cards, previews every row without writing, detects stored and same-file matches deterministically, and commits one reviewed Person row per transaction. Import sessions remain transient and no contact-book permission, provider link, interaction, follow-up, or merge is created.
+V1-04 adds explained duplicate review to Person creation, contact-method changes, and local contact import. `/people/import` accepts user-selected UTF-8 vCard 3.0/4.0 files up to 5 MiB and 5,000 cards, previews every row without writing, detects stored and same-file matches deterministically, and commits one reviewed Person row per transaction. Import sessions remain transient and no provider link, interaction, follow-up, merge, or ongoing Contacts synchronisation is created. The current iPhone MVP reuses this same preview and duplicate pipeline for contacts explicitly selected through Apple's system picker, which needs no general Contacts permission. Optional one-time creation of an iPhone contact requests Contacts permission only after the user asks for it and transfers conventional contact fields only.
 
 V1-05 adds explicit manual Interaction and Note capture, exact Event selection or atomic Event creation, derived last meaningful contact, and a deterministic Timeline at `/people/:personId/timeline`. Person creation is projected rather than stored as an Interaction; notes do not count as contact; linked follow-up and Reach Out lifecycle items are read-only projections.
 

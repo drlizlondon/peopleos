@@ -7,6 +7,10 @@ import {
   normalizeContactValue
 } from "../integrations/contactValues";
 import { parseVCard, type ParsedVCard } from "../integrations/vcard";
+import type {
+  ContactPickerResult,
+  ConventionalContact
+} from "../contacts/types";
 import {
   addPreparedCaptureToDuplicateSnapshot,
   findDuplicateMatches,
@@ -39,6 +43,7 @@ export type ContactImportDecision =
       expectedPersonRevision: number;
       selectedContactMethodIds: string[];
       includeAffiliation: boolean;
+      includeDisplayName?: boolean;
     }
   | { kind: "skip" };
 
@@ -67,6 +72,7 @@ export type ContactImportRow = {
 export type ContactImportSession = {
   id: string;
   fileName: string;
+  sourceKind: "vcard" | "iphone_contacts";
   createdAt: string;
   defaultPhoneRegion: string;
   rows: ContactImportRow[];
@@ -96,8 +102,9 @@ function optionalTrimmed(value: string | undefined): string | undefined {
 function issuesForDraft(draft: ManualPersonCaptureDraft, defaultPhoneRegion: string): ContactImportIssue[] {
   const issues: ContactImportIssue[] = [];
   const displayName = draft.displayName.trim();
-  if (!displayName) {
-    issues.push({ field: "displayName", message: "Add a name before importing this contact." });
+  const hasContactIdentity = draft.contactMethods.some((contact) => Boolean(contact.value.trim()));
+  if (!displayName && !hasContactIdentity) {
+    issues.push({ field: "displayName", message: "Add a name, mobile number or email address." });
   } else if (displayName.length > 120) {
     issues.push({ field: "displayName", message: "Use 120 characters or fewer for the name." });
   }
@@ -135,15 +142,15 @@ function preferredFirst<T extends { isPreferred: boolean }>(records: T[]): T[] {
     .map(({ record }) => record);
 }
 
-function draftFromCard(
-  card: ParsedVCard,
+function draftFromContact(
+  contact: ConventionalContact,
   createdAt: string,
   idFactory: () => string
 ): ManualPersonCaptureDraft {
   const base = createManualPersonCaptureDraft({ now: createdAt, idFactory });
   const methods = [
-    ...preferredFirst(card.phoneNumbers),
-    ...preferredFirst(card.emailAddresses)
+    ...contact.phoneNumbers.map((method) => ({ ...method, kind: "phone" as const })),
+    ...contact.emailAddresses.map((method) => ({ ...method, kind: "email" as const }))
   ].map((method) => ({
     ...createManualContactMethodDraft(method.kind, idFactory),
     value: method.value,
@@ -151,11 +158,27 @@ function draftFromCard(
   }));
   return {
     ...base,
-    displayName: card.displayName,
+    displayName: contact.displayName,
     identityStatus: "confirmed",
     contactMethods: methods,
-    ...(card.organisation ? { organisationName: card.organisation } : {}),
-    ...(card.title ? { role: card.title } : {})
+    ...(contact.organisation ? { organisationName: contact.organisation } : {}),
+    ...(contact.jobTitle ? { role: contact.jobTitle } : {})
+  };
+}
+
+function contactFromCard(card: ParsedVCard): ConventionalContact {
+  return {
+    displayName: card.displayName,
+    phoneNumbers: preferredFirst(card.phoneNumbers).map(({ value, label }) => ({
+      value,
+      ...(label ? { label } : {})
+    })),
+    emailAddresses: preferredFirst(card.emailAddresses).map(({ value, label }) => ({
+      value,
+      ...(label ? { label } : {})
+    })),
+    ...(card.organisation ? { organisation: card.organisation } : {}),
+    ...(card.title ? { jobTitle: card.title } : {})
   };
 }
 
@@ -217,16 +240,36 @@ export async function prepareContactImport(
   defaultPhoneRegion: string,
   options: ContactImportFactoryOptions = {}
 ): Promise<ContactImportSession> {
-  const cards = parseVCard(input);
+  return prepareContactImportFromContacts(
+    db,
+    parseVCard(input).map(contactFromCard),
+    { kind: "vcard", label: fileName },
+    defaultPhoneRegion,
+    options
+  );
+}
+
+type ContactImportSource = {
+  kind: ContactImportSession["sourceKind"];
+  label: string;
+};
+
+async function prepareContactImportFromContacts(
+  db: PeopleOsDatabase,
+  contacts: readonly ConventionalContact[],
+  source: ContactImportSource,
+  defaultPhoneRegion: string,
+  options: ContactImportFactoryOptions = {}
+): Promise<ContactImportSession> {
   const idFactory = options.idFactory ?? (() => crypto.randomUUID());
   const createdAt = options.now ?? new Date().toISOString();
   const duplicateSnapshot = await loadDuplicateDetectionSnapshot(db);
   const rows: ContactImportRow[] = [];
-  for (const card of cards) {
-    const draft = draftFromCard(card, createdAt, idFactory);
+  for (const [sourceIndex, contact] of contacts.entries()) {
+    const draft = draftFromContact(contact, createdAt, idFactory);
     const row = await reviewContactImportRow(db, {
       id: `import-row-${idFactory()}`,
-      sourceIndex: card.sourceIndex,
+      sourceIndex,
       draft,
       issues: [],
       duplicateMatches: [],
@@ -238,11 +281,48 @@ export async function prepareContactImport(
   }
   return {
     id: `import-session-${idFactory()}`,
-    fileName,
+    fileName: source.label,
+    sourceKind: source.kind,
     createdAt,
     defaultPhoneRegion,
     rows
   };
+}
+
+/**
+ * Prepares only the conventional details explicitly returned by Apple's
+ * contact picker. The selected contacts then use the same validation,
+ * duplicate review and atomic import path as a vCard file.
+ */
+export async function prepareContactImportFromSelectedContacts(
+  db: PeopleOsDatabase,
+  contacts: readonly ConventionalContact[],
+  defaultPhoneRegion: string,
+  options: ContactImportFactoryOptions = {}
+): Promise<ContactImportSession> {
+  return prepareContactImportFromContacts(
+    db,
+    contacts,
+    { kind: "iphone_contacts", label: "iPhone Contacts" },
+    defaultPhoneRegion,
+    options
+  );
+}
+
+/** A cancelled native picker is an intentional no-op, not an import error. */
+export async function prepareContactImportFromPickerResult(
+  db: PeopleOsDatabase,
+  result: ContactPickerResult,
+  defaultPhoneRegion: string,
+  options: ContactImportFactoryOptions = {}
+): Promise<ContactImportSession | null> {
+  if (result.status === "cancelled") return null;
+  return prepareContactImportFromSelectedContacts(
+    db,
+    result.contacts,
+    defaultPhoneRegion,
+    options
+  );
 }
 
 /**
@@ -298,17 +378,44 @@ export function chooseLinkDetails(
   row: ContactImportRow,
   match: DuplicateMatch,
   selectedContactMethodIds: string[],
-  includeAffiliation: boolean
+  includeAffiliation: boolean,
+  includeDisplayName = false
 ): ContactImportRow {
-  if (!row.prepared || (!selectedContactMethodIds.length && !includeAffiliation)) return row;
+  return chooseLinkDetailsForExistingPerson(
+    row,
+    match.person,
+    selectedContactMethodIds,
+    includeAffiliation,
+    includeDisplayName
+  );
+}
+
+/**
+ * Links reviewed import details to a Person the user explicitly opened.
+ *
+ * Unlike duplicate-led linking, this does not require the target Person to be
+ * discovered from matching contact data. That matters for a name-only quick
+ * capture: the profile itself is the user's explicit identity decision. The
+ * candidate still travels through the normal import preview and atomic
+ * add-details path, and no candidate Person is persisted.
+ */
+export function chooseLinkDetailsForExistingPerson(
+  row: ContactImportRow,
+  targetPerson: Pick<DuplicateMatch["person"], "id" | "revision">,
+  selectedContactMethodIds: string[],
+  includeAffiliation: boolean,
+  includeDisplayName = false
+): ContactImportRow {
+  if (!row.prepared || (!selectedContactMethodIds.length && !includeAffiliation && !includeDisplayName)) return row;
   return {
     ...row,
     decision: {
       kind: "link",
-      targetPersonId: match.person.id,
-      expectedPersonRevision: match.person.revision,
+      targetPersonId: targetPerson.id,
+      expectedPersonRevision: targetPerson.revision,
       selectedContactMethodIds: [...selectedContactMethodIds],
-      includeAffiliation
+      includeAffiliation,
+      ...(includeDisplayName ? { includeDisplayName: true } : {})
     },
     selected: true,
     status: "ready",
@@ -376,11 +483,14 @@ async function executeRow(
       candidate: row.prepared,
       selectedContactMethodIds: row.decision.selectedContactMethodIds,
       includeAffiliation: row.decision.includeAffiliation,
+      includeDisplayName: row.decision.includeDisplayName,
       now: row.prepared.person.createdAt
     }, {
       beforeCommit: () => hooks.beforeRowCommit?.(row)
     });
-    const detailsChanged = result.addedContactMethods.length > 0 || Boolean(result.addedAffiliation);
+    const detailsChanged = result.displayNameUpdated
+      || result.addedContactMethods.length > 0
+      || Boolean(result.addedAffiliation);
     if (!detailsChanged) {
       return {
         ...row,

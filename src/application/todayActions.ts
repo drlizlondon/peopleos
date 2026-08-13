@@ -69,6 +69,23 @@ export type AlreadyContactedResult = {
   reachOutLinkedEvent?: ReachOutEvent;
 };
 
+export type PauseTodayCommand = {
+  commandFingerprint: string;
+  personId: string;
+  displayName: string;
+  expectedPersonRevision: number;
+  expectedDatasetRevision: number;
+  localDate: LocalDate;
+  untilDate: LocalDate;
+  timeZone: string;
+  occurredAt: string;
+};
+
+export type PauseTodayResult = {
+  person: Person;
+  todaySkip: TodaySkip;
+};
+
 type AlreadyContactedArtifacts = AlreadyContactedResult;
 
 function defaultIdFactory(): string {
@@ -98,7 +115,10 @@ function requireFingerprint(command: AlreadyContactedCommand): void {
   }
 }
 
-function requireWritablePerson(person: Person | undefined, command: AlreadyContactedCommand): Person {
+function requireWritablePerson(
+  person: Person | undefined,
+  command: Pick<AlreadyContactedCommand, "personId" | "displayName" | "expectedPersonRevision">
+): Person {
   if (!person || person.id !== command.personId) {
     throw new RecordConflictError("This person is no longer available.");
   }
@@ -162,6 +182,35 @@ export function prepareNotTodayFromContext(
   });
 }
 
+export function preparePauseTodayCommand(
+  context: TodayActionContext,
+  untilDate: LocalDate,
+  options: { now?: string } = {}
+): PauseTodayCommand {
+  requirePreparedContext(context);
+  const { card, projection } = context;
+  const occurredAt = options.now ?? projection.result.evaluatedAt;
+  requireInstant(occurredAt, "Pause needs a valid action time.");
+  requireDate(untilDate, "Choose a valid date to resume Today.");
+  if (untilDate <= projection.result.localDate) {
+    throw new ValidationError(["Choose a date after today."]);
+  }
+  if (localDateForInstant(occurredAt, projection.result.timeZone) !== projection.result.localDate) {
+    throw new StaleRevisionError();
+  }
+  const material = {
+    personId: card.person.id,
+    displayName: card.person.displayName,
+    expectedPersonRevision: card.person.revision,
+    expectedDatasetRevision: projection.datasetRevision,
+    localDate: projection.result.localDate,
+    untilDate,
+    timeZone: projection.result.timeZone,
+    occurredAt
+  };
+  return { ...material, commandFingerprint: fingerprintCommand(material) };
+}
+
 export function prepareAlreadyContactedCommand(
   context: TodayActionContext,
   nextDate: LocalDate,
@@ -208,6 +257,10 @@ export function prepareAlreadyContactedCommand(
 function buildArtifacts(command: AlreadyContactedCommand): AlreadyContactedArtifacts {
   const primary = command.expectedPrimaryFollowUp;
   const reachOut = command.expectedReachOutEntry;
+  const regularScheduleMarker = !primary
+    || ["initial_schedule", "today_already_contacted"].includes(primary.suggestedByRule ?? "")
+    ? "today_already_contacted"
+    : undefined;
   const interaction: Interaction = {
     id: command.interactionId,
     revision: 1,
@@ -226,7 +279,7 @@ function buildArtifacts(command: AlreadyContactedCommand): AlreadyContactedArtif
     reason: primary?.reason ?? `Reconnect with ${command.displayName}`,
     actionType: primary?.actionType ?? "other",
     ...(primary?.reachOutEntryId ? { reachOutEntryId: primary.reachOutEntryId } : {}),
-    ...(!primary ? { suggestedByRule: "today_already_contacted" } : {}),
+    ...(regularScheduleMarker ? { suggestedByRule: regularScheduleMarker } : {}),
     status: "pending",
     createdAt: command.occurredAt,
     updatedAt: command.occurredAt
@@ -340,6 +393,80 @@ async function abortAndRethrow(
   try { transaction.abort(); } catch { /* transaction already closed */ }
   try { await transaction.done; } catch { /* expected rollback */ }
   throw error;
+}
+
+export async function pauseToday(
+  db: PeopleOsDatabase,
+  command: PauseTodayCommand,
+  hooks: TodayActionMutationHooks = {}
+): Promise<PauseTodayResult> {
+  const { commandFingerprint, ...material } = command;
+  if (fingerprintCommand(material) !== commandFingerprint) {
+    throw new RecordConflictError("The Pause command fingerprint does not match its prepared input.");
+  }
+  requireDate(command.localDate, "Pause needs a valid current date.");
+  requireDate(command.untilDate, "Choose a valid date to resume Today.");
+  requireInstant(command.occurredAt, "Pause needs a valid action time.");
+  if (command.untilDate <= command.localDate) {
+    throw new ValidationError(["Choose a date after today."]);
+  }
+  if (localDateForInstant(command.occurredAt, command.timeZone) !== command.localDate) {
+    throw new StaleRevisionError();
+  }
+
+  const candidateSkip: TodaySkip = {
+    id: `${command.personId}:${command.localDate}`,
+    personId: command.personId,
+    localDate: command.localDate,
+    createdAt: command.occurredAt
+  };
+  assertValidRecord("todaySkips", candidateSkip);
+
+  const tx = db.transaction(["people", "todaySkips", "metadata"], "readwrite");
+  try {
+    const people = tx.objectStore("people");
+    const skips = tx.objectStore("todaySkips");
+    const [person, storedSkip, metadata] = await Promise.all([
+      people.get(command.personId),
+      skips.get(candidateSkip.id),
+      tx.objectStore("metadata").get("app")
+    ]);
+
+    if (storedSkip && (storedSkip.personId !== command.personId
+      || storedSkip.localDate !== command.localDate)) {
+      throw new RecordConflictError("The current-day skip ID belongs to another record.");
+    }
+
+    if (person
+      && person.revision === command.expectedPersonRevision + 1
+      && person.displayName === command.displayName
+      && person.todayPausedUntilDate === command.untilDate
+      && person.updatedAt === command.occurredAt
+      && storedSkip) {
+      await tx.done;
+      return { person, todaySkip: storedSkip };
+    }
+
+    const writablePerson = requireWritablePerson(person, command);
+    if (metadata?.datasetRevision !== command.expectedDatasetRevision) {
+      throw new StaleRevisionError();
+    }
+    const pausedPerson: Person = {
+      ...writablePerson,
+      revision: writablePerson.revision + 1,
+      todayPausedUntilDate: command.untilDate,
+      updatedAt: command.occurredAt
+    };
+    assertValidRecord("people", pausedPerson);
+    await people.put(pausedPerson);
+    if (!storedSkip) await skips.add(candidateSkip);
+    await updateMetadata(tx.objectStore("metadata"), command.expectedDatasetRevision, command.occurredAt);
+    hooks.beforeCommit?.();
+    await tx.done;
+    return { person: pausedPerson, todaySkip: storedSkip ?? candidateSkip };
+  } catch (error) {
+    return abortAndRethrow(tx, error);
+  }
 }
 
 function exactRetryMatches(

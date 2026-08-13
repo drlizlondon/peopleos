@@ -4,15 +4,23 @@ import {
   StaleRevisionError,
   createRepositories
 } from "../data/repositories";
-import type { Person } from "../domain/schema";
+import {
+  contactCadenceOf,
+  contactCadencesEqual,
+  isValidContactCadence
+} from "../domain/cadence";
+import type { ContactCadence, Person } from "../domain/schema";
+import { regularContactSetupState } from "../domain/regularContactSchedule";
 import type { RelationshipMode } from "../domain/relationshipMode";
-import { ValidationError } from "../domain/validation";
+import { assertValidRecord, ValidationError } from "../domain/validation";
 
 export type PersonEditDraft = {
   displayName: string;
   relationshipMode?: RelationshipMode;
   importance: Person["importance"];
   tags: string[];
+  contactCadence?: ContactCadence;
+  /** @deprecated Temporary command compatibility; updates always write structured cadence. */
   contactCadenceDays?: number;
   contactCadenceFirstDueDate?: string;
 };
@@ -47,22 +55,21 @@ function normalizeDraft(draft: PersonEditDraft): PersonEditDraft {
   if (draft.relationshipMode !== undefined && !(["personal", "professional", "both"] as const).includes(draft.relationshipMode)) issues.push("Choose a supported relationship type.");
   if (tags.length > 10) issues.push("Add no more than 10 tags.");
   if (tags.some((tag) => tag.length > 40)) issues.push("Each tag must be 40 characters or fewer.");
+  if (draft.contactCadence !== undefined && !isValidContactCadence(draft.contactCadence)) {
+    issues.push("Contact cadence must be a positive whole number no more than 3,650 days apart.");
+  }
   if (draft.contactCadenceDays !== undefined
-    && (!Number.isInteger(draft.contactCadenceDays)
-      || draft.contactCadenceDays < 1
-      || draft.contactCadenceDays > 3_650)) {
-    issues.push("Choose a whole number from 1 to 3650 days.");
+    && !isValidContactCadence({ value: draft.contactCadenceDays, unit: "days" })) {
+    issues.push("Contact cadence must be a whole number from 1 to 3650 days.");
   }
   if (issues.length) throw new ValidationError(issues);
+  const contactCadence = contactCadenceOf(draft);
   return {
     displayName,
     relationshipMode: draft.relationshipMode ?? "personal",
     importance: draft.importance,
     tags,
-    ...(draft.contactCadenceDays === undefined ? {} : {
-      contactCadenceDays: draft.contactCadenceDays,
-      ...(draft.contactCadenceFirstDueDate ? { contactCadenceFirstDueDate: draft.contactCadenceFirstDueDate } : {})
-    })
+    ...(contactCadence === undefined ? {} : { contactCadence })
   };
 }
 
@@ -71,8 +78,7 @@ function sameEditableValues(person: Person, draft: PersonEditDraft): boolean {
     && (person.relationshipMode ?? "personal") === (draft.relationshipMode ?? "personal")
     && person.importance === draft.importance
     && JSON.stringify(person.tags) === JSON.stringify(draft.tags)
-    && person.contactCadenceDays === draft.contactCadenceDays
-    && (draft.contactCadenceDays === undefined || person.contactCadenceFirstDueDate === draft.contactCadenceFirstDueDate);
+    && contactCadencesEqual(contactCadenceOf(person), contactCadenceOf(draft));
 }
 
 function requireEditable(person: Person | undefined): Person {
@@ -87,34 +93,65 @@ export async function updatePerson(
   command: PersonUpdateCommand
 ): Promise<Person> {
   const draft = normalizeDraft(command.draft);
-  const current = requireEditable(await db.get("people", command.personId));
-  if (current.revision !== command.expectedRevision) {
-    if (current.revision === command.expectedRevision + 1
-      && current.updatedAt === command.occurredAt
-      && sameEditableValues(current, draft)) return current;
-    throw new StaleRevisionError();
-  }
-  if (sameEditableValues(current, draft)) return current;
-  const updated: Person = { ...current, ...draft };
-  if (draft.contactCadenceDays === undefined) {
+  const tx = db.transaction(["people", "interactions", "followUps", "metadata"], "readwrite");
+  try {
+    const people = tx.objectStore("people");
+    const current = requireEditable(await people.get(command.personId));
+    if (current.revision !== command.expectedRevision) {
+      if (current.revision === command.expectedRevision + 1
+        && current.updatedAt === command.occurredAt
+        && current.contactCadenceDays === undefined
+        && sameEditableValues(current, draft)) {
+        await tx.done;
+        return current;
+      }
+      throw new StaleRevisionError();
+    }
+    if (current.contactCadenceDays === undefined && sameEditableValues(current, draft)) {
+      await tx.done;
+      return current;
+    }
+    const updated: Person = {
+      ...current,
+      ...draft,
+      revision: current.revision + 1,
+      createdAt: current.createdAt,
+      updatedAt: command.occurredAt
+    };
     delete updated.contactCadenceDays;
-    delete updated.contactCadenceFirstDueDate;
-    delete updated.contactCadenceDeferredUntilDate;
-    delete updated.contactCadencePausedAt;
-  } else if (draft.contactCadenceFirstDueDate
-    && (draft.contactCadenceDays !== current.contactCadenceDays
-      || draft.contactCadenceFirstDueDate !== current.contactCadenceFirstDueDate)) {
-    updated.contactCadenceFirstDueDate = draft.contactCadenceFirstDueDate;
-    delete updated.contactCadenceDeferredUntilDate;
-    delete updated.contactCadencePausedAt;
-  } else if (draft.contactCadenceDays !== current.contactCadenceDays) {
-    const next = new Date(command.occurredAt);
-    next.setUTCDate(next.getUTCDate() + draft.contactCadenceDays);
-    updated.contactCadenceFirstDueDate = next.toISOString().slice(0, 10);
-    delete updated.contactCadenceDeferredUntilDate;
-    delete updated.contactCadencePausedAt;
+    if (draft.contactCadence === undefined) {
+      delete updated.contactCadence;
+      delete updated.contactCadenceFirstDueDate;
+      delete updated.contactCadenceDeferredUntilDate;
+      delete updated.contactCadencePausedAt;
+    }
+    const [interactions, followUps] = await Promise.all([
+      tx.objectStore("interactions").index("by-person").getAll(current.id),
+      tx.objectStore("followUps").index("by-person").getAll(current.id)
+    ]);
+    const currentSetup = regularContactSetupState(current, interactions, followUps);
+    const updatedSetup = regularContactSetupState(updated, interactions, followUps);
+    const cadenceChanged = !contactCadencesEqual(contactCadenceOf(current), contactCadenceOf(updated));
+    if (updatedSetup === "incomplete" && (currentSetup !== "incomplete" || cadenceChanged)) {
+      throw new ValidationError(["Choose Today or Tomorrow to start regular contact."]);
+    }
+    assertValidRecord("people", updated);
+    await people.put(updated);
+    const metadataStore = tx.objectStore("metadata");
+    const metadata = await metadataStore.get("app");
+    if (!metadata) throw new Error("PeopleOS metadata is missing");
+    await metadataStore.put({
+      ...metadata,
+      datasetRevision: metadata.datasetRevision + 1,
+      updatedAt: command.occurredAt
+    });
+    await tx.done;
+    return updated;
+  } catch (error) {
+    try { tx.abort(); } catch { /* already completed or aborted */ }
+    try { await tx.done; } catch { /* expected rollback */ }
+    throw error;
   }
-  return createRepositories(db).people.update(updated, command.expectedRevision, command.occurredAt);
 }
 
 export async function updatePersonRelationshipMode(

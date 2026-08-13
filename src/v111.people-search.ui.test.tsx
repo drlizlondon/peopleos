@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { PeopleScreen } from "./peopleScreens";
+import * as personSearch from "./application/personSearch";
 import { closeDatabase, getDatabase } from "./data/client";
 import { deletePeopleOsDatabase } from "./data/database";
 import { createRepositories } from "./data/repositories";
@@ -148,6 +150,16 @@ describe("V1-11 People search and filters UI", () => {
     await resetDatabase();
   });
 
+  it("keeps the compact destination heading visible while People loads", () => {
+    vi.spyOn(personSearch, "getPersonSearchView").mockImplementation(() => new Promise(() => {}));
+    const { unmount } = render(<PeopleScreen activeMode="personal" navigate={vi.fn()} />);
+
+    const heading = screen.getByText("People", { selector: "h2" }).closest(".page-heading");
+    expect(heading).not.toHaveAttribute("aria-hidden");
+    expect(screen.getByRole("status")).toHaveTextContent("Loading people…");
+    unmount();
+  });
+
   it("searches remembered context and explains the highest-ranked Event and Memory Fact matches", async () => {
     await seedContextualPeople();
     const user = userEvent.setup();
@@ -176,41 +188,15 @@ describe("V1-11 People search and filters UI", () => {
     expect(within(factResults).queryByText("Aaron Clarke")).not.toBeInTheDocument();
   });
 
-  it("applies different filter kinds conjunctively and makes the modal keyboard-accessible", async () => {
+  it("keeps the People screen focused on one search control", async () => {
     await seedFilterPeople();
-    const user = userEvent.setup();
     render(<App />);
-
-    const filterButton = await screen.findByRole("button", { name: "Filters" });
-    expect(filterButton).toHaveAttribute("aria-expanded", "false");
-    await user.click(filterButton);
-
-    let dialog = await screen.findByRole("dialog", { name: "Filter people" });
-    expect(dialog).toHaveAttribute("aria-modal", "true");
-    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Close people filters" })).toHaveFocus());
-    await user.keyboard("{Escape}");
-    await waitFor(() => expect(filterButton).toHaveFocus());
-
-    await user.click(filterButton);
-    dialog = await screen.findByRole("dialog", { name: "Filter people" });
-    await user.click(within(dialog).getByRole("checkbox", { name: "mentor" }));
-    await user.click(within(dialog).getByRole("checkbox", { name: "NHS England" }));
-    await user.click(within(dialog).getByRole("checkbox", { name: "Has due follow-up" }));
-    await user.click(within(dialog).getByRole("checkbox", { name: "Missing contact details" }));
-    await user.click(within(dialog).getByRole("button", { name: "Show results" }));
-
-    const results = await screen.findByRole("list", { name: "People search results" });
-    expect(within(results).getByText("Sarah Jones")).toBeInTheDocument();
-    expect(within(results).queryByText("Aaron Clarke")).not.toBeInTheDocument();
-    expect(within(results).queryByText("Alex Archived")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Tag: mentor ×" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Organisation: NHS England ×" })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Organisation: NHS England ×" }));
-    await waitFor(() => expect(screen.getByRole("list", { name: "People search results" })).toHaveTextContent("Aaron Clarke"));
+    expect(await screen.findByRole("searchbox", { name: "Search people" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Filters" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Filter people" })).not.toBeInTheDocument();
   });
 
-  it("keeps archived People excluded until the archived filter is explicitly requested", async () => {
+  it("keeps archived People out of the normal list with one quiet recovery toggle", async () => {
     await seedFilterPeople();
     const user = userEvent.setup();
     render(<App />);
@@ -218,14 +204,28 @@ describe("V1-11 People search and filters UI", () => {
     const defaultResults = await screen.findByRole("list", { name: "People search results" });
     expect(within(defaultResults).queryByText("Alex Archived")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Filters" }));
-    const dialog = await screen.findByRole("dialog", { name: "Filter people" });
-    await user.click(within(dialog).getByRole("radio", { name: "Archived" }));
-    await user.click(within(dialog).getByRole("button", { name: "Show results" }));
-
+    await user.click(screen.getByRole("button", { name: "Archived" }));
     const archivedResults = await screen.findByRole("list", { name: "People search results" });
     expect(within(archivedResults).getByText("Alex Archived")).toBeInTheDocument();
-    expect(within(archivedResults).getByText("Archived")).toBeInTheDocument();
+    expect(within(archivedResults).queryByText("Sarah Jones")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Active people" })).toBeInTheDocument();
+
+    await user.click(within(archivedResults).getByRole("link", { name: /Alex Archived/ }));
+    expect(await screen.findByRole("heading", { name: "Archived" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Restore person" }));
+    expect(await screen.findByRole("button", { name: "Edit" })).toBeInTheDocument();
+  });
+
+  it("keeps archived People available in the name-only fallback", async () => {
+    await seedFilterPeople();
+    vi.spyOn(personSearch, "getPersonSearchView").mockRejectedValue(new Error("context index unavailable"));
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(await screen.findByText(/showing the name-only directory/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Archived" }));
+    const archivedResults = await screen.findByRole("list", { name: "Name-only People directory" });
+    expect(within(archivedResults).getByText("Alex Archived")).toBeInTheDocument();
     expect(within(archivedResults).queryByText("Sarah Jones")).not.toBeInTheDocument();
   });
 
@@ -258,7 +258,7 @@ describe("V1-11 People search and filters UI", () => {
     expect(await screen.findByRole("list", { name: "People search results" })).toHaveTextContent("Aaron Clarke");
   });
 
-  it("restores query, filters, and scroll after opening a result and using Profile Back", async () => {
+  it("restores query and scroll after opening a result and using Profile Back", async () => {
     await seedContextualPeople();
     const scrollTo = vi.spyOn(window, "scrollTo");
     const user = userEvent.setup();
@@ -266,11 +266,6 @@ describe("V1-11 People search and filters UI", () => {
 
     const search = await screen.findByRole("searchbox", { name: "Search people" });
     await user.type(search, "HealthTech");
-    await user.click(screen.getByRole("button", { name: "Filters" }));
-    const dialog = await screen.findByRole("dialog", { name: "Filter people" });
-    await user.click(within(dialog).getByRole("checkbox", { name: "fellowship" }));
-    await user.click(within(dialog).getByRole("button", { name: "Show results" }));
-    expect(await screen.findByRole("button", { name: "Tag: fellowship ×" })).toBeInTheDocument();
     await screen.findByRole("list", { name: "People search results" });
 
     Object.defineProperty(window, "scrollY", { configurable: true, value: 175 });
@@ -278,13 +273,8 @@ describe("V1-11 People search and filters UI", () => {
     expect(await screen.findByRole("heading", { name: "Aaron Clarke" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/people/person-aaron");
 
-    const actions = screen.getByRole("group", { name: "Person actions" });
-    const moreActions = actions.querySelector("summary");
-    expect(moreActions).toHaveAttribute("aria-label", "More actions for Aaron Clarke");
-    await user.click(moreActions!);
-    const overflow = screen.getByRole("group", { name: "More actions for Aaron Clarke" });
-    await user.click(within(overflow).getByRole("button", { name: "Edit person" }));
-    await user.click(await screen.findByRole("button", { name: "Manage contact methods" }));
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(await screen.findByRole("button", { name: "Edit mobile and email" }));
     expect(await screen.findByRole("button", { name: "Add email" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "← Person" }));
     expect(await screen.findByRole("heading", { name: "Edit person" })).toBeInTheDocument();
@@ -292,16 +282,6 @@ describe("V1-11 People search and filters UI", () => {
     await user.clear(name);
     await user.type(name, "Aaron Clarke updated");
     await waitFor(() => expect(name).toHaveValue("Aaron Clarke updated"));
-    const confirm = vi.spyOn(window, "confirm");
-    confirm.mockReturnValueOnce(false);
-    await user.click(screen.getByRole("button", { name: "Manage affiliations" }));
-    expect(window.location.pathname).toBe("/people/person-aaron/edit");
-    expect(screen.getByLabelText(/Display name/)).toHaveValue("Aaron Clarke updated");
-    confirm.mockReturnValueOnce(false);
-    window.history.back();
-    await waitFor(() => expect(window.location.pathname).toBe("/people/person-aaron/edit"));
-    expect(window.history.state).toMatchObject({ fromProfile: true, fromPath: "/people" });
-    expect(screen.getByLabelText(/Display name/)).toHaveValue("Aaron Clarke updated");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
     expect(await screen.findByRole("heading", { name: "Aaron Clarke updated" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/people/person-aaron");
@@ -310,7 +290,6 @@ describe("V1-11 People search and filters UI", () => {
     await user.click(screen.getByRole("button", { name: "← People" }));
     await waitFor(() => expect(window.location.pathname).toBe("/people"));
     expect(await screen.findByRole("searchbox", { name: "Search people" })).toHaveValue("HealthTech");
-    expect(screen.getByRole("button", { name: "Tag: fellowship ×" })).toBeInTheDocument();
     await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 175, behavior: "instant" }));
   });
 
@@ -321,6 +300,7 @@ describe("V1-11 People search and filters UI", () => {
 
     expect(await screen.findByRole("heading", { name: "Aaron Clarke" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "← People" })).toBeInTheDocument();
-    expect(screen.queryByRole("navigation", { name: "Primary navigation" })).not.toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Primary navigation" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "People" })).toHaveAttribute("aria-current", "page");
   });
 });

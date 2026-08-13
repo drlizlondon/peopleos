@@ -9,6 +9,7 @@ import {
 describe("relationship mode", () => {
   it("migrates legacy people logically to Personal and keeps Both visible in either view", () => {
     expect(relationshipModeOf({})).toBe("personal");
+    expect(personMatchesActiveMode({}, "all")).toBe(true);
     expect(personMatchesActiveMode({}, "personal")).toBe(true);
     expect(personMatchesActiveMode({}, "professional")).toBe(false);
     expect(personMatchesActiveMode({ relationshipMode: "both" }, "personal")).toBe(true);

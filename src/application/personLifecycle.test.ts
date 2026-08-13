@@ -45,11 +45,20 @@ afterEach(async () => {
 });
 
 describe("V1-11 Person lifecycle commands", () => {
-  it("updates only Person-level preferences with stable identity and one revision", async () => {
+  it("updates Person-level preferences and frequency when real contact already anchors recurrence", async () => {
     const db = await openDatabase("update");
     const repositories = createRepositories(db);
     const original = person();
     await repositories.people.create(original);
+    await repositories.interactions.create({
+      id: "interaction-anchor",
+      revision: 1,
+      personId: original.id,
+      kind: "contacted",
+      occurredAt: now,
+      createdAt: now,
+      updatedAt: now
+    });
     const metadataBefore = await db.get("metadata", "app");
 
     const saved = await updatePerson(db, {
@@ -59,7 +68,7 @@ describe("V1-11 Person lifecycle commands", () => {
         displayName: "  Sarah J.  ",
         importance: "high",
         tags: [" mentor ", "NHS"],
-        contactCadenceDays: 90
+        contactCadence: { value: 3, unit: "months" }
       },
       occurredAt: "2026-07-23T10:00:00.000Z"
     });
@@ -70,12 +79,36 @@ describe("V1-11 Person lifecycle commands", () => {
       displayName: "Sarah J.",
       importance: "high",
       tags: ["mentor", "NHS"],
-      contactCadenceDays: 90,
+      contactCadence: { value: 3, unit: "months" },
       createdAt: original.createdAt,
       updatedAt: "2026-07-23T10:00:00.000Z"
     });
     expect((await db.get("metadata", "app"))?.datasetRevision)
       .toBe((metadataBefore?.datasetRevision ?? 0) + 1);
+  });
+
+  it("rejects enabling Regular contact through the generic update without a scheduling anchor", async () => {
+    const db = await openDatabase("update-unanchored-cadence");
+    const repositories = createRepositories(db);
+    const original = person();
+    await repositories.people.create(original);
+
+    await expect(updatePerson(db, {
+      personId: original.id,
+      expectedRevision: original.revision,
+      draft: {
+        displayName: original.displayName,
+        importance: original.importance,
+        tags: original.tags,
+        contactCadence: { value: 1, unit: "days" }
+      },
+      occurredAt: "2026-07-23T10:00:00.000Z"
+    })).rejects.toThrow(/Today or Tomorrow to start regular contact/);
+    expect(await db.get("people", original.id)).toMatchObject({
+      ...original,
+      relationshipMode: "personal"
+    });
+    expect(await db.get("people", original.id)).not.toHaveProperty("contactCadence");
   });
 
   it("rejects invalid or stale edits without changing the Person", async () => {
@@ -180,11 +213,12 @@ describe("V1-11 Person lifecycle commands", () => {
 
     expect(saved).toMatchObject({
       displayName: "Sarah J.",
-      contactCadenceDays: 30,
+      contactCadence: { value: 30, unit: "days" },
       contactCadenceFirstDueDate: "2026-07-01",
       contactCadenceDeferredUntilDate: "2026-08-12",
       contactCadencePausedAt: "2026-07-20T09:00:00.000Z"
     });
+    expect(saved).not.toHaveProperty("contactCadenceDays");
   });
 
   it("clears an existing cadence and makes the exact clear retry idempotent", async () => {
@@ -200,6 +234,7 @@ describe("V1-11 Person lifecycle commands", () => {
     };
 
     const first = await updatePerson(db, command);
+    expect(first).not.toHaveProperty("contactCadence");
     expect(first).not.toHaveProperty("contactCadenceDays");
     const metadata = await db.get("metadata", "app");
     await expect(updatePerson(db, command)).resolves.toEqual(first);

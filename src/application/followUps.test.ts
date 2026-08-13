@@ -415,13 +415,26 @@ describe("Follow-up commands", () => {
     expect(await db.count("interactions")).toBe(0);
   });
 
-  it("updates or removes cadence deterministically without creating FollowUps", async () => {
+  it("requires a real or scheduled anchor before the legacy cadence command can enable Regular contact", async () => {
     const db = await openDatabase("cadence");
     const current = (await db.get("people", "person-one"))!;
     const command = { personId: current.id, expectedRevision: current.revision, cadenceDays: 90, occurredAt: later };
+    await expect(updateContactCadence(db, command)).rejects.toThrow(/Today or Tomorrow to start regular contact/);
+    expect((await db.get("people", current.id))?.contactCadence).toBeUndefined();
+
+    await createRepositories(db).interactions.create({
+      id: "interaction-cadence-anchor",
+      revision: 1,
+      personId: current.id,
+      kind: "contacted",
+      occurredAt: fixedNow,
+      createdAt: fixedNow,
+      updatedAt: fixedNow
+    });
     const updated = await updateContactCadence(db, command);
     expect(await updateContactCadence(db, command)).toEqual(updated);
-    expect(updated).toMatchObject({ contactCadenceDays: 90, revision: current.revision + 1 });
+    expect(updated).toMatchObject({ contactCadence: { value: 90, unit: "days" }, revision: current.revision + 1 });
+    expect(updated.contactCadenceDays).toBeUndefined();
     expect(await db.count("followUps")).toBe(0);
 
     const removed = await updateContactCadence(db, {
@@ -430,12 +443,14 @@ describe("Follow-up commands", () => {
       cadenceDays: undefined,
       occurredAt: "2026-08-03T09:00:00.000Z"
     });
+    expect(removed.contactCadence).toBeUndefined();
     expect(removed.contactCadenceDays).toBeUndefined();
     const custom = await updateContactCadence(db, {
-      personId: current.id, expectedRevision: removed.revision, cadenceDays: 37,
+      personId: current.id, expectedRevision: removed.revision, cadence: { value: 4, unit: "weeks" },
       occurredAt: "2026-08-04T09:00:00.000Z"
     });
-    expect(custom.contactCadenceDays).toBe(37);
+    expect(custom.contactCadence).toEqual({ value: 4, unit: "weeks" });
+    expect(custom.contactCadenceDays).toBeUndefined();
     await expect(updateContactCadence(db, {
       personId: current.id, expectedRevision: custom.revision, cadenceDays: 3_651, occurredAt: later
     })).rejects.toBeInstanceOf(ValidationError);

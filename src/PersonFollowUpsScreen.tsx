@@ -32,10 +32,10 @@ function statusLabel(followUp: FollowUp): string {
     const now = new Date();
     const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     return {
-      overdue: "Overdue",
-      due_today: "Due today",
-      snoozed: "Snoozed",
-      future_pending: "Pending"
+      overdue: "Ready",
+      due_today: "Today",
+      snoozed: "Later",
+      future_pending: "Planned"
     }[pendingFollowUpTemporalState(followUp, localDate)!];
   }
   return {

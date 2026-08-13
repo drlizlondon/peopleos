@@ -5,6 +5,12 @@ import {
   interactionCountsAsContact,
   interactionKindIsManuallySelectable
 } from "../domain/interactionPolicy";
+import { regularContactSetupState } from "../domain/regularContactSchedule";
+import {
+  contactCadenceOf,
+  contactCadencesEqual,
+  isValidContactCadence
+} from "../domain/cadence";
 import {
   addDaysToLocalDate,
   effectiveFollowUpDate,
@@ -12,6 +18,7 @@ import {
   localDateForInstant
 } from "../domain/followUpPolicy";
 import type {
+  ContactCadence,
   FollowUp,
   FollowUpActionType,
   FollowUpEvent,
@@ -106,6 +113,8 @@ export type CompleteFollowUpWithoutContactCommand = {
 export type ContactCadenceCommand = {
   personId: string;
   expectedRevision: number;
+  cadence?: ContactCadence;
+  /** @deprecated Temporary command compatibility; updates always write structured cadence. */
   cadenceDays?: number;
   firstDueDate?: LocalDate;
   occurredAt: string;
@@ -754,43 +763,58 @@ export async function updateContactCadence(
   command: ContactCadenceCommand,
   hooks: FollowUpMutationHooks = {}
 ): Promise<Person> {
-  requireInstant(command.occurredAt, "This change needs a valid time.");
-  if (command.cadenceDays !== undefined
-    && (!Number.isInteger(command.cadenceDays) || command.cadenceDays < 1 || command.cadenceDays > 3_650)) {
-    throw new ValidationError(["Choose a whole number from 1 to 3,650 days."]);
+  requireInstant(command.occurredAt, "The cadence command needs a valid time.");
+  if (command.cadence !== undefined && !isValidContactCadence(command.cadence)) {
+    throw new ValidationError(["Contact cadence must be a positive whole number no more than 3,650 days apart."]);
   }
-  const tx = db.transaction(["people", "metadata"], "readwrite");
+  if (command.cadenceDays !== undefined
+    && !isValidContactCadence({ value: command.cadenceDays, unit: "days" })) {
+    throw new ValidationError(["Custom cadence must be between 1 and 3,650 days."]);
+  }
+  const contactCadence = contactCadenceOf({
+    contactCadence: command.cadence,
+    contactCadenceDays: command.cadenceDays
+  });
+  const tx = db.transaction(["people", "interactions", "followUps", "metadata"], "readwrite");
   try {
     const people = tx.objectStore("people");
     const current = requireWritablePerson(await people.get(command.personId));
-    const sameCadence = current.contactCadenceDays === command.cadenceDays
-      && (command.cadenceDays === undefined || current.contactCadenceFirstDueDate === command.firstDueDate);
+    const sameCadence = contactCadencesEqual(contactCadenceOf(current), contactCadence);
+    const canonicalStorage = current.contactCadenceDays === undefined
+      && contactCadencesEqual(current.contactCadence, contactCadence);
     if (current.revision === command.expectedRevision + 1
-      && sameCadence && current.updatedAt === command.occurredAt) {
+      && sameCadence && canonicalStorage && current.updatedAt === command.occurredAt) {
       await tx.done;
       return current;
     }
     if (current.revision !== command.expectedRevision) throw new StaleRevisionError();
-    if (sameCadence) {
+    if (sameCadence && canonicalStorage) {
       await tx.done;
       return current;
     }
     const {
-      contactCadenceDays: _oldCadence,
-      contactCadenceFirstDueDate: _oldFirstDueDate,
-      contactCadenceDeferredUntilDate: _oldDeferredDate,
-      contactCadencePausedAt: _oldPausedAt,
+      contactCadence: _oldCadence,
+      contactCadenceDays: _legacyCadenceDays,
       ...withoutCadence
     } = current;
     const updated: Person = {
       ...withoutCadence,
-      ...(command.cadenceDays !== undefined ? {
-        contactCadenceDays: command.cadenceDays,
-        ...(command.firstDueDate ? { contactCadenceFirstDueDate: command.firstDueDate } : {})
-      } : {}),
+      ...(contactCadence === undefined ? {} : { contactCadence }),
       revision: current.revision + 1,
       updatedAt: command.occurredAt
     };
+    if (contactCadence === undefined) {
+      delete updated.contactCadenceFirstDueDate;
+      delete updated.contactCadenceDeferredUntilDate;
+      delete updated.contactCadencePausedAt;
+    }
+    const [interactions, followUps] = await Promise.all([
+      tx.objectStore("interactions").index("by-person").getAll(current.id),
+      tx.objectStore("followUps").index("by-person").getAll(current.id)
+    ]);
+    if (regularContactSetupState(updated, interactions, followUps) === "incomplete") {
+      throw new ValidationError(["Choose Today or Tomorrow to start regular contact."]);
+    }
     assertValidRecord("people", updated);
     await people.put(updated);
     await updateMetadata(tx.objectStore("metadata"), command.occurredAt);

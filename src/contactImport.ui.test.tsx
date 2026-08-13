@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -66,6 +66,22 @@ async function seedExistingPerson() {
   await repositories.affiliations.create(affiliation);
 }
 
+async function addPersonAndOpenContactMethods(
+  user: ReturnType<typeof userEvent.setup>,
+  displayName: string
+) {
+  window.history.replaceState({}, "", "/people/new");
+  render(<App />);
+  await user.type(await screen.findByLabelText("Name", {}, { timeout: 10_000 }), displayName);
+  await user.click(screen.getByRole("button", { name: "Add to PeopleOS" }));
+  await screen.findByText(`${displayName} is already in PeopleOS.`, {}, { timeout: 10_000 });
+  await user.click(screen.getByRole("button", { name: "Close relationship setup" }));
+  await user.click(await screen.findByRole("link", { name: displayName }, { timeout: 10_000 }));
+  await screen.findByRole("heading", { name: displayName }, { timeout: 10_000 });
+  await user.click(await screen.findByRole("button", { name: "Add contact details" }, { timeout: 10_000 }));
+  expect(window.location.pathname).toMatch(/^\/people\/person-.*\/contact-methods$/);
+}
+
 describe("V1-04 duplicate review and vCard import UI", () => {
   beforeEach(async () => {
     window.history.replaceState({}, "", "/");
@@ -79,14 +95,15 @@ describe("V1-04 duplicate review and vCard import UI", () => {
   it("exposes import from first-launch Today, People, and Settings without adding it to the global action", async () => {
     const user = userEvent.setup();
     render(<App />);
-    expect(await screen.findByRole("button", { name: "Import Contacts" })).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Add someone" }, { timeout: 10_000 }));
+    expect(await screen.findByRole("button", { name: "Import contacts" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Import contacts" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("link", { name: "People" }));
     expect(await screen.findByRole("button", { name: "Import contacts" })).toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "Settings" }));
-    expect(screen.getByRole("link", { name: "Import Contacts" })).toHaveAttribute("href", "/people/import");
-    await user.click(screen.getByRole("link", { name: "Import Contacts" }));
+    expect(screen.getByRole("link", { name: "Import contacts" })).toHaveAttribute("href", "/people/import");
+    await user.click(screen.getByRole("link", { name: "Import contacts" }));
     expect(window.location.pathname).toBe("/people/import");
     expect(screen.getByLabelText("vCard file")).toHaveAttribute("accept", ".vcf,text/vcard,text/x-vcard");
   });
@@ -95,7 +112,8 @@ describe("V1-04 duplicate review and vCard import UI", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Import Contacts" }));
+    await user.click(await screen.findByRole("button", { name: "Add someone" }));
+    await user.click(await screen.findByRole("button", { name: "Import contacts" }));
     await user.click(screen.getByRole("button", { name: "← Today" }));
     await waitFor(() => expect(window.location.pathname).toBe("/"));
 
@@ -106,24 +124,24 @@ describe("V1-04 duplicate review and vCard import UI", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/people"));
 
     await user.click(screen.getByRole("link", { name: "Settings" }));
-    await user.click(screen.getByRole("link", { name: "Import Contacts" }));
+    await user.click(screen.getByRole("link", { name: "Import contacts" }));
     await user.click(await screen.findByRole("button", { name: "← Settings" }));
     await waitFor(() => expect(window.location.pathname).toBe("/settings"));
   });
 
-  it("warns before manual persistence, explains evidence, and deliberately creates a separate Person", async () => {
+  it("warns before contextual contact persistence, explains evidence, and deliberately keeps the detail", async () => {
     await seedExistingPerson();
     const user = userEvent.setup();
-    window.history.replaceState({}, "", "/people/new");
-    render(<App />);
-    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Different Sarah" } });
-    fireEvent.change(screen.getByLabelText(/^Phone or email/), { target: { value: "+44 7900 123456" } });
-    await user.click(screen.getByRole("button", { name: "Save person" }));
+    await addPersonAndOpenContactMethods(user, "Different Sarah");
+    await user.click(await screen.findByRole("button", { name: "Add phone" }));
+    await user.type(screen.getByLabelText("Phone number"), "+44 7900 123456");
+    await user.click(screen.getByRole("button", { name: "Save contact detail" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "Possible duplicate" });
+    const dialog = await screen.findByRole("dialog", { name: "Contact detail already used" });
     expect(within(dialog).getByText("Same phone number: +447900123456")).toBeInTheDocument();
     expect(within(dialog).getByText("Strong match")).toBeInTheDocument();
-    expect(await (await getDatabase()).count("people")).toBe(1);
+    expect(await (await getDatabase()).count("people")).toBe(2);
+    expect((await readAllData(await getDatabase())).contactMethods).toHaveLength(1);
     expect(within(dialog).queryByRole("radio")).not.toBeInTheDocument();
 
     const repositories = createRepositories(await getDatabase());
@@ -150,77 +168,75 @@ describe("V1-04 duplicate review and vCard import UI", () => {
       updatedAt: fixedNow
     });
 
-    await user.click(within(dialog).getByRole("button", { name: "Create separate person" }));
-    const concurrentHeading = await screen.findByRole("heading", { level: 4, name: "Concurrent Sarah" });
+    await user.click(within(dialog).getByRole("button", { name: "Keep contact detail on Different Sarah" }));
+    const concurrentHeading = await screen.findByRole(
+      "heading",
+      { level: 4, name: "Concurrent Sarah" },
+      { timeout: 10_000 }
+    );
     const concurrentDialog = concurrentHeading.closest<HTMLElement>("[role='dialog']");
     expect(concurrentDialog).not.toBeNull();
     if (!concurrentDialog) throw new Error("Concurrent duplicate dialog was not rendered.");
-    await user.click(within(concurrentDialog).getByRole("button", { name: "Create separate person" }));
-    await waitFor(() => expect(window.location.pathname).toMatch(/^\/people\/person-/));
-    expect(await screen.findByRole("heading", { name: "Different Sarah" })).toBeInTheDocument();
+    await user.click(within(concurrentDialog).getByRole("button", { name: "Keep contact detail on Different Sarah" }));
+    expect(await screen.findByText("+44 7900 123456")).toBeInTheDocument();
     expect((await readAllData(await getDatabase())).people).toHaveLength(3);
+    expect((await readAllData(await getDatabase())).contactMethods).toHaveLength(3);
   });
 
-  it("preserves an unsaved manual candidate while the user opens the existing Person", async () => {
+  it("preserves an unsaved contextual contact while the user opens the existing Person", async () => {
     await seedExistingPerson();
     const user = userEvent.setup();
-    window.history.replaceState({ fromPath: "/people" }, "", "/people/new");
-    render(<App />);
-    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Candidate Sarah" } });
-    fireEvent.change(screen.getByLabelText(/^Phone or email/), { target: { value: "+447900123456" } });
-    await user.click(screen.getByRole("button", { name: "Save person" }));
+    await addPersonAndOpenContactMethods(user, "Candidate Sarah");
+    await user.click(await screen.findByRole("button", { name: "Add phone" }));
+    await user.type(screen.getByLabelText("Phone number"), "+447900123456");
+    await user.click(screen.getByRole("button", { name: "Save contact detail" }));
     await user.click(await screen.findByRole("button", { name: "Open existing person Sarah Jones" }));
 
     expect(await screen.findByRole("heading", { name: "Sarah Jones" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "← Continue adding person" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "← Continue adding person" }));
-    await waitFor(() => expect(window.location.pathname).toBe("/people/new"));
-    expect(await screen.findByLabelText("Name")).toHaveValue("Candidate Sarah");
-    expect(screen.getByLabelText(/^Phone or email/)).toHaveValue("+447900123456");
-    expect(await (await getDatabase()).count("people")).toBe(1);
+    expect(screen.getByRole("button", { name: "← Continue editing contact" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "← Continue editing contact" }));
+    expect(await screen.findByLabelText("Phone number")).toHaveValue("+447900123456");
+    expect(await (await getDatabase()).count("people")).toBe(2);
+    expect((await readAllData(await getDatabase())).contactMethods).toHaveLength(1);
   });
 
-  it("uses browser Back to close duplicate review without discarding the manual draft", async () => {
+  it("uses browser Back to close contextual duplicate review without discarding the contact draft", async () => {
     await seedExistingPerson();
     const user = userEvent.setup();
-    window.history.replaceState({}, "", "/people");
-    window.history.pushState({ fromPath: "/people" }, "", "/people/new");
-    render(<App />);
-    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Candidate Sarah" } });
-    fireEvent.change(screen.getByLabelText(/^Phone or email/), { target: { value: "+447900123456" } });
-    await user.click(screen.getByRole("button", { name: "Save person" }));
-    expect(await screen.findByRole("dialog", { name: "Possible duplicate" })).toBeInTheDocument();
+    await addPersonAndOpenContactMethods(user, "Candidate Sarah");
+    await user.click(await screen.findByRole("button", { name: "Add phone" }));
+    await user.type(screen.getByLabelText("Phone number"), "+447900123456");
+    await user.click(screen.getByRole("button", { name: "Save contact detail" }));
+    expect(await screen.findByRole("dialog", { name: "Contact detail already used" })).toBeInTheDocument();
 
     window.history.back();
 
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Possible duplicate" })).not.toBeInTheDocument());
-    expect(window.location.pathname).toBe("/people/new");
-    expect(screen.getByLabelText("Name")).toHaveValue("Candidate Sarah");
-    expect(screen.getByLabelText(/^Phone or email/)).toHaveValue("+447900123456");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Save person" })).toHaveFocus());
-    expect(await (await getDatabase()).count("people")).toBe(1);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Contact detail already used" })).not.toBeInTheDocument());
+    expect(window.location.pathname).toMatch(/^\/people\/person-.*\/contact-methods$/);
+    expect(await screen.findByLabelText("Phone number")).toHaveValue("+447900123456");
+    await waitFor(() => expect(screen.getByLabelText("Phone number")).toHaveFocus());
+    expect(await (await getDatabase()).count("people")).toBe(2);
+    expect((await readAllData(await getDatabase())).contactMethods).toHaveLength(1);
   });
 
-  it("adds only checked new details to an existing Person without creating the candidate", async () => {
+  it("adds only checked vCard details to an existing Person without creating a candidate", async () => {
     await seedExistingPerson();
     const user = userEvent.setup();
-    window.history.replaceState({}, "", "/people/new");
+    window.history.replaceState({}, "", "/people/import");
     render(<App />);
-    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Sarah Jones" } });
-    fireEvent.change(screen.getByLabelText(/^Phone or email/), { target: { value: "+447900123456" } });
-    await user.click(screen.getByText("More details"));
-    await user.click(screen.getByRole("button", { name: "Add email" }));
-    fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "sarah@example.com" } });
-    await user.click(screen.getByRole("button", { name: "Save person" }));
+    await user.upload(await screen.findByLabelText("vCard file"), vcardFile(card(
+      "FN:Sarah Jones\nTEL:+447900123456\nEMAIL:sarah@example.com"
+    )));
+    await user.click(await screen.findByRole("button", { name: "Review duplicate for Sarah Jones" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "Possible duplicate" });
+    const dialog = await screen.findByRole("dialog", { name: "Possible duplicate found" });
     await user.click(within(dialog).getByText("Review details to add"));
     const emailChoice = within(dialog).getByRole("checkbox", { name: "Email: sarah@example.com" });
     expect(emailChoice).toBeChecked();
     await user.click(within(dialog).getByRole("button", { name: "Add selected details to Sarah Jones" }));
+    await user.click(await screen.findByRole("button", { name: "Import selected (1)" }));
 
-    await waitFor(() => expect(window.location.pathname).toBe("/people/person-existing"));
-    expect(await screen.findByRole("heading", { name: "Sarah Jones" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Your contacts were reviewed" })).toBeInTheDocument();
     const data = await readAllData(await getDatabase());
     expect(data.people).toHaveLength(1);
     expect(data.contactMethods).toHaveLength(2);
@@ -228,19 +244,17 @@ describe("V1-04 duplicate review and vCard import UI", () => {
     expect(data.interactions).toEqual([]);
   });
 
-  it("offers a new role on an existing organisation as reviewed affiliation detail", async () => {
+  it("offers a vCard role on an existing organisation as reviewed affiliation detail", async () => {
     await seedExistingPerson();
     const user = userEvent.setup();
-    window.history.replaceState({}, "", "/people/new");
+    window.history.replaceState({}, "", "/people/import");
     render(<App />);
-    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Sarah Jones" } });
-    fireEvent.change(screen.getByLabelText(/^Phone or email/), { target: { value: "+447900123456" } });
-    await user.click(screen.getByText("More details"));
-    fireEvent.change(screen.getByLabelText(/^Organisation/), { target: { value: "NHS England" } });
-    fireEvent.change(screen.getByLabelText(/^Role or job title/), { target: { value: "Chief Information Officer" } });
-    await user.click(screen.getByRole("button", { name: "Save person" }));
+    await user.upload(await screen.findByLabelText("vCard file"), vcardFile(card(
+      "FN:Sarah Jones\nTEL:+447900123456\nORG:NHS England\nTITLE:Chief Information Officer"
+    )));
+    await user.click(await screen.findByRole("button", { name: "Review duplicate for Sarah Jones" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "Possible duplicate" });
+    const dialog = await screen.findByRole("dialog", { name: "Possible duplicate found" });
     expect(within(dialog).getByRole("region", { name: "New information" })).toHaveTextContent("NHS England · Chief Information Officer");
     expect(within(dialog).getByRole("region", { name: "Existing person" })).toHaveTextContent("Sarah Jones");
     await user.click(within(dialog).getByText("Review details to add"));
@@ -273,11 +287,11 @@ describe("V1-04 duplicate review and vCard import UI", () => {
     render(<App />);
     await user.upload(await screen.findByLabelText("vCard file"), vcardFile(card("FN:Sarah Jones\nTEL:+447900123456")));
     await user.click(await screen.findByRole("button", { name: "Review duplicate for Sarah Jones" }));
-    expect(await screen.findByRole("dialog", { name: "Possible duplicate" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Possible duplicate found" })).toBeInTheDocument();
 
     window.history.back();
 
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Possible duplicate" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Possible duplicate found" })).not.toBeInTheDocument());
     expect(window.location.pathname).toBe("/people/import");
     expect(await screen.findByLabelText("Name")).toHaveValue("Sarah Jones");
     expect(screen.getByText((_, element) => element?.tagName === "P" && element.textContent === "1 contacts in contacts.vcf")).toBeInTheDocument();
@@ -325,7 +339,7 @@ describe("V1-04 duplicate review and vCard import UI", () => {
     ].join("")));
 
     await user.click(await screen.findByRole("button", { name: "Review duplicate for Aaron from the fellowship" }));
-    const dialog = await screen.findByRole("dialog", { name: "Possible duplicate" });
+    const dialog = await screen.findByRole("dialog", { name: "Possible duplicate found" });
     expect(within(dialog).getByRole("region", { name: "Other contact in this file" })).toHaveTextContent("Aaron Patel");
     expect(within(dialog).queryByRole("button", { name: /Open existing person/ })).not.toBeInTheDocument();
     expect(within(dialog).queryByText("Review details to add")).not.toBeInTheDocument();
@@ -354,7 +368,7 @@ describe("V1-04 duplicate review and vCard import UI", () => {
     const sarahRow = screen.getByRole("heading", { name: "Sarah Jones" }).closest("article");
     expect(sarahRow).not.toBeNull();
     await user.click(within(sarahRow!).getByRole("button", { name: "Review duplicate for Sarah Jones" }));
-    const dialog = await screen.findByRole("dialog", { name: "Possible duplicate" });
+    const dialog = await screen.findByRole("dialog", { name: "Possible duplicate found" });
     await user.click(within(dialog).getByText("Review details to add"));
     await user.click(within(dialog).getByRole("button", { name: "Add selected details to Sarah Jones" }));
 

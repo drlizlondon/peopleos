@@ -1,19 +1,58 @@
 export const DATABASE_NAME = "peopleos-v1";
-export const DATABASE_VERSION = 3;
-export const BACKUP_SCHEMA_VERSION = 4;
+export const DATABASE_VERSION = 4;
+export const BACKUP_SCHEMA_VERSION = 6;
 export const DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS = 14;
-export const DEFAULT_CONVERSATION_STARTERS = [
-  { id: "personal-thinking-of-you", template: "Hey {name}, just thinking of you today.", relationshipMode: "personal" },
-  { id: "personal-how-have-you-been", template: "Hi {name}, how have you been lately?", relationshipMode: "personal" },
-  { id: "personal-whats-new", template: "Hey {name}, what’s new with you?", relationshipMode: "personal" },
-  { id: "professional-check-in", template: "Hi {name}, I wanted to check in and see how things are going.", relationshipMode: "professional" },
-  { id: "professional-catch-up", template: "Hi {name}, I’ve been meaning to catch up — how are things?", relationshipMode: "professional" },
-  { id: "both-how-are-things", template: "Hi {name}, how are things with you?", relationshipMode: "both" }
-] as const;
+export const DEFAULT_TODAY_NOTIFICATION_TIME = "12:00";
 
 export type EntityId = string;
 export type IsoInstant = string;
 export type LocalDate = string;
+
+export type ConversationStarter = {
+  id: EntityId;
+  template: string;
+  relationshipMode: "personal" | "professional" | "both";
+};
+
+export const DEFAULT_CONVERSATION_STARTERS = [
+  {
+    id: "personal-thinking-of-you",
+    template: "Hey {name}, just thinking of you today.",
+    relationshipMode: "personal"
+  },
+  {
+    id: "personal-how-have-you-been",
+    template: "Hi {name}, how have you been lately?",
+    relationshipMode: "personal"
+  },
+  {
+    id: "personal-whats-new",
+    template: "Hey {name}, what’s new with you?",
+    relationshipMode: "personal"
+  },
+  {
+    id: "professional-check-in",
+    template: "Hi {name}, I wanted to check in and see how things are going.",
+    relationshipMode: "professional"
+  },
+  {
+    id: "professional-catch-up",
+    template: "Hi {name}, I’ve been meaning to catch up — how are things?",
+    relationshipMode: "professional"
+  },
+  {
+    id: "both-how-are-things",
+    template: "Hi {name}, how are things with you?",
+    relationshipMode: "both"
+  }
+] as const satisfies readonly ConversationStarter[];
+
+export type ContactCadenceUnit = "days" | "weeks" | "months";
+
+export type ContactCadence = {
+  value: number;
+  unit: ContactCadenceUnit;
+};
 
 export type MutableRecord = {
   id: EntityId;
@@ -31,19 +70,21 @@ export type Person = MutableRecord & {
   identityCompletionFingerprint?: string;
   importance: "normal" | "high";
   tags: string[];
+  contactCadence?: ContactCadence;
+  /** @deprecated Read compatibility for records written before structured cadence storage. */
   contactCadenceDays?: number;
+  /** @deprecated Main-v3 compatibility; migrated to a private initial schedule. */
   contactCadenceFirstDueDate?: LocalDate;
+  /** @deprecated Main-v3 compatibility; migrated to todayPausedUntilDate. */
   contactCadenceDeferredUntilDate?: LocalDate;
+  /** @deprecated Main-v3 indefinite pause; requires an explicit resume choice. */
   contactCadencePausedAt?: IsoInstant;
+  /** A user-chosen date before which this Person must not appear in Today. */
+  todayPausedUntilDate?: LocalDate;
+  /** Legacy lightweight Today note, retained for lossless compatibility. */
   todayNote?: string;
   todayNoteCompletedAt?: IsoInstant;
   archivedAt?: IsoInstant;
-};
-
-export type ConversationStarter = {
-  id: EntityId;
-  template: string;
-  relationshipMode: "personal" | "professional" | "both";
 };
 
 type ContactMethodBase = MutableRecord & {
@@ -226,7 +267,9 @@ export type AppSettings = MutableRecord & {
   alreadyContactedDefaultReminderDays: number;
   reachOutDefaultReminderDays?: 1 | 7 | 14 | 30;
   relationshipContexts?: Array<"personal" | "professional">;
-  conversationStarters?: ConversationStarter[];
+  todaySummaryNotificationsEnabled: boolean;
+  todaySummaryNotificationTime: string;
+  conversationStarters: ConversationStarter[];
 };
 
 export type AppMetadata = {
@@ -240,6 +283,7 @@ export type AppMetadata = {
 export type PeopleOsData = {
   people: Person[];
   contactMethods: ContactMethod[];
+  externalIdentities: ExternalIdentity[];
   affiliations: OrganisationAffiliation[];
   interactions: Interaction[];
   events: RelationshipEvent[];
@@ -271,6 +315,7 @@ export type BackupPreview = {
 export const DATA_STORE_NAMES = [
   "people",
   "contactMethods",
+  "externalIdentities",
   "affiliations",
   "interactions",
   "events",
@@ -290,6 +335,7 @@ export function emptyPeopleOsData(settings: AppSettings): PeopleOsData {
   return {
     people: [],
     contactMethods: [],
+    externalIdentities: [],
     affiliations: [],
     interactions: [],
     events: [],

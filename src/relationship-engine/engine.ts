@@ -1,4 +1,5 @@
 import { activeContactMethodsForAction } from "../domain/contactMethodPolicy";
+import { contactCadenceInDays, contactCadenceOf } from "../domain/cadence";
 import {
   addDaysToLocalDate,
   compareFollowUpsByEffectiveDate,
@@ -7,6 +8,7 @@ import {
   localDateForInstant
 } from "../domain/followUpPolicy";
 import { interactionCountsAsContact } from "../domain/interactionPolicy";
+import { regularContactSetupState } from "../domain/regularContactSchedule";
 import {
   deriveReachOutDisplayState,
   type ReachOutDisplayState
@@ -36,6 +38,7 @@ import {
   type RelationshipAssessment,
   type RelationshipClock,
   type RelationshipPersonBundle,
+  type RelationshipScheduleState,
   type RelationshipStageProjection,
   type SuggestedReminderProjection,
   type TodayAssessment,
@@ -461,6 +464,14 @@ function followUpExplanation(
   );
 }
 
+function activeTodayPauseDate(
+  person: RelationshipPersonBundle["person"],
+  localDate: LocalDate
+): LocalDate | undefined {
+  const pausedUntil = person.todayPausedUntilDate;
+  return pausedUntil && pausedUntil > localDate ? pausedUntil : undefined;
+}
+
 function buildTodayAssessment(
   bundle: RelationshipPersonBundle,
   contacts: readonly Interaction[],
@@ -468,6 +479,7 @@ function buildTodayAssessment(
   timeZone: string
 ): TodayAssessment | undefined {
   if (bundle.person.archivedAt || bundle.person.identityStatus === "merged") return undefined;
+  if (activeTodayPauseDate(bundle.person, localDate)) return undefined;
   const followUps = bundle.followUps.filter((followUp) => followUp.personId === bundle.person.id);
   const pending = followUps.filter((followUp) => followUp.status === "pending");
   const due = pending
@@ -490,6 +502,11 @@ function buildTodayAssessment(
   }
 
   if (pending.some((followUp) => effectiveFollowUpDate(followUp) > localDate)) return undefined;
+
+  // Preserve origin/main's indefinite Regular-contact pause. Explicit
+  // FollowUps above remain independent, while automatic relationship rules
+  // stay inactive until the user chooses a new Regular-contact start.
+  if (bundle.person.contactCadencePausedAt) return undefined;
 
   if (contacts.length === 1) {
     const onlyContact = contacts[0];
@@ -518,30 +535,102 @@ function buildTodayAssessment(
     }
   }
 
-  const cadence = bundle.person.contactCadenceDays;
-  if (cadence && !bundle.person.contactCadencePausedAt) {
-    const lastContact = latestContact(contacts);
-    const contactDate = lastContact ? localDateForInstant(lastContact.occurredAt, timeZone) : undefined;
-    const cadenceDate = contactDate ? addDaysToLocalDate(contactDate, cadence) : bundle.person.contactCadenceFirstDueDate;
-    const dueDate = bundle.person.contactCadenceDeferredUntilDate && cadenceDate
-      ? (bundle.person.contactCadenceDeferredUntilDate > cadenceDate ? bundle.person.contactCadenceDeferredUntilDate : cadenceDate)
-      : cadenceDate;
-    if (dueDate && dueDate <= localDate) {
+  const lastContact = latestContact(contacts);
+  const contactCadence = contactCadenceOf(bundle.person);
+  const cadenceDays = contactCadence ? contactCadenceInDays(contactCadence) : undefined;
+  if (lastContact && contactCadence && cadenceDays) {
+    const contactDate = localDateForInstant(lastContact.occurredAt, timeZone);
+    const dueDate = addDaysToLocalDate(contactDate, cadenceDays);
+    const elapsed = calendarDaysBetween(contactDate, localDate);
+    if (elapsed >= cadenceDays) {
       return {
         eligibilityCode: "cadence_due",
-        dueState: dueDate < localDate ? "overdue" : "due_today",
+        dueState: "rule_due",
         relevantDate: dueDate,
         additionalDueFollowUpIds: [],
         explanation: explanation("today.cadence_due", "today.cadence_due", [
-          sourceFact("cadenceDays", String(cadence), bundle.person.id),
-          sourceFact("nextDueDate", dueDate, bundle.person.id),
-          ...(contactDate && lastContact ? [sourceFact("lastContactDate", contactDate, lastContact.id)] : [])
+          sourceFact("cadenceDays", String(cadenceDays), bundle.person.id),
+          sourceFact("cadenceValue", String(contactCadence.value), bundle.person.id),
+          sourceFact("cadenceUnit", contactCadence.unit, bundle.person.id),
+          sourceFact("lastContactDate", contactDate, lastContact.id),
+          sourceFact("elapsedDays", String(elapsed), lastContact.id)
         ]),
         intendedActionContext: buildIntendedAction(bundle)
       };
     }
   }
   return undefined;
+}
+
+/**
+ * The first local date on which the current, unchanged relationship bundle can
+ * enter Today. Notification planning uses this instead of reimplementing the
+ * Today rules or running the complete engine once for every forecast day.
+ *
+ * A pending FollowUp suppresses the rule-based paths until its effective date.
+ * Without a pending FollowUp, the earliest of the new-relationship and cadence
+ * rules wins. Once eligible, the Person remains eligible until relationship
+ * data changes; date-specific Today skips are applied by the caller.
+ */
+export function resolveRelationshipScheduleState(
+  bundle: RelationshipPersonBundle,
+  clock: RelationshipClock
+): RelationshipScheduleState {
+  const localDate = assertClock(clock);
+  if (bundle.person.archivedAt || bundle.person.identityStatus === "merged") {
+    return { kind: "not_scheduled" };
+  }
+
+  if (regularContactSetupState(bundle.person, bundle.interactions, bundle.followUps) === "incomplete") {
+    return { kind: "incomplete_regular_schedule" };
+  }
+
+  const pausedUntil = activeTodayPauseDate(bundle.person, localDate);
+  const contacts = contactInteractions(bundle.interactions, bundle.person.id);
+  const followUps = bundle.followUps.filter((followUp) => followUp.personId === bundle.person.id);
+  const pending = followUps
+    .filter((followUp) => followUp.status === "pending")
+    .sort(compareFollowUpsByEffectiveDate);
+  if (pending[0]) {
+    const effectiveDate = effectiveFollowUpDate(pending[0]);
+    const scheduledDate = effectiveDate < localDate ? localDate : effectiveDate;
+    return {
+      kind: "scheduled",
+      localDate: pausedUntil && pausedUntil > scheduledDate ? pausedUntil : scheduledDate
+    };
+  }
+
+  const candidates: LocalDate[] = [];
+  if (contacts.length === 1 && !hasFollowUpCreatedAfterSoleContact(contacts, followUps)) {
+    const contactDate = localDateForInstant(contacts[0].occurredAt, clock.timeZone);
+    candidates.push(addDaysToLocalDate(contactDate, 7));
+  }
+
+  const lastContact = latestContact(contacts);
+  const contactCadence = contactCadenceOf(bundle.person);
+  const cadenceDays = contactCadence ? contactCadenceInDays(contactCadence) : undefined;
+  if (lastContact && cadenceDays) {
+    const contactDate = localDateForInstant(lastContact.occurredAt, clock.timeZone);
+    candidates.push(addDaysToLocalDate(contactDate, cadenceDays));
+  }
+
+  const earliest = candidates.sort()[0];
+  if (earliest) {
+    const scheduledDate = earliest < localDate ? localDate : earliest;
+    return {
+      kind: "scheduled",
+      localDate: pausedUntil && pausedUntil > scheduledDate ? pausedUntil : scheduledDate
+    };
+  }
+  return { kind: "not_scheduled" };
+}
+
+export function nextTodayEligibleLocalDate(
+  bundle: RelationshipPersonBundle,
+  clock: RelationshipClock
+): LocalDate | undefined {
+  const state = resolveRelationshipScheduleState(bundle, clock);
+  return state.kind === "scheduled" ? state.localDate : undefined;
 }
 
 function buildOverdueFollowUp(
@@ -618,8 +707,10 @@ function buildSuggestedReminder(
       ])
     };
   }
-  if (bundle.person.contactCadenceDays) {
-    const dueDate = addDaysToLocalDate(triggerDate, bundle.person.contactCadenceDays);
+  const contactCadence = contactCadenceOf(bundle.person);
+  if (contactCadence) {
+    const cadenceDays = contactCadenceInDays(contactCadence);
+    const dueDate = addDaysToLocalDate(triggerDate, cadenceDays);
     return {
       dueDate,
       rule: "cadence",
@@ -627,7 +718,9 @@ function buildSuggestedReminder(
       explanation: explanation("suggested_reminder.cadence", "suggested_reminder.cadence", [
         sourceFact("dueDate", dueDate, trigger.id),
         sourceFact("triggerDate", triggerDate, trigger.id),
-        sourceFact("cadenceDays", String(bundle.person.contactCadenceDays), bundle.person.id)
+        sourceFact("cadenceDays", String(cadenceDays), bundle.person.id),
+        sourceFact("cadenceValue", String(contactCadence.value), bundle.person.id),
+        sourceFact("cadenceUnit", contactCadence.unit, bundle.person.id)
       ])
     };
   }
@@ -733,6 +826,7 @@ export function assessRelationship(
   );
   const lastContact = buildLastContact(contacts, clock.timeZone);
   const active = !bundle.person.archivedAt && bundle.person.identityStatus !== "merged";
+  const scheduleState = resolveRelationshipScheduleState(bundle, clock);
   const today = buildTodayAssessment(bundle, contacts, localDate, clock.timeZone);
   const searchContextCue = buildFallbackMemoryCue(bundle, clock.timeZone);
   const memoryCue = buildMemoryCue(dueFollowUps, searchContextCue);
@@ -749,6 +843,7 @@ export function assessRelationship(
     displayName: bundle.person.displayName,
     importance: bundle.person.importance,
     active,
+    scheduleState,
     ...(today ? { today } : {}),
     relationshipStage: buildStage(contacts, clock.timeZone, bundle.person.createdAt, bundle.person.id),
     ...(memoryCue ? { memoryCue } : {}),

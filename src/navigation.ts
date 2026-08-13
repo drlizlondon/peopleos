@@ -1,9 +1,10 @@
-export type PrimaryRouteId = "today" | "reach-out" | "people" | "upcoming" | "settings";
+export type PrimaryRouteId = "today" | "reach-out" | "people" | "settings";
 export type RouteId = PrimaryRouteId
+  | "upcoming"
   | "add-person"
+  | "post-add-relationship"
   | "person-profile"
   | "edit-person"
-  | "relationship-settings"
   | "contact-methods"
   | "memory-facts"
   | "affiliations"
@@ -15,6 +16,7 @@ export type RouteId = PrimaryRouteId
   | "import-contacts"
   | "import-results"
   | "conversation-starters"
+  | "privacy"
   | "export-backup"
   | "restore-backup";
 
@@ -32,14 +34,20 @@ export const routes: Route[] = [
   { id: "today", path: "/", label: "Today", primaryId: "today" },
   { id: "reach-out", path: "/reach-out", label: "Reach Out", primaryId: "reach-out" },
   { id: "people", path: "/people", label: "People", primaryId: "people" },
-  { id: "upcoming", path: "/upcoming", label: "Upcoming", primaryId: "upcoming" },
   { id: "settings", path: "/settings", label: "Settings", primaryId: "settings" }
 ];
 
+/**
+ * These are logical product paths. platformRouting adds /app for browser
+ * URLs while Capacitor keeps the same product routes at its packaged root.
+ */
+
 const secondaryRoutes: Route[] = [
+  { id: "upcoming", path: "/upcoming", label: "Upcoming", primaryId: "today" },
   { id: "import-contacts", path: "/people/import", label: "Import contacts", primaryId: "people" },
   { id: "import-results", path: "/people/import/results", label: "Import results", primaryId: "people" },
   { id: "conversation-starters", path: "/settings/conversation-starters", label: "Conversation starters", primaryId: "settings" },
+  { id: "privacy", path: "/settings/privacy", label: "Privacy", primaryId: "settings" },
   { id: "export-backup", path: "/settings/export", label: "Export backup", primaryId: "settings" },
   { id: "restore-backup", path: "/settings/restore", label: "Restore backup", primaryId: "settings" }
 ];
@@ -49,7 +57,19 @@ export function routeFromPath(pathname: string): Route {
   if (staticRoute) return staticRoute;
 
   if (pathname === "/people/new" || pathname === "/people/new/") {
-    return { id: "add-person", path: "/people/new", label: "Add person", primaryId: "people" };
+    return { id: "add-person", path: "/people/new", label: "Add someone", primaryId: "people" };
+  }
+
+  const postAddRelationship = pathname.match(/^\/people\/([^/]+)\/keep-in-touch\/?$/);
+  if (postAddRelationship) {
+    const personId = decodePathPart(postAddRelationship[1]);
+    return {
+      id: "post-add-relationship",
+      path: pathname,
+      label: "Keep in touch",
+      primaryId: "people",
+      personId
+    };
   }
 
   const editPerson = pathname.match(/^\/people\/([^/]+)\/edit\/?$/);
@@ -61,7 +81,7 @@ export function routeFromPath(pathname: string): Route {
   const relationshipSettings = pathname.match(/^\/people\/([^/]+)\/relationship-settings\/?$/);
   if (relationshipSettings) {
     const personId = decodePathPart(relationshipSettings[1]);
-    return { id: "relationship-settings", path: pathname, label: "Relationship settings", primaryId: "people", personId };
+    return { id: "edit-person", path: pathname, label: "Edit person", primaryId: "people", personId };
   }
 
   const resolvePerson = pathname.match(/^\/people\/([^/]+)\/resolve\/?$/);
@@ -103,7 +123,7 @@ export function routeFromPath(pathname: string): Route {
   const followUpDetail = pathname.match(/^\/follow-ups\/([^/]+)\/?$/);
   if (followUpDetail) {
     const followUpId = decodePathPart(followUpDetail[1]);
-    return { id: "follow-up-detail", path: pathname, label: "Follow-up", primaryId: "upcoming", followUpId };
+    return { id: "follow-up-detail", path: pathname, label: "Follow-up", primaryId: "today", followUpId };
   }
 
   const resolveProvisional = pathname.match(/^\/reach-out\/([^/]+)\/resolve\/?$/);
@@ -139,16 +159,16 @@ export function personProfilePath(personId: string): string {
   return `/people/${encodeURIComponent(personId)}`;
 }
 
+export function postAddRelationshipPath(personId: string): string {
+  return `${personProfilePath(personId)}/keep-in-touch`;
+}
+
 export function contactMethodsPath(personId: string): string {
   return `${personProfilePath(personId)}/contact-methods`;
 }
 
 export function editPersonPath(personId: string): string {
   return `${personProfilePath(personId)}/edit`;
-}
-
-export function relationshipSettingsPath(personId: string): string {
-  return `${personProfilePath(personId)}/relationship-settings`;
 }
 
 export function resolvePersonPath(personId: string): string {

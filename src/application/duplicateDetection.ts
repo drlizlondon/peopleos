@@ -1,6 +1,7 @@
 import type { PreparedManualPersonCapture } from "./manualPersonCapture";
 import type { PeopleOsDatabase } from "../data/database";
 import {
+  conservativeFullNameDuplicateKey,
   detectDuplicatePeople,
   normaliseDuplicateText,
   type DuplicateMatch
@@ -145,6 +146,9 @@ function possibleDuplicatePersonIds(
     normaliseDuplicateText(capture.person.displayName)
   );
   if (matchingNames) {
+    if (conservativeFullNameDuplicateKey(capture.person.displayName)) {
+      matchingNames.forEach((personId) => result.add(personId));
+    }
     if (capture.affiliation?.isCurrent && !capture.affiliation.archivedAt) {
       addIntersection(
         result,

@@ -458,6 +458,41 @@ describe("Reach Out aggregate commands", () => {
     expect(validatePeopleOsData(await readAllData(db))).toBeTruthy();
   });
 
+  it("removes active outreach without deleting the Person or recording contact", async () => {
+    const db = await openDatabase("remove-without-contact");
+    const currentPerson = (await db.get("people", "person-sarah"))!;
+    const created = await createReachOut(db, prepareCreateReachOutCommand({
+      person: currentPerson,
+      reason: "Catch up about the fellowship",
+      reminderDate: "2026-08-08"
+    }, { now, localDate: "2026-08-01", idFactory: sequence("create") }));
+
+    const command = prepareReachOutStatusCommand(
+      created.entry,
+      currentPerson,
+      created.followUp,
+      "removed",
+      { now: later, idFactory: sequence("remove") }
+    );
+    const removed = await removeReachOut(db, command);
+
+    expect(removed.entry).toMatchObject({
+      id: created.entry.id,
+      intentStatus: "active",
+      removedAt: later
+    });
+    expect(removed.entry.currentFollowUpId).toBeUndefined();
+    expect(removed.cancelledFollowUp).toMatchObject({
+      id: created.followUp!.id,
+      status: "cancelled"
+    });
+    expect(await db.get("people", currentPerson.id)).toEqual(currentPerson);
+    expect(await db.count("people")).toBe(1);
+    expect(await db.count("interactions")).toBe(0);
+    expect((await db.get("reachOutEvents", command.reachOutEventId))?.kind).toBe("removed");
+    expect(validatePeopleOsData(await readAllData(db))).toBeTruthy();
+  });
+
   it("rejects stale commands and rolls compound completion back byte-for-byte", async () => {
     const db = await openDatabase("stale-rollback");
     const currentPerson = (await db.get("people", "person-sarah"))!;

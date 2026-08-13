@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isLocalDate, validatePeopleOsData, ValidationError } from "./validation";
+import { DEFAULT_CONVERSATION_STARTERS } from "./schema";
 import { completeData } from "../test/fixtures";
 
 describe("V1 data validation", () => {
@@ -44,6 +45,33 @@ describe("V1 data validation", () => {
 
     const missing = completeData();
     delete (missing.appSettings[0] as Partial<(typeof missing.appSettings)[number]>).alreadyContactedDefaultReminderDays;
+    expect(() => validatePeopleOsData(missing)).toThrow(/appSettings\[0\] is invalid/);
+  });
+
+  it("requires a bounded, unique conversation-starter bank with both mode audiences", () => {
+    const valid = completeData();
+    expect(valid.appSettings[0]?.conversationStarters).toEqual(DEFAULT_CONVERSATION_STARTERS);
+    expect(validatePeopleOsData(valid)).toBe(valid);
+
+    const invalidBanks = [
+      [],
+      [
+        { id: "same", template: "Hi {name}.", relationshipMode: "both" },
+        { id: "same", template: "Hello {name}.", relationshipMode: "both" }
+      ],
+      [{ id: "missing-token", template: "Hello there.", relationshipMode: "both" }],
+      [{ id: "personal-only", template: "Hello {name}.", relationshipMode: "personal" }],
+      [{ id: " padded ", template: "Hello {name}.", relationshipMode: "both" }]
+    ] as const;
+
+    for (const bank of invalidBanks) {
+      const invalid = completeData();
+      invalid.appSettings[0]!.conversationStarters = bank as never;
+      expect(() => validatePeopleOsData(invalid)).toThrow(/appSettings\[0\] is invalid/);
+    }
+
+    const missing = completeData();
+    delete (missing.appSettings[0] as Partial<(typeof missing.appSettings)[number]>).conversationStarters;
     expect(() => validatePeopleOsData(missing)).toThrow(/appSettings\[0\] is invalid/);
   });
 

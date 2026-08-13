@@ -4,6 +4,7 @@ import {
   CADENCE_PRESET_OPTIONS,
   FOLLOW_UP_ACTION_OPTIONS,
   addDaysToLocalDate,
+  addMonthsToLocalDate,
   effectiveFollowUpDate,
   hasFollowUpCreatedAfterSoleContact,
   localDateForInstant,
@@ -57,6 +58,14 @@ describe("follow-up policy", () => {
     expect(addDaysToLocalDate("2026-03-28", 1)).toBe("2026-03-29");
     expect(addDaysToLocalDate("2026-12-31", 1)).toBe("2027-01-01");
     expect(() => addDaysToLocalDate("2026-02-30", 1)).toThrow(RangeError);
+  });
+
+  it("adds calendar months and clamps dates at the end of shorter months", () => {
+    expect(addMonthsToLocalDate("2026-08-12", 1)).toBe("2026-09-12");
+    expect(addMonthsToLocalDate("2026-01-31", 1)).toBe("2026-02-28");
+    expect(addMonthsToLocalDate("2024-01-31", 1)).toBe("2024-02-29");
+    expect(addMonthsToLocalDate("2026-12-31", 1)).toBe("2027-01-31");
+    expect(() => addMonthsToLocalDate("2026-02-30", 1)).toThrow(RangeError);
   });
 
   it("treats an elapsed snooze as due or overdue before using the Snoozed label", () => {

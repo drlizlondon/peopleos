@@ -189,7 +189,7 @@ describe("follow-up queries", () => {
 
   it("projects an explicit next plan before cadence and computes cadence from timezone-local contact date", async () => {
     const db = await openDatabase("next-plan");
-    await addPerson(db, person("person-one", "Sarah", { contactCadenceDays: 30 }));
+    await addPerson(db, person("person-one", "Sarah", { contactCadence: { value: 1, unit: "months" } }));
     const contact: Interaction = {
       id: "interaction-one",
       revision: 1,
@@ -203,7 +203,12 @@ describe("follow-up queries", () => {
 
     expect(await getNextPlanForPerson(db, "person-one", "2026-03-30", {
       timeZone: "Europe/London"
-    })).toEqual({ kind: "cadence", cadenceDays: 30, date: "2026-04-29" });
+    })).toEqual({
+      kind: "cadence",
+      cadence: { value: 1, unit: "months" },
+      cadenceDays: 30,
+      date: "2026-04-29"
+    });
 
     const explicit = await addFollowUp(db, "explicit", "person-one", "2026-04-05");
     expect(await getNextPlanForPerson(db, "person-one", "2026-03-30", {

@@ -7,6 +7,7 @@ import {
 } from "../data/database";
 import { createRepositories, RecordConflictError, StaleRevisionError } from "../data/repositories";
 import type { ContactMethod, Person } from "../domain/schema";
+import { ValidationError } from "../domain/validation";
 import { fixedNow } from "../test/fixtures";
 import {
   createManualPersonCaptureDraft,
@@ -175,6 +176,92 @@ describe("reviewed duplicate resolution", () => {
     expect(result.skippedAffiliationId).toBe(prepared.affiliation?.id);
     expect(await db.get("people", "person-target")).toEqual({ ...targetPerson(), relationshipMode: "personal" });
     expect(await db.get("metadata", "app")).toEqual(metadataBefore);
+  });
+
+  it("atomically replaces an identifier fallback with an explicitly reviewed human name", async () => {
+    const db = await openDatabase("reviewed-name");
+    const repositories = createRepositories(db);
+    await repositories.people.create(targetPerson({ displayName: "07900 123456" }));
+    await repositories.contactMethods.create(contact());
+    const prepared = candidate({
+      displayName: "Bibi Jones",
+      contactMethods: [{ id: "contact-candidate-phone", kind: "phone", value: "+44 7900 123456" }]
+    });
+    const metadataBefore = await db.get("metadata", "app");
+    const input = {
+      targetPersonId: "person-target",
+      expectedPersonRevision: 1,
+      candidate: prepared,
+      selectedContactMethodIds: [],
+      includeAffiliation: false,
+      includeDisplayName: true,
+      now: commandNow
+    };
+
+    const result = await addReviewedDetailsToExistingPerson(db, input);
+
+    expect(result).toMatchObject({
+      person: { id: "person-target", displayName: "Bibi Jones", revision: 2 },
+      displayNameUpdated: true,
+      addedContactMethods: [],
+      skippedContactMethodIds: []
+    });
+    expect(await db.count("people")).toBe(1);
+    expect(await db.count("contactMethods")).toBe(1);
+    expect((await db.get("metadata", "app"))?.datasetRevision)
+      .toBe((metadataBefore?.datasetRevision ?? 0) + 1);
+
+    const retry = await addReviewedDetailsToExistingPerson(db, input);
+    expect(retry.person).toEqual(result.person);
+    expect(retry.displayNameUpdated).toBe(true);
+    expect(await db.count("people")).toBe(1);
+    expect(await db.count("contactMethods")).toBe(1);
+  });
+
+  it("never overwrites an existing real name during reviewed contact enrichment", async () => {
+    const db = await openDatabase("keep-real-name");
+    const repositories = createRepositories(db);
+    await repositories.people.create(targetPerson({ displayName: "Sarah Smith" }));
+    await repositories.contactMethods.create(contact());
+    const prepared = candidate({
+      displayName: "Bibi Jones",
+      contactMethods: [{ id: "contact-candidate-phone", kind: "phone", value: "+44 7900 123456" }]
+    });
+    const metadataBefore = await db.get("metadata", "app");
+
+    await expect(addReviewedDetailsToExistingPerson(db, {
+      targetPersonId: "person-target",
+      expectedPersonRevision: 1,
+      candidate: prepared,
+      selectedContactMethodIds: [],
+      includeAffiliation: false,
+      includeDisplayName: true,
+      now: commandNow
+    })).rejects.toBeInstanceOf(RecordConflictError);
+
+    expect((await db.get("people", "person-target"))?.displayName).toBe("Sarah Smith");
+    expect(await db.get("metadata", "app")).toEqual(metadataBefore);
+  });
+
+  it("rejects phone and email display fallbacks as reviewed names", async () => {
+    const db = await openDatabase("invalid-reviewed-name");
+    const repositories = createRepositories(db);
+    await repositories.people.create(targetPerson({ displayName: "07900 123456" }));
+    await repositories.contactMethods.create(contact());
+    const prepared = candidate({
+      displayName: "",
+      contactMethods: [{ id: "contact-candidate-phone", kind: "phone", value: "+44 7900 123456" }]
+    });
+
+    await expect(addReviewedDetailsToExistingPerson(db, {
+      targetPersonId: "person-target",
+      expectedPersonRevision: 1,
+      candidate: prepared,
+      selectedContactMethodIds: [],
+      includeAffiliation: false,
+      includeDisplayName: true,
+      now: commandNow
+    })).rejects.toBeInstanceOf(ValidationError);
   });
 
   it("returns the same records on exact retry without incrementing revisions or counts", async () => {

@@ -14,11 +14,24 @@ describe("follow-up restore validation", () => {
   it("accepts Research contact route and enforces the cadence ceiling", () => {
     const data = completeData();
     data.followUps[0] = { ...data.followUps[0], actionType: "research_contact_route" };
+    data.people[0] = { ...data.people[0], todayPausedUntilDate: "2026-08-20" };
     expect(validatePeopleOsData(data)).toBe(data);
+
+    const invalidPause = completeData();
+    invalidPause.people[0] = { ...invalidPause.people[0], todayPausedUntilDate: "20 August" as never };
+    expect(() => validatePeopleOsData(invalidPause)).toThrow(/people\[0\] is invalid/);
 
     const excessive = completeData();
     excessive.people[0] = { ...excessive.people[0], contactCadenceDays: 3_651 };
     expect(() => validatePeopleOsData(excessive)).toThrow(/people\[0\] is invalid/);
+
+    const excessiveMonths = completeData();
+    excessiveMonths.people[0] = {
+      ...excessiveMonths.people[0],
+      contactCadence: { value: 122, unit: "months" },
+      contactCadenceDays: undefined
+    };
+    expect(() => validatePeopleOsData(excessiveMonths)).toThrow(/people\[0\] is invalid/);
   });
 
   it("rejects non-canonical reasons, invalid completion state and invalid snooze dates", () => {

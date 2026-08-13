@@ -1,6 +1,6 @@
 # PeopleOS Version 1 Package Status
 
-Operational ledger only. Package scope and acceptance criteria remain authoritative in `VERSION1_SCOPE.md` and `IMPLEMENTATION_READINESS_REVIEW.md`.
+Historical implementation ledger only. Counts and commit IDs below record the package evidence available at those milestones; they are not the current release result. The current release gate and signed-device status belong in `docs/APP_STORE_RELEASE_CHECKLIST.md`, and platform ownership belongs in `docs/platform-architecture.md`.
 
 | Package | Name | Status | Commit | Automated tests | Manual verification | Dependencies | Notes / blockers |
 |---|---|---|---|---|---|---|---|
@@ -22,5 +22,5 @@ Operational ledger only. Package scope and acceptance criteria remain authoritat
 | V1-R4 | One write substrate | Not started | — | — | — | V1-R1 | Enables the `datasetRevision` lint rule and clears the 30 recorded boundary exceptions |
 | V1-R5 | One navigation substrate | Not started | — | — | — | V1-R1 | Enables the `history.state` lint rule; must land before V1-12 |
 | V1-12 | Batch networking capture | Not started | — | — | — | V1-01–11 | — |
-| V1-13 | Contact actions and product hardening | Not started | — | — | — | V1-01–12 | Adds WhatsApp target resolution, Profile template composition, vCard, and hardening; notifications remain V1-14 |
-| V1-14 | Today summary notifications | Not started | — | — | — | V1-01–13 | Mandatory stop unless an approved adapter reliably delivers while PeopleOS is closed; unsupported platforms show Unavailable |
+| V1-13 | Contact actions and product hardening | Accepted MVP subset implemented; original package superseded | _see current main_ | Covered by the current repository gate | Signed-device Contacts acceptance remains in the release checklist | V1-01–11 | WhatsApp/message preparation, selective Apple Contacts picking, explicit one-time Apple contact creation, reconciliation, and vCard import are retained. Batch capture and vCard export remain deferred. |
+| V1-14 | Today summary notifications | Implemented; signed-device QA pending | `47aa9e4` | 604/604 functional tests; 10/10 performance tests; lint, typecheck, production PWA build and unsigned iOS Release simulator build passed | Native SwiftPM plugin compiles and embeds; physical-iPhone/TestFlight grant, deny, time replacement, Off, force-quit delivery and warm/cold tap matrix remains blocked on distribution signing | Chargeable MVP; V1-01–11 | POS-D047 moves notifications into MVP ahead of unfinished V1-12/13. Official Capacitor/UNUserNotificationCenter adapter; Off + 12:00 defaults; editable time; safely replaceable plan of at most 30 verified private local occurrences; tap-to-Today; no backend, remote push, action buttons or personal notification payloads |

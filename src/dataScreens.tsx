@@ -13,6 +13,7 @@ type Navigate = (path: string) => void;
 const labels: Record<keyof BackupCounts, string> = {
   people: "People",
   contactMethods: "Contact methods",
+  externalIdentities: "External identities",
   affiliations: "Affiliations",
   interactions: "Interactions",
   events: "Events",
@@ -122,7 +123,19 @@ export function RestoreBackupScreen({ navigate }: { navigate: Navigate }) {
     setState("restoring");
     setError("");
     try {
-      await restoreBackup(await getDatabase(), preview);
+      const db = await getDatabase();
+      const syncState = await db.get("syncState", "app");
+      if (syncState?.enabled) {
+        const recovery = await generateBackup(db);
+        const recoveryBlob = new Blob([recovery.json], { type: "application/json" });
+        const recoveryUrl = URL.createObjectURL(recoveryBlob);
+        const recoveryLink = document.createElement("a");
+        recoveryLink.href = recoveryUrl;
+        recoveryLink.download = recovery.fileName.replace("peopleos-backup-", "peopleos-pre-restore-recovery-");
+        recoveryLink.click();
+        URL.revokeObjectURL(recoveryUrl);
+      }
+      await restoreBackup(db, preview);
       navigate("/");
     } catch (caught) {
       setError(errorMessage(caught));
@@ -159,7 +172,7 @@ export function RestoreBackupScreen({ navigate }: { navigate: Navigate }) {
           {state === "confirm" && (
             <div className="confirmation-panel" role="alert">
               <strong>Replace current PeopleOS data?</strong>
-              <p>This replaces every local record. Export the current data first if you may need it.</p>
+              <p>The selected backup will be retained. This replaces every current local record. When iCloud Sync is on, PeopleOS first downloads a local recovery snapshot of the current data.</p>
               <div className="button-row">
                 <button type="button" onClick={() => setState("valid")}>Cancel</button>
                 <button className="danger-action" type="button" onClick={replaceData}>Replace current data</button>

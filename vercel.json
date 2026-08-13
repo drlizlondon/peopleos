@@ -1,9 +1,47 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run vercel-build",
+  "outputDirectory": "dist",
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "redirects": [
+    { "source": "/people", "destination": "/app/people", "permanent": false },
+    { "source": "/people/:path*", "destination": "/app/people/:path*", "permanent": false },
+    { "source": "/reach-out", "destination": "/app/reach-out", "permanent": false },
+    { "source": "/reach-out/:path*", "destination": "/app/reach-out/:path*", "permanent": false },
+    { "source": "/settings", "destination": "/app/settings", "permanent": false },
+    { "source": "/settings/:path*", "destination": "/app/settings/:path*", "permanent": false },
+    { "source": "/upcoming", "destination": "/app/upcoming", "permanent": false },
+    { "source": "/follow-ups/:path*", "destination": "/app/follow-ups/:path*", "permanent": false }
+  ],
   "rewrites": [
     {
+      "source": "/app",
+      "destination": "/app/index.html"
+    },
+    {
+      "source": "/app/:path*",
+      "destination": "/app/index.html"
+    },
+    { "source": "/privacy", "destination": "/privacy/index.html" },
+    { "source": "/support", "destination": "/support/index.html" },
+    { "source": "/download", "destination": "/download/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/app/sw.js",
+      "headers": [
+        { "key": "Service-Worker-Allowed", "value": "/app" }
+      ]
+    },
+    {
       "source": "/(.*)",
-      "destination": "/index.html"
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" },
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'" }
+      ]
     }
   ]
 }

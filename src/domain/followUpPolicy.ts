@@ -66,6 +66,29 @@ export function addDaysToLocalDate(date: LocalDate, days: number): LocalDate {
   return result.toISOString().slice(0, 10);
 }
 
+export function addMonthsToLocalDate(date: LocalDate, months: number): LocalDate {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(months)) {
+    throw new RangeError("A valid local date and whole number of months are required.");
+  }
+  const [year, month, day] = date.split("-").map(Number);
+  const start = new Date(Date.UTC(year, month - 1, day));
+  if (!Number.isFinite(start.getTime()) || start.getUTCFullYear() !== year
+    || start.getUTCMonth() !== month - 1 || start.getUTCDate() !== day) {
+    throw new RangeError("The local date is invalid.");
+  }
+  const targetMonthStart = new Date(Date.UTC(year, month - 1 + months, 1));
+  const lastTargetDay = new Date(Date.UTC(
+    targetMonthStart.getUTCFullYear(),
+    targetMonthStart.getUTCMonth() + 1,
+    0
+  )).getUTCDate();
+  return new Date(Date.UTC(
+    targetMonthStart.getUTCFullYear(),
+    targetMonthStart.getUTCMonth(),
+    Math.min(day, lastTargetDay)
+  )).toISOString().slice(0, 10);
+}
+
 export function isPendingFollowUp(
   followUp: Pick<FollowUp, "status">
 ): boolean {

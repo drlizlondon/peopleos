@@ -4,11 +4,11 @@ import type { ReachOutContext } from "./domain/schema";
 
 const STATUS_OPTIONS: Array<{ value: ReachOutStatusFilter; label: string }> = [
   { value: "active", label: "Active" },
-  { value: "due", label: "Due" },
-  { value: "overdue", label: "Overdue" },
+  { value: "due", label: "Today" },
+  { value: "overdue", label: "Ready" },
   { value: "upcoming", label: "Upcoming" },
   { value: "waiting", label: "Waiting" },
-  { value: "snoozed", label: "Snoozed" },
+  { value: "snoozed", label: "Later" },
   { value: "dormant", label: "Dormant" },
   { value: "completed", label: "Completed" }
 ];

@@ -12,7 +12,7 @@ describe("mobile viewport contract", () => {
   it("contains data-entry screens without relying on permanent blank keyboard space", () => {
     expect(styles).toMatch(/\.form-screen\s*\{[^}]*height:\s*calc\(100dvh/);
     expect(styles).toMatch(/\.form-screen\s*\{[^}]*overflow-y:\s*auto/);
-    expect(styles).toMatch(/\.relationship-settings-form \.form-actions,[\s\S]*?position:\s*sticky/);
+    expect(styles).toMatch(/\.edit-person-screen \.form-actions\s*\{[\s\S]*?position:\s*sticky/);
     expect(styles).toMatch(/bottom:\s*calc\(8px \+ env\(safe-area-inset-bottom\)\)/);
   });
 

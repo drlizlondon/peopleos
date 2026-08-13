@@ -1,6 +1,8 @@
 import {
   BACKUP_SCHEMA_VERSION,
   DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS,
+  DEFAULT_CONVERSATION_STARTERS,
+  DEFAULT_TODAY_NOTIFICATION_TIME,
   DATA_STORE_NAMES,
   emptyPeopleOsData,
   type BackupCounts,
@@ -10,6 +12,7 @@ import {
 } from "../domain/schema";
 import { ValidationError, isIsoInstant, validateBackupEnvelope, validatePeopleOsData } from "../domain/validation";
 import { createDefaultMetadata, createDefaultSettings, readAllData, type PeopleOsDatabase } from "./database";
+import { migrateLegacySchedulingData } from "./legacyCompatibility";
 
 type LegacyBackupEnvelope = {
   product: "peopleos";
@@ -39,6 +42,19 @@ type SchemaThreeBackupEnvelope = {
   data?: unknown;
 };
 
+type SchemaFourBackupEnvelope = {
+  product: "peopleos";
+  schemaVersion: 4;
+  exportedAt: string;
+  data?: unknown;
+};
+
+type SchemaFiveBackupEnvelope = {
+  product: "peopleos";
+  schemaVersion: 5;
+  exportedAt: string;
+  data?: unknown;
+};
 export type GeneratedBackup = {
   envelope: BackupEnvelope;
   json: string;
@@ -84,15 +100,38 @@ function addRelationshipModes(data: unknown): unknown {
   };
 }
 
-function addRelationshipContexts(data: unknown): unknown {
+function addTodayNotificationSettings(data: unknown): unknown {
   if (typeof data !== "object" || data === null || Array.isArray(data)) return data;
   const record = data as Record<string, unknown>;
   if (!Array.isArray(record.appSettings)) return data;
   return {
     ...record,
-    appSettings: record.appSettings.map((settings) => typeof settings === "object" && settings !== null && !Array.isArray(settings)
-      ? { relationshipContexts: ["personal", "professional"], ...settings }
-      : settings)
+    appSettings: record.appSettings.map((settings) => {
+      if (typeof settings !== "object" || settings === null || Array.isArray(settings)) return settings;
+      return {
+        todaySummaryNotificationsEnabled: false,
+        todaySummaryNotificationTime: DEFAULT_TODAY_NOTIFICATION_TIME,
+        ...settings
+      };
+    })
+  };
+}
+
+function addConversationStarters(data: unknown): unknown {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return data;
+  const record = data as Record<string, unknown>;
+  if (!Array.isArray(record.appSettings)) return data;
+  return {
+    ...record,
+    appSettings: record.appSettings.map((settings) => {
+      if (typeof settings !== "object" || settings === null || Array.isArray(settings)) return settings;
+      const settingRecord = settings as Record<string, unknown>;
+      if (settingRecord.conversationStarters !== undefined) return settings;
+      return {
+        ...settingRecord,
+        conversationStarters: DEFAULT_CONVERSATION_STARTERS.map((starter) => ({ ...starter }))
+      };
+    })
   };
 }
 
@@ -105,7 +144,7 @@ function migrateLegacyBackup(value: LegacyBackupEnvelope): BackupPreview {
     product: "peopleos",
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: value.exportedAt,
-    data: validatePeopleOsData(addRelationshipContexts(addRelationshipModes(migrateAlreadyContactedDefault(migrated))))
+    data: validatePeopleOsData(addConversationStarters(addTodayNotificationSettings(addRelationshipModes(migrateAlreadyContactedDefault(migrated)))))
   };
   return { envelope, counts: countData(envelope.data), migratedFromVersion: 0 };
 }
@@ -116,18 +155,23 @@ function migrateSchemaOneBackup(value: SchemaOneBackupEnvelope): BackupPreview {
     product: "peopleos",
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: value.exportedAt,
-    data: validatePeopleOsData(addRelationshipContexts(addRelationshipModes(migrateAlreadyContactedDefault(value.data))))
+    data: validatePeopleOsData(addConversationStarters(addTodayNotificationSettings(addRelationshipModes(addExternalIdentities(migrateAlreadyContactedDefault(value.data))))))
   };
   return { envelope, counts: countData(envelope.data), migratedFromVersion: 1 };
 }
 
+function addExternalIdentities(data: unknown): unknown {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return data;
+  const record = data as Record<string, unknown>;
+  return record.externalIdentities === undefined ? { ...record, externalIdentities: [] } : data;
+}
 function migrateSchemaTwoBackup(value: SchemaTwoBackupEnvelope): BackupPreview {
   if (!isIsoInstant(value.exportedAt)) throw new ValidationError(["backup exportedAt is invalid"]);
   const envelope: BackupEnvelope = {
     product: "peopleos",
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: value.exportedAt,
-    data: validatePeopleOsData(addRelationshipContexts(addRelationshipModes(value.data)))
+    data: validatePeopleOsData(addConversationStarters(addTodayNotificationSettings(addRelationshipModes(addExternalIdentities(value.data)))))
   };
   return { envelope, counts: countData(envelope.data), migratedFromVersion: 2 };
 }
@@ -138,9 +182,36 @@ function migrateSchemaThreeBackup(value: SchemaThreeBackupEnvelope): BackupPrevi
     product: "peopleos",
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: value.exportedAt,
-    data: validatePeopleOsData(addRelationshipContexts(value.data))
+    // Schema version 3 was independently used by both histories. Main's
+    // version has no ExternalIdentity collection, while the RC's does.
+    data: validatePeopleOsData(addConversationStarters(addTodayNotificationSettings(addRelationshipModes(addExternalIdentities(value.data)))))
   };
   return { envelope, counts: countData(envelope.data), migratedFromVersion: 3 };
+}
+
+function migrateSchemaFourBackup(value: SchemaFourBackupEnvelope): BackupPreview {
+  if (!isIsoInstant(value.exportedAt)) throw new ValidationError(["backup exportedAt is invalid"]);
+  const mainCompatibleData = validatePeopleOsData(
+    addConversationStarters(addTodayNotificationSettings(addExternalIdentities(value.data)))
+  );
+  const envelope: BackupEnvelope = {
+    product: "peopleos",
+    schemaVersion: BACKUP_SCHEMA_VERSION,
+    exportedAt: value.exportedAt,
+    data: validatePeopleOsData(migrateLegacySchedulingData(mainCompatibleData))
+  };
+  return { envelope, counts: countData(envelope.data), migratedFromVersion: 4 };
+}
+
+function migrateSchemaFiveBackup(value: SchemaFiveBackupEnvelope): BackupPreview {
+  if (!isIsoInstant(value.exportedAt)) throw new ValidationError(["backup exportedAt is invalid"]);
+  const envelope: BackupEnvelope = {
+    product: "peopleos",
+    schemaVersion: BACKUP_SCHEMA_VERSION,
+    exportedAt: value.exportedAt,
+    data: validatePeopleOsData(addConversationStarters(value.data))
+  };
+  return { envelope, counts: countData(envelope.data), migratedFromVersion: 5 };
 }
 
 export function previewBackup(input: string | unknown): BackupPreview {
@@ -161,6 +232,8 @@ export function previewBackup(input: string | unknown): BackupPreview {
   if (candidate.schemaVersion === 1) return migrateSchemaOneBackup(value as SchemaOneBackupEnvelope);
   if (candidate.schemaVersion === 2) return migrateSchemaTwoBackup(value as SchemaTwoBackupEnvelope);
   if (candidate.schemaVersion === 3) return migrateSchemaThreeBackup(value as SchemaThreeBackupEnvelope);
+  if (candidate.schemaVersion === 4) return migrateSchemaFourBackup(value as SchemaFourBackupEnvelope);
+  if (candidate.schemaVersion === 5) return migrateSchemaFiveBackup(value as SchemaFiveBackupEnvelope);
   const envelope = validateBackupEnvelope(value);
   return { envelope, counts: countData(envelope.data) };
 }
@@ -190,18 +263,7 @@ export async function restoreBackup(
   now = new Date().toISOString(),
   hooks: RestoreHooks = {}
 ): Promise<void> {
-  const validated = validatePeopleOsData(preview.envelope.data);
-  const restoreDate = now.slice(0, 10);
-  const data: PeopleOsData = {
-    ...validated,
-    people: validated.people.map((person) => {
-      if (preview.migratedFromVersion === undefined) return person;
-      if (!person.contactCadenceDays || person.contactCadenceFirstDueDate) return person;
-      const date = new Date(`${restoreDate}T12:00:00.000Z`);
-      date.setUTCDate(date.getUTCDate() + person.contactCadenceDays);
-      return { ...person, contactCadenceFirstDueDate: date.toISOString().slice(0, 10) };
-    })
-  };
+  const data = validatePeopleOsData(preview.envelope.data);
   const stores = [...DATA_STORE_NAMES, "metadata"] as const;
   const tx = db.transaction(stores, "readwrite");
   try {

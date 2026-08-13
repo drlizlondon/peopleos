@@ -163,23 +163,23 @@ The accepted Today amendment supersedes the historical POS-4 action labels below
 
 ## POS-8 — Today summary notifications
 
-**Goal:** Deliver one private prompt to open Today without copying reminder logic into notification infrastructure.
+**Goal:** Deliver one private native iPhone prompt to open Today without copying personal relationship data into notification payloads.
 
-**Scope:** After V1-13, add an Off-by-default global preference and explicit permission flow, a notification-scheduler port, delivery-only coordination state, one anonymous 09:00 local summary when the normal Today projection is non-empty, Open/Not today/two-hour Snooze notification actions, deep links, and retry/platform tests.
+**Scope:** Moved into the chargeable MVP by POS-D047. Add an Off-by-default preference, explicit iOS permission flow, editable local time defaulting to 12:00, a native scheduler for at most 30 anonymous one-off daily summaries, verified replacement/cancellation, tap-to-Today routing, and adapter/platform tests. Keep the browser unsupported and add no backend, action buttons, or remote push.
 
 **Acceptance criteria:**
 
-- Today remains the only source of notification eligibility; no notification queue or per-Person notification reminder is stored.
-- Empty Today sends nothing; non-empty Today sends at most one summary per scheduled occurrence and includes no names.
-- Notification Not today and Snooze change only delivery coordination and never Person, Reach Out, FollowUp, or Interaction data.
-- Open always routes through Today and validates any optional Person target before opening its Profile over Today.
+- The engine's fixed Today eligibility rules remain authoritative; no notification queue or per-Person notification reminder is stored in IndexedDB.
+- Empty forecast dates schedule nothing; non-empty dates schedule at most one summary and include no names, identifiers, contact details, reasons, notes, or relationship details.
+- Changing time replaces pending summaries; Off cancels them; no notification operation changes Person, Reach Out, FollowUp, TodaySkip, or Interaction data.
+- Tapping always routes to Today; malformed or foreign payloads are ignored.
 - Notification intent defaults Off; operating-system permission remains not requested until a direct user action.
-- Unsupported platforms state Unavailable.
-- If no approved adapter can reliably deliver while PeopleOS is closed, implementation stops; foreground timers, speculative backends, and unapproved native shells are not acceptable substitutes.
+- Unsupported web states that reminders are available in the iPhone app and never requests permission.
+- A signed physical-iPhone/TestFlight pass must cover grant, deny, time replacement, Off, background/force-quit delivery, privacy on the lock screen, and warm/cold tap routing.
 
 ## Later planning, not approved implementation
 
-- Capacitor/native contact creation
+- Existing PeopleOS profile → Save to iPhone Contacts — a future one-time, explicit user action using the existing exact phone/email duplicate checks. It must remain one-way, introduce no continuous synchronisation or stored Apple identifier, and never write PeopleOS-only metadata into Apple Contacts.
 - Multi-device sync and accounts
 - Encrypted backup or hosted storage
 - Additional communication channels

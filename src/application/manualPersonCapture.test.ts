@@ -13,6 +13,8 @@ import {
   createManualPersonCaptureDraft,
   prepareManualPersonCapture,
   savePreparedManualPersonCapture,
+  updatePersonWithInitialSchedule,
+  updatePersonWithoutRegularSchedule,
   type ManualPersonCaptureDraft
 } from "./manualPersonCapture";
 
@@ -53,6 +55,33 @@ afterEach(async () => {
 });
 
 describe("manual Person capture", () => {
+  it("stores cadence value and unit without persisting a derived day field", () => {
+    const prepared = prepareManualPersonCapture(draft({
+      contactCadence: { value: 4, unit: "weeks" },
+      startDate: "2026-08-01"
+    }), "GB");
+    expect(prepared.person.contactCadence).toEqual({ value: 4, unit: "weeks" });
+    expect(prepared.person.contactCadenceDays).toBeUndefined();
+
+    const legacy = prepareManualPersonCapture(draft({
+      contactCadenceDays: 28,
+      startDate: "2026-08-01"
+    }), "GB");
+    expect(legacy.person.contactCadence).toEqual({ value: 28, unit: "days" });
+    expect(legacy.person.contactCadenceDays).toBeUndefined();
+  });
+
+  it("rejects Regular contact without a first date when no real contact anchors it", () => {
+    expect(() => prepareManualPersonCapture(draft({
+      contactCadence: { value: 1, unit: "days" }
+    }), "GB")).toThrow(/Today or Tomorrow to start regular contact/);
+
+    expect(() => prepareManualPersonCapture(draft({
+      contactCadence: { value: 1, unit: "days" },
+      whereMet: "Met today"
+    }), "GB")).not.toThrow();
+  });
+
   it("rejects a labelled contact row without a value instead of silently dropping it", () => {
     expect(() => prepareManualPersonCapture(draft({
       contactMethods: [{ id: "contact-labelled-empty", kind: "phone", value: "", label: "Assistant's number" }]
@@ -88,6 +117,42 @@ describe("manual Person capture", () => {
     db.close();
   });
 
+  it("creates phone-only and email-only People with the useful identifier as their display name", async () => {
+    const db = await openDatabase(databaseName("contact-only-identities"));
+    const phoneOnly = await captureManualPerson(db, draft({
+      personId: "person-phone-only",
+      displayName: "",
+      contactMethods: [
+        { id: "email-secondary", kind: "email", value: "later@example.com" },
+        { id: "phone-primary", kind: "phone", value: " 07912 345678 " }
+      ]
+    }), "GB");
+    const emailOnly = await captureManualPerson(db, draft({
+      personId: "person-email-only",
+      displayName: "",
+      contactMethods: [{ id: "email-only", kind: "email", value: " Bibi@Example.com " }]
+    }), "GB");
+
+    expect(phoneOnly.person.displayName).toBe("07912 345678");
+    expect(phoneOnly.contactMethods.find((contact) => contact.kind === "phone")).toMatchObject({
+      rawValue: "07912 345678",
+      canonicalValue: "+447912345678"
+    });
+    expect(emailOnly.person.displayName).toBe("Bibi@Example.com");
+    expect(emailOnly.contactMethods[0]).toMatchObject({
+      rawValue: "Bibi@Example.com",
+      canonicalValue: "bibi@example.com"
+    });
+    expect((await readAllData(db)).people).toHaveLength(2);
+  });
+
+  it("rejects a completely blank identity", () => {
+    expect(() => prepareManualPersonCapture(draft({
+      displayName: "",
+      contactMethods: []
+    }), "GB")).toThrow(/name, mobile number or email address/i);
+  });
+
   it("atomically creates multiple same-kind contacts, first affiliation and met history", async () => {
     const db = await openDatabase(databaseName("full"));
     const result = await captureManualPerson(db, draft({
@@ -112,6 +177,133 @@ describe("manual Person capture", () => {
     expect(persisted.affiliations.map((record) => record.id)).toEqual([result.affiliation?.id]);
     expect(persisted.interactions.map((record) => record.id)).toEqual([result.metInteraction?.id]);
     db.close();
+  });
+
+  it("atomically gives a new scheduled person a real Today or Upcoming anchor without inventing contact history", async () => {
+    const db = await openDatabase(databaseName("initial-schedule"));
+    const result = await captureManualPerson(db, draft({
+      contactCadence: { value: 3, unit: "days" },
+      startDate: "2026-08-01"
+    }), "GB");
+
+    expect(result.initialFollowUp).toMatchObject({
+      personId: result.person.id,
+      dueDate: "2026-08-01",
+      status: "pending",
+      suggestedByRule: "initial_schedule"
+    });
+    expect(result.initialFollowUpEvent).toMatchObject({
+      followUpId: result.initialFollowUp?.id,
+      kind: "created",
+      toDate: "2026-08-01"
+    });
+    expect(await db.count("followUps")).toBe(1);
+    expect(await db.count("followUpEvents")).toBe(1);
+    expect(await db.count("interactions")).toBe(0);
+  });
+
+  it("atomically starts a schedule when an imported or existing Person later chooses a frequency", async () => {
+    const db = await openDatabase(databaseName("existing-initial-schedule"));
+    const captured = await captureManualPerson(db, draft(), "GB");
+    const updated = await updatePersonWithInitialSchedule(db, {
+      personId: captured.person.id,
+      expectedRevision: captured.person.revision,
+      draft: {
+        displayName: captured.person.displayName,
+        relationshipMode: "personal",
+        importance: "normal",
+        tags: [],
+        contactCadence: { value: 2, unit: "weeks" }
+      },
+      startDate: "2026-08-02",
+      followUpId: "follow-up-existing-start",
+      followUpEventId: "follow-up-event-existing-start",
+      occurredAt: fixedNow
+    });
+
+    expect(updated.contactCadence).toEqual({ value: 2, unit: "weeks" });
+    expect(await db.get("followUps", "follow-up-existing-start")).toMatchObject({ dueDate: "2026-08-02" });
+    expect(await db.get("followUpEvents", "follow-up-event-existing-start")).toMatchObject({ toDate: "2026-08-02" });
+    expect(await db.count("interactions")).toBe(0);
+  });
+
+  it("requires a first date when an existing Person has no real contact anchor", async () => {
+    const db = await openDatabase(databaseName("existing-missing-start"));
+    const captured = await captureManualPerson(db, draft(), "GB");
+
+    await expect(updatePersonWithInitialSchedule(db, {
+      personId: captured.person.id,
+      expectedRevision: captured.person.revision,
+      draft: {
+        displayName: captured.person.displayName,
+        relationshipMode: "personal",
+        importance: "normal",
+        tags: [],
+        contactCadence: { value: 1, unit: "days" }
+      },
+      followUpId: "follow-up-missing-start",
+      followUpEventId: "follow-up-event-missing-start",
+      occurredAt: fixedNow
+    })).rejects.toThrow(/Today or Tomorrow to start regular contact/);
+    expect(await db.get("people", captured.person.id)).toEqual(captured.person);
+    expect(await db.count("followUps")).toBe(0);
+  });
+
+  it("uses an existing real contact as the anchor without creating a private initial schedule", async () => {
+    const db = await openDatabase(databaseName("existing-real-contact-anchor"));
+    const captured = await captureManualPerson(db, draft({ whereMet: "Met at the conference" }), "GB");
+
+    const updated = await updatePersonWithInitialSchedule(db, {
+      personId: captured.person.id,
+      expectedRevision: captured.person.revision,
+      draft: {
+        displayName: captured.person.displayName,
+        relationshipMode: "personal",
+        importance: "normal",
+        tags: [],
+        contactCadence: { value: 1, unit: "days" }
+      },
+      followUpId: "follow-up-not-needed",
+      followUpEventId: "follow-up-event-not-needed",
+      occurredAt: fixedNow
+    });
+
+    expect(updated.contactCadence).toEqual({ value: 1, unit: "days" });
+    expect(await db.count("interactions")).toBe(1);
+    expect(await db.count("followUps")).toBe(0);
+    expect(await db.count("followUpEvents")).toBe(0);
+  });
+
+  it("turns off only a generated regular reminder while preserving the Person and history", async () => {
+    const db = await openDatabase(databaseName("turn-off-regular-schedule"));
+    const captured = await captureManualPerson(db, draft({
+      contactCadence: { value: 3, unit: "days" },
+      startDate: "2026-08-01"
+    }), "GB");
+    const initial = captured.initialFollowUp!;
+    const updated = await updatePersonWithoutRegularSchedule(db, {
+      personId: captured.person.id,
+      expectedRevision: captured.person.revision,
+      draft: {
+        displayName: captured.person.displayName,
+        relationshipMode: "personal",
+        importance: "normal",
+        tags: []
+      },
+      followUpId: initial.id,
+      expectedFollowUpRevision: initial.revision,
+      cancellationEventId: "follow-up-event-cancel-regular",
+      occurredAt: "2026-08-01T10:00:00.000Z"
+    });
+
+    expect(updated.contactCadence).toBeUndefined();
+    expect(await db.get("followUps", initial.id)).toMatchObject({ status: "cancelled", revision: 2 });
+    expect(await db.get("followUpEvents", "follow-up-event-cancel-regular")).toMatchObject({
+      followUpId: initial.id,
+      personId: captured.person.id,
+      kind: "cancelled"
+    });
+    expect(await db.count("interactions")).toBe(0);
   });
 
   it("uses stable draft IDs and makes an identical retry a no-op", async () => {
@@ -173,6 +365,8 @@ describe("manual Person capture", () => {
     const prepared = prepareManualPersonCapture(draft({
       organisationName: "NHS England",
       whereMet: "AI Fellowship",
+      contactCadence: { value: 3, unit: "days" },
+      startDate: "2026-08-01",
       contactMethods: [{ id: "contact-rollback", kind: "phone", value: "07900 123456" }]
     }), "GB");
     await expect(savePreparedManualPersonCapture(db, prepared, {
@@ -182,6 +376,8 @@ describe("manual Person capture", () => {
     expect(await db.count("contactMethods")).toBe(0);
     expect(await db.count("affiliations")).toBe(0);
     expect(await db.count("interactions")).toBe(0);
+    expect(await db.count("followUps")).toBe(0);
+    expect(await db.count("followUpEvents")).toBe(0);
     db.close();
   });
 

@@ -24,7 +24,7 @@ import { getAppSettings } from "./application/peopleQueries";
 import { getDatabase } from "./data/client";
 import type { DuplicateMatch } from "./domain/duplicates";
 import { MAX_VCARD_BYTES, VCardParseError } from "./integrations/vcard";
-import { personProfilePath } from "./navigation";
+import { personProfilePath, postAddRelationshipPath } from "./navigation";
 
 type Navigate = (path: string, options?: { replace?: boolean }) => void;
 
@@ -48,7 +48,9 @@ function parserError(error: unknown): string {
 }
 
 function rowLabel(row: ContactImportRow): string {
-  return row.draft.displayName.trim() || `Unnamed contact ${row.sourceIndex + 1}`;
+  return row.draft.displayName.trim()
+    || row.draft.contactMethods.find((contact) => contact.value.trim())?.value.trim()
+    || `Contact ${row.sourceIndex + 1}`;
 }
 
 function rowStatus(row: ContactImportRow): string {
@@ -119,10 +121,10 @@ function ImportRowEditor({
   return (
     <div className="import-row-editor">
       <div className="form-field">
-        <label htmlFor={`import-${row.id}-name`}>Name</label>
+        <label htmlFor={`import-${row.id}-name`}>Name <span aria-hidden="true">Optional</span></label>
         <input
-          autoFocus
           id={`import-${row.id}-name`}
+          aria-label="Name"
           value={row.draft.displayName}
           aria-invalid={Boolean(nameIssue)}
           aria-describedby={nameIssue ? `import-${row.id}-name-error` : undefined}
@@ -218,6 +220,7 @@ export function ImportContactsScreen({ session, setSession, navigate, onBusyChan
   const origin = importOrigin(originPath);
 
   const duplicateRow = session?.rows.find((row) => row.id === duplicateRowId);
+  const selectedFromIPhone = session?.sourceKind === "iphone_contacts";
 
   async function chooseFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -288,6 +291,14 @@ export function ImportContactsScreen({ session, setSession, navigate, onBusyChan
     try {
       const result = await importSelectedContacts(await getDatabase(), session);
       setSession(result);
+      const onlyRow = result.rows.length === 1 ? result.rows[0] : undefined;
+      if (result.sourceKind === "iphone_contacts"
+        && onlyRow?.status === "created"
+        && onlyRow.resultPersonId) {
+        onBusyChange?.(false);
+        navigate(postAddRelationshipPath(onlyRow.resultPersonId), { replace: true });
+        return;
+      }
       onBusyChange?.(false);
       navigate("/people/import/results");
     } catch {
@@ -410,13 +421,17 @@ export function ImportContactsScreen({ session, setSession, navigate, onBusyChan
       <button className="back-button" type="button" onClick={cancel} disabled={parsing || importing}>← {origin.label}</button>
       <header className="page-heading compact-heading">
         <p className="eyebrow">People</p>
-        <h2>Import contacts</h2>
-        <p>Choose a vCard file exported from your contacts app. PeopleOS reads it only on this device and never requests contact-book access.</p>
+        <h2>{selectedFromIPhone ? "Review selected contacts" : "Import contacts"}</h2>
+        <p>{selectedFromIPhone
+          ? "PeopleOS received only the contacts you chose. Review them before adding."
+          : "Choose a vCard. PeopleOS reads it on this device without access to your whole address book."}</p>
       </header>
 
-      <section className="file-picker-card" aria-labelledby="vcard-file-heading">
-        <h3 id="vcard-file-heading">Choose a vCard file</h3>
-        <p>Version 3.0 or 4.0, up to 5 MiB and 5,000 contacts.</p>
+      <section className={`file-picker-card${selectedFromIPhone ? " file-picker-secondary" : ""}`} aria-labelledby="vcard-file-heading">
+        <h3 id="vcard-file-heading">{selectedFromIPhone ? "Import a file instead" : "Choose a vCard file"}</h3>
+        <p>{selectedFromIPhone
+          ? "Use a vCard when you want to import a larger list."
+          : "Version 3.0 or 4.0, up to 5 MiB and 5,000 contacts."}</p>
         <label className="visually-hidden" htmlFor="vcard-file">vCard file</label>
         <input
           ref={fileInputRef}
@@ -427,8 +442,8 @@ export function ImportContactsScreen({ session, setSession, navigate, onBusyChan
           onChange={chooseFile}
           disabled={parsing || importing}
         />
-        <button className="primary-action" type="button" onClick={() => fileInputRef.current?.click()} disabled={parsing || importing}>
-          {parsing ? "Reading file…" : session ? "Choose another file" : "Choose file"}
+        <button className={selectedFromIPhone ? "secondary-action" : "primary-action"} type="button" onClick={() => fileInputRef.current?.click()} disabled={parsing || importing}>
+          {parsing ? "Reading file…" : selectedFromIPhone ? "Choose vCard file" : session ? "Choose another file" : "Choose file"}
         </button>
         {parsing && <p role="status">Parsing the vCard locally…</p>}
       </section>
@@ -437,14 +452,16 @@ export function ImportContactsScreen({ session, setSession, navigate, onBusyChan
       {session && session.rows.length === 0 && (
         <EmptyState
           eyebrow="Import"
-          title="No contacts found"
-          description="This vCard file does not contain any contacts. Choose another file."
+          title={selectedFromIPhone ? "No contacts selected" : "No contacts found"}
+          description={selectedFromIPhone
+            ? "Return to Add person and choose at least one contact."
+            : "This vCard file does not contain any contacts. Choose another file."}
         />
       )}
       {session && session.rows.length > 0 && groupedRows && (
         <>
           <div className="import-summary-bar">
-            <p><strong>{session.rows.length}</strong> contacts in {session.fileName}</p>
+            <p><strong>{session.rows.length}</strong> {selectedFromIPhone ? "selected from iPhone Contacts" : `contacts in ${session.fileName}`}</p>
             <button type="button" onClick={selectReadyRows}>Select all ready rows</button>
           </div>
           {renderGroup("Needs review", groupedRows.review)}
@@ -484,7 +501,8 @@ export function ImportContactsScreen({ session, setSession, navigate, onBusyChan
               duplicateRow,
               match,
               selection.contactMethodIds,
-              selection.includeAffiliation
+              selection.includeAffiliation,
+              selection.includeDisplayName
             ));
             setDuplicateRowId(null);
             focusImportRow(duplicateRow.id, ".import-select input");
@@ -561,7 +579,11 @@ export function ImportResultsScreen({
         {failures.length > 0 && (
           <button className="secondary-action" type="button" onClick={() => navigate("/people/import")}>Review failed rows</button>
         )}
-        <button className="secondary-action" type="button" onClick={() => { setSession(null); navigate("/people/import", { replace: true }); }}>Import another file</button>
+        {session.sourceKind === "iphone_contacts" ? (
+          <button className="secondary-action" type="button" onClick={() => { setSession(null); navigate("/people/new", { replace: true }); }}>Add more people</button>
+        ) : (
+          <button className="secondary-action" type="button" onClick={() => { setSession(null); navigate("/people/import", { replace: true }); }}>Import another file</button>
+        )}
         <button type="button" onClick={() => { setSession(null); navigate("/people"); }}>Done</button>
       </div>
     </main>

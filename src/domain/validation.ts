@@ -4,6 +4,7 @@ import {
   type AppSettings,
   type BackupEnvelope,
   type ContactMethod,
+  type ConversationStarter,
   type DataStoreName,
   type FollowUp,
   type FollowUpEvent,
@@ -19,6 +20,7 @@ import {
   type ReachOutEvent,
   type RelationshipEvent
 } from "./schema";
+import { isValidContactCadence } from "./cadence";
 import { interactionCountsAsContact } from "./interactionPolicy";
 
 export class ValidationError extends Error {
@@ -86,15 +88,21 @@ function validatePerson(value: unknown): value is Person {
   if (!object(value) || !mutable(value)) return false;
   const status = value.identityStatus;
   return nonEmpty(value.displayName)
+    && (value.relationshipMode === undefined || ["personal", "professional", "both"].includes(String(value.relationshipMode)))
     && ["provisional", "confirmed", "merged"].includes(String(status))
     && (value.relationshipMode === undefined || ["personal", "professional", "both"].includes(String(value.relationshipMode)))
     && ["normal", "high"].includes(String(value.importance))
     && strings(value.tags)
+    && (value.contactCadence === undefined || isValidContactCadence(value.contactCadence))
     && (value.contactCadenceDays === undefined || (Number.isInteger(value.contactCadenceDays) && Number(value.contactCadenceDays) >= 1 && Number(value.contactCadenceDays) <= 3_650))
     && optionalDate(value.contactCadenceFirstDueDate)
     && optionalDate(value.contactCadenceDeferredUntilDate)
     && optionalInstant(value.contactCadencePausedAt)
-    && (value.todayNote === undefined || (typeof value.todayNote === "string" && value.todayNote.trim() === value.todayNote && value.todayNote.length > 0 && value.todayNote.length <= 240))
+    && optionalDate(value.todayPausedUntilDate)
+    && (value.todayNote === undefined || (typeof value.todayNote === "string"
+      && value.todayNote.trim() === value.todayNote
+      && value.todayNote.length > 0
+      && value.todayNote.length <= 240))
     && optionalInstant(value.todayNoteCompletedAt)
     && optionalInstant(value.archivedAt)
     && optionalString(value.mergedIntoPersonId)
@@ -204,6 +212,13 @@ function validateReachOutEntry(value: unknown): value is ReachOutEntry {
       : value.currentFollowUpId === undefined);
 }
 
+function validateExternalIdentity(value: unknown): value is import("./schema").ExternalIdentity {
+  return object(value) && mutable(value) && nonEmpty(value.personId)
+    && nonEmpty(value.provider) && nonEmpty(value.externalId)
+    && optionalString(value.profileUrl) && isIsoInstant(value.linkedAt)
+    && optionalInstant(value.lastSyncedAt) && optionalInstant(value.archivedAt);
+}
+
 function validateReachOutContext(value: unknown): value is ReachOutContext {
   return object(value) && mutable(value) && ["project", "organisation", "event", "fellowship", "other"].includes(String(value.kind))
     && nonEmpty(value.label) && value.label === String(value.label).trim() && String(value.label).length <= 120
@@ -242,25 +257,44 @@ export function validateAppSettings(value: unknown): value is AppSettings {
       && value.relationshipContexts.length <= 2
       && value.relationshipContexts.every((mode) => mode === "personal" || mode === "professional")
       && new Set(value.relationshipContexts).size === value.relationshipContexts.length))
-    && (value.conversationStarters === undefined || (Array.isArray(value.conversationStarters)
-      && value.conversationStarters.length >= 1
-      && value.conversationStarters.length <= 100
-      && value.conversationStarters.every((starter) => object(starter)
-        && nonEmpty(starter.id)
-        && typeof starter.template === "string"
-        && starter.template.trim() === starter.template
-        && starter.template.length > 0
-        && starter.template.length <= 240
-        && starter.template.includes("{name}")
-        && ["personal", "professional", "both"].includes(String(starter.relationshipMode)))
-      && new Set(value.conversationStarters.map((starter) => starter.id)).size === value.conversationStarters.length
-      && value.conversationStarters.some((starter) => starter.relationshipMode === "personal" || starter.relationshipMode === "both")
-      && value.conversationStarters.some((starter) => starter.relationshipMode === "professional" || starter.relationshipMode === "both")));
+    && typeof value.todaySummaryNotificationsEnabled === "boolean"
+    && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(value.todaySummaryNotificationTime))
+    && validateConversationStarters(value.conversationStarters);
+}
+
+export function validateConversationStarters(value: unknown): value is ConversationStarter[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 100) return false;
+  const ids = new Set<string>();
+  let supportsPersonal = false;
+  let supportsProfessional = false;
+  for (const starter of value) {
+    if (!object(starter)
+      || typeof starter.id !== "string"
+      || starter.id.trim() !== starter.id
+      || starter.id.length < 1
+      || starter.id.length > 120
+      || typeof starter.template !== "string"
+      || starter.template.trim() !== starter.template
+      || starter.template.length < 1
+      || starter.template.length > 240
+      || !starter.template.includes("{name}")
+      || !["personal", "professional", "both"].includes(String(starter.relationshipMode))
+      || ids.has(starter.id)) return false;
+    ids.add(starter.id);
+    if (starter.relationshipMode === "personal" || starter.relationshipMode === "both") {
+      supportsPersonal = true;
+    }
+    if (starter.relationshipMode === "professional" || starter.relationshipMode === "both") {
+      supportsProfessional = true;
+    }
+  }
+  return supportsPersonal && supportsProfessional;
 }
 
 const storeValidators: Record<DataStoreName, (value: unknown) => boolean> = {
   people: validatePerson,
   contactMethods: validateContact,
+  externalIdentities: validateExternalIdentity,
   affiliations: validateAffiliation,
   interactions: validateInteraction,
   events: validateEvent,
@@ -312,6 +346,8 @@ export function validatePeopleOsData(value: unknown): PeopleOsData {
   const followUpIds = ids(data.followUps);
   const reachOutIds = ids(data.reachOutEntries);
   const contextIds = ids(data.reachOutContexts);
+
+  data.externalIdentities.forEach((identity, index) => requireReference(issues, personIds.has(identity.personId), `externalIdentities[${index}].personId`));
 
   data.people.forEach((person) => {
     if (person.identityStatus === "merged") requireReference(issues, person.mergedIntoPersonId !== person.id && personIds.has(person.mergedIntoPersonId!), `people.${person.id}.mergedIntoPersonId`);

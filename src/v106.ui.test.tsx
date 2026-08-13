@@ -167,45 +167,20 @@ describe("V1-06 memory facts and affiliations UI", () => {
       .toBe("2025-01-01");
   });
 
-  it("offers explicit blank Note-to-Fact promotion without extracting note prose", async () => {
+  it("keeps Profile notes plain and does not turn note prose into a memory fact", async () => {
     const user = userEvent.setup();
     render(<App />);
     await screen.findByRole("heading", { name: "Sarah Jones" });
-    await waitFor(() => expect(screen.queryByText("Loading memory…")).not.toBeInTheDocument());
-
-    await user.click(screen.getByRole("button", { name: "Add memory" }));
-    const choices = await screen.findByLabelText("Choose memory type");
-    await user.click(within(choices).getByRole("button", { name: "Note" }));
-    const noteDialog = await screen.findByRole("dialog", { name: "Add note" });
-    await user.type(within(noteDialog).getByLabelText("Note"), "Interested in simulation training");
-    await user.click(within(noteDialog).getByRole("button", { name: "Save note" }));
-
-    expect(await screen.findByText("Note saved.")).toBeInTheDocument();
-    expect((await readAllData(await getDatabase())).memoryFacts).toEqual([]);
-    await user.click(screen.getByRole("button", { name: "Promote part to memory fact" }));
-    let factDialog = await screen.findByRole("dialog", { name: "Add memory fact" });
-    expect(within(factDialog).getByLabelText(/^What to remember/)).toHaveValue("");
-    expect(factDialog).toHaveTextContent("will not copy or interpret its text");
-    await user.click(within(factDialog).getByRole("button", { name: "Cancel" }));
-    expect((await readAllData(await getDatabase())).memoryFacts).toEqual([]);
-
-    await user.click(screen.getByRole("button", { name: "Promote part to memory fact" }));
-    factDialog = await screen.findByRole("dialog", { name: "Add memory fact" });
-    await user.type(within(factDialog).getByLabelText(/^What to remember/), "Interested in simulation");
-    await user.click(within(factDialog).getByRole("button", { name: "Save fact" }));
-
-    await screen.findByText("Interested in simulation");
+    await user.type(screen.getByLabelText("Note"), "Interested in simulation training");
+    await user.click(screen.getByRole("button", { name: "Save note" }));
+    expect(await screen.findByText("Interested in simulation training")).toBeInTheDocument();
     const data = await readAllData(await getDatabase());
     expect(data.interactions).toHaveLength(1);
     expect(data.interactions[0]).toMatchObject({ kind: "note_added", summary: "Interested in simulation training" });
-    expect(data.memoryFacts).toHaveLength(1);
-    expect(data.memoryFacts[0]).toMatchObject({
-      value: "Interested in simulation",
-      sourceInteractionId: data.interactions[0].id
-    });
+    expect(data.memoryFacts).toEqual([]);
   });
 
-  it("renders one deterministic fact cue, three different prominent facts, and the selected current affiliation", async () => {
+  it("retains structured facts and affiliations without presenting them on the simple Profile", async () => {
     const repositories = createRepositories(await getDatabase());
     const factSpecs: Array<Pick<MemoryFact, "id" | "kind" | "value" | "showAsMemoryCue"> & Partial<MemoryFact>> = [
       { id: "fact-preference", kind: "communication_preference", value: "email", showAsMemoryCue: true },
@@ -253,22 +228,11 @@ describe("V1-06 memory facts and affiliations UI", () => {
 
     render(<App />);
     await screen.findByRole("heading", { name: "Sarah Jones" });
-    await waitFor(() => expect(screen.queryByText("Loading memory…")).not.toBeInTheDocument());
-    const memory = screen.getByRole("heading", { name: "Memory" }).closest("section");
-    expect(memory).not.toBeNull();
-    expect(within(memory!).getByLabelText("Memory cue")).toHaveTextContent("Email");
-    expect(memory!.querySelectorAll(".profile-memory-facts dd")).toHaveLength(3);
-    expect(within(memory!).getByText("Looking for pilot sites")).toBeInTheDocument();
-    expect(within(memory!).getByText("Interested in simulation")).toBeInTheDocument();
-    expect(within(memory!).getByText("Introduced by Ed")).toBeInTheDocument();
-    expect(within(memory!).queryByText("Based in Bristol")).not.toBeInTheDocument();
-    expect(within(memory!).queryByText("Has three children")).not.toBeInTheDocument();
-    expect(within(memory!).queryByText("Archived context")).not.toBeInTheDocument();
-
-    const affiliation = screen.getByRole("heading", { name: "Affiliation" }).closest("section");
-    expect(affiliation).not.toBeNull();
-    expect(within(affiliation!).getByText("Current Organisation")).toBeInTheDocument();
-    expect(within(affiliation!).getByText("Current role")).toBeInTheDocument();
-    expect(within(affiliation!).queryByText("Earlier Organisation")).not.toBeInTheDocument();
+    for (const fact of facts) expect(screen.queryByText(fact.value)).not.toBeInTheDocument();
+    expect(screen.queryByText("Earlier Organisation")).not.toBeInTheDocument();
+    expect(screen.getByText("Current role · Current Organisation")).toBeInTheDocument();
+    const data = await readAllData(await getDatabase());
+    expect(data.memoryFacts).toEqual(expect.arrayContaining(facts));
+    expect(data.affiliations).toEqual(expect.arrayContaining(affiliations));
   });
 });

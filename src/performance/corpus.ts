@@ -9,6 +9,7 @@
  */
 import {
   DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS,
+  DEFAULT_CONVERSATION_STARTERS,
   type AppSettings,
   type ContactMethod,
   type FollowUp,
@@ -342,6 +343,9 @@ export function buildReferenceCorpus(seed = 20260725): PeopleOsData {
     defaultPhoneRegion: "GB",
     captureMode: "standard",
     alreadyContactedDefaultReminderDays: DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS,
+    todaySummaryNotificationsEnabled: false,
+    todaySummaryNotificationTime: "12:00",
+    conversationStarters: DEFAULT_CONVERSATION_STARTERS.map((starter) => ({ ...starter })),
     createdAt: CORPUS_NOW,
     updatedAt: CORPUS_NOW
   }];
@@ -349,6 +353,7 @@ export function buildReferenceCorpus(seed = 20260725): PeopleOsData {
   return {
     people,
     contactMethods,
+    externalIdentities: [],
     affiliations,
     interactions,
     events,

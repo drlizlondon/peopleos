@@ -1,6 +1,6 @@
 # PeopleOS Architecture Refinement Review
 
-Status: historical architecture review. Implementation subsequently completed through V1-03. The dated amendment below records the accepted Today refinement without rewriting the original findings.
+Status: historical architecture review. Implementation subsequently completed through V1-03. The dated amendment below records the accepted Today refinement without rewriting the original findings. Notification timing/actions in this historical review were superseded by POS-D047 on 2026-08-11: the chargeable MVP uses optional native iPhone summaries, editable time defaulting to 12:00, a bounded anonymous schedule, and tap-to-Today only.
 
 ## Recommendations accepted
 

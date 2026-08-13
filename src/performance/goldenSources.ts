@@ -24,21 +24,22 @@ import {
   type PersonSearchFilters
 } from "../application/personSearch";
 import { relationshipBundleFromData } from "../application/relationshipEngineQueries";
-import type {
-  AppSettings,
-  ContactMethod,
-  FollowUp,
-  Interaction,
-  InteractionKind,
-  MemoryFact,
-  MemoryFactKind,
-  OrganisationAffiliation,
-  PeopleOsData,
-  Person,
-  ReachOutContext,
-  ReachOutEntry,
-  RelationshipEvent,
-  TodaySkip
+import {
+  DEFAULT_CONVERSATION_STARTERS,
+  type AppSettings,
+  type ContactMethod,
+  type FollowUp,
+  type Interaction,
+  type InteractionKind,
+  type MemoryFact,
+  type MemoryFactKind,
+  type OrganisationAffiliation,
+  type PeopleOsData,
+  type Person,
+  type ReachOutContext,
+  type ReachOutEntry,
+  type RelationshipEvent,
+  type TodaySkip
 } from "../domain/schema";
 
 const NOW = "2026-08-01T09:00:00.000Z";
@@ -246,6 +247,7 @@ export function engineDataset(seed: number): PeopleOsData {
   return {
     people,
     contactMethods,
+    externalIdentities: [],
     affiliations,
     interactions,
     events,
@@ -465,6 +467,9 @@ export function searchDataset(seed: number): PeopleOsData {
     defaultPhoneRegion: "GB",
     captureMode: "standard",
     alreadyContactedDefaultReminderDays: 14,
+    todaySummaryNotificationsEnabled: false,
+    todaySummaryNotificationTime: "12:00",
+    conversationStarters: DEFAULT_CONVERSATION_STARTERS.map((starter) => ({ ...starter })),
     createdAt: NOW,
     updatedAt: NOW
   }];
@@ -472,6 +477,7 @@ export function searchDataset(seed: number): PeopleOsData {
   return {
     people,
     contactMethods,
+    externalIdentities: [],
     affiliations,
     interactions,
     events,

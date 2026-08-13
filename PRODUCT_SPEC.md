@@ -299,15 +299,15 @@ All compound Today actions are idempotent. A retry uses the same prepared Intera
 
 ### Daily summary notification
 
-Daily Today notifications are opt-in and Off by default. On a supported platform with permission granted, PeopleOS evaluates the authoritative Today queue at 09:00 in the device's local timezone:
+Daily Today notifications are opt-in and Off by default. In the native iPhone app, normal iOS permission is requested only after the user turns reminders On. The default time is 12:00 in the device's local timezone and the user may change it or turn reminders Off.
 
-- If Today is empty, it sends nothing.
-- If one or more actionable People appear, it sends one privacy-safe summary notification, never one notification per Person.
-- Title: `PeopleOS`. Default body: “You have people to reach out to today. Open PeopleOS to see who's on your list.” Names are omitted.
+- PeopleOS derives at most 30 one-off daily occurrences from the same deterministic eligibility rules as Today and safely replaces them after launch, foreground/background transition, selected-mode, Settings, or dataset changes.
+- Empty forecast dates schedule nothing. One or more actionable People schedule one privacy-safe summary for that date, never one notification per Person.
+- Title: `PeopleOS`. A trustworthy same-day body may say “3 people are on your list today.” Forecast occurrences say “People are waiting on your list today.” Names and relationship details are omitted.
 
-Notification actions are Open, Not today, and Snooze. Open deep-links to Today. Notification Not today dismisses only that summary and schedules the next evaluation for 09:00 tomorrow. Snooze schedules one re-evaluation two hours later on the same local day. If two hours would cross local midnight, no same-day re-notification is scheduled and the normal 09:00 next-day evaluation resumes. Each re-evaluation sends nothing when Today has become empty. V1 sends no late catch-up when the setting is enabled or Today first becomes non-empty after 09:00. These actions never change a Person, Interaction, FollowUp, Reach Out entry, TodaySkip, or Today eligibility.
+Tapping a notification opens Today. The MVP adds no notification action buttons, Snooze, automatic messaging, or notification-only Not today command. Changing the time or turning reminders Off cancels/replaces pending PeopleOS summaries. If 30 summaries are ignored without reopening the app, the bounded local plan ends until PeopleOS is reopened. Scheduling and taps never change a Person, Interaction, FollowUp, Reach Out entry, TodaySkip, or Today eligibility.
 
-The summary deep link targets Today and contains no Person identifier. The route contract may accept a future optional internal `personId`; after Today is hydrated and the Person is validated against the current result, it opens that Person's Profile over Today so Back returns to Today. A missing, archived, or ineligible Person falls back safely to Today rather than opening the wrong record.
+The summary payload targets Today and contains no Person or FollowUp identifier, name, contact detail, reason, note, affiliation, or other relationship data. Foreign or malformed payloads are ignored rather than opening another record by fallback matching.
 
 ### Overdue behavior
 
@@ -567,15 +567,16 @@ Canonical empty states are specified per screen in `SCREEN_SPECIFICATIONS.md`.
 
 Settings contains nine sections: General, Modes, Today, Reach Out, Interactions, Notifications, Privacy & Security, Data, and About.
 
-Five V1 preferences are editable globally:
+Six MVP preferences are editable globally:
 
 - Default phone region, using the device region when supported and otherwise `GB`
 - Capture mode, default Standard with optional Networking
 - Default reminder for new Reach Out entries, default No reminder with Tomorrow/7/14/30-day alternatives
 - Default “Already contacted” interval, with 2/7/14/30 days and Custom, default 14 days
 - Daily Today summary notifications, opt-in and Off by default
+- Today summary reminder time, default 12:00 local
 
-The custom Already contacted interval is a whole number of days from 1 through 3650. It preselects a visible choice only; it never creates or changes a FollowUp until the user confirms Already contacted. The fixed notification delivery time is 09:00 local and Snooze is two hours in V1; neither adds another setting. Notification permission and platform availability remain runtime facts.
+The custom Already contacted interval is a whole number of days from 1 through 3650. It preselects a visible choice only; it never creates or changes a FollowUp until the user confirms Already contacted. Notification permission and platform availability remain runtime facts; the selected zero-padded `HH:mm` reminder time is an AppSettings preference.
 
 Today ordering, local-first privacy behavior, versions, and schema information are fixed policies or runtime facts. They are shown transparently but are not styled as configurable controls. Per-Person importance, tags, cadence, communication preference, Reach Out plans, FollowUps, and relationship data never appear in Settings.
 

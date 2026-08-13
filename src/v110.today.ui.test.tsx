@@ -3,13 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import TodayScreen from "./TodayScreen";
-import { NextReminderSheet } from "./TodaySheets";
+import { NextReminderSheet, PauseTodaySheet } from "./TodaySheets";
 import { closeDatabase, getDatabase } from "./data/client";
 import { deletePeopleOsDatabase } from "./data/database";
 import { createRepositories } from "./data/repositories";
-import { listUpcomingCadences } from "./application/followUpQueries";
 import { createRelationshipClock } from "./application/relationshipEngineQueries";
-import { createReachOut, prepareCreateReachOutCommand } from "./application/reachOut";
 import * as todayQueries from "./application/todayQueries";
 import type { ContactMethod, FollowUp, Person } from "./domain/schema";
 import { DATABASE_NAME } from "./domain/schema";
@@ -101,13 +99,6 @@ function contact(
   };
 }
 
-function moreActions(card: HTMLElement, personName: string): HTMLElement {
-  const control = card.querySelector<HTMLElement>(".today-more-actions > summary");
-  expect(control).not.toBeNull();
-  expect(control).toHaveAccessibleName(`More actions for ${personName}`);
-  return control!;
-}
-
 describe("V1-10 Today experience", () => {
   beforeEach(async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -122,19 +113,29 @@ describe("V1-10 Today experience", () => {
     await resetDatabase();
   });
 
+  it("keeps the compact destination heading visible while Today loads", () => {
+    vi.spyOn(todayQueries, "getTodayScreenProjection").mockImplementation(() => new Promise(() => {}));
+    const { unmount } = render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
+
+    const heading = screen.getByText("Today", { selector: "h2" }).closest(".page-heading");
+    expect(heading).not.toHaveAttribute("aria-hidden");
+    expect(screen.getByRole("status")).toHaveTextContent("Loading Today…");
+    unmount();
+  });
+
   it("shows the first-launch Today empty state when there are no people", async () => {
     render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
-    expect(await screen.findByRole("heading", { name: "Today" })).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "Start with one person you want to remember." })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add your first person" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Import Contacts" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Who do you want to remember?" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add someone" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Import Contacts" })).not.toBeInTheDocument();
   });
 
   it("shows a calm caught-up state when people exist but nobody is due", async () => {
     await createRepositories(await getDatabase()).people.create(person("person-calm", "Calm Person"));
     render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
-    expect(await screen.findByRole("heading", { name: "You’re all caught up." })).toBeInTheDocument();
-    expect(screen.getByText("✓")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "That’s everyone for today." })).toBeInTheDocument();
+    expect(screen.getByText("PeopleOS will bring someone back to mind when the time is right.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View upcoming" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add follow-up" })).not.toBeInTheDocument();
   });
 
@@ -144,7 +145,7 @@ describe("V1-10 Today experience", () => {
       relationshipMode: "personal"
     });
     render(<TodayScreen activeMode="professional" navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
-    expect(await screen.findByRole("heading", { name: "You’re all caught up." })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "That’s everyone for today." })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Start with one person you want to remember." })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add your first person" })).not.toBeInTheDocument();
   });
@@ -158,82 +159,41 @@ describe("V1-10 Today experience", () => {
       createdAt: NOW
     });
     render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
-    expect(await screen.findByRole("heading", { name: "You’re all caught up." })).toBeInTheDocument();
-    expect(screen.getByText("✓")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "That’s everyone for today." })).toBeInTheDocument();
+    expect(screen.getByText("PeopleOS will bring someone back to mind when the time is right.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add follow-up" })).not.toBeInTheDocument();
   });
 
-  it("shows only the lightweight Today details and four visible decision actions", async () => {
+  it("shows one deterministic conversation starter and cycles it accessibly", async () => {
     await seedDuePerson();
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
+    const card = await screen.findByRole("article", { name: "Sarah Jones" });
+    const starter = within(card).getByText("“Hi Sarah Jones, how are things with you?”");
+    const another = within(card).getByRole("button", { name: "Show another conversation starter for Sarah Jones" });
+    expect(another).toHaveAttribute("aria-controls", starter.id);
+    await user.click(another);
+    expect(within(card).getByText("“Hey Sarah Jones, just thinking of you today.”")).toHaveAttribute("aria-live", "polite");
+    expect(within(card).queryByText(/last contacted|last spoke|days ago/i)).not.toBeInTheDocument();
+  });
+
+  it("renders explicit Message and Call actions without making secondary actions compete", async () => {
+    await seedDuePerson();
+    render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
     expect(await screen.findByRole("heading", { name: "Today" })).toBeInTheDocument();
     const card = await screen.findByRole("article", { name: "Sarah Jones" });
-    expect(within(card).getByText(/Hi Sarah Jones, how are things with you/)).toBeInTheDocument();
-    expect(within(card).queryByText(/Why (now|this person)/i)).not.toBeInTheDocument();
-    expect(within(card).queryByText("Due today")).not.toBeInTheDocument();
-    expect(within(card).queryByText("Overdue")).not.toBeInTheDocument();
-    expect(within(card).queryByText(/Planned for/i)).not.toBeInTheDocument();
-    expect(within(card).queryByRole("button", { name: "Add phone number" })).not.toBeInTheDocument();
     const actionGroup = within(card).getByRole("group", { name: "Actions for Sarah Jones" });
-    expect(Array.from(actionGroup.querySelectorAll(":scope > button"), (button) => button.textContent)).toEqual([
+    expect(Array.from(actionGroup.querySelectorAll("button"), (button) => button.textContent)).toEqual([
       "Message",
       "Call",
-      "Contacted",
-      "Not today"
+      "Done"
     ]);
-    expect(moreActions(card, "Sarah Jones")).toHaveTextContent("•••");
-    await user.click(moreActions(card, "Sarah Jones"));
-    const overflow = within(card).getByRole("group", { name: "More actions for Sarah Jones" });
-    expect(within(overflow).getAllByRole("button").map((button) => button.textContent)).toEqual(["Add note"]);
-    expect(within(card).queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: "Already contacted" })).not.toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: "Not today" })).not.toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: "Why this person?" })).not.toBeInTheDocument();
   });
 
-  it("changes only the starter and toggles an optional note without resolving Today", async () => {
-    const record = await seedDuePerson();
-    const repositories = createRepositories(await getDatabase());
-    await repositories.people.update({ ...record, todayNote: "Ask how the appointment went" }, record.revision, NOW);
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
-    let card = await screen.findByRole("article", { name: "Sarah Jones" });
-    const starter = within(card).getByText(/Sarah Jones.*you/);
-    const firstStarter = starter.textContent;
-    const anotherSuggestion = within(card).getByRole("button", { name: "Show another conversation suggestion for Sarah Jones" });
-    expect(anotherSuggestion).toHaveTextContent("Another suggestion");
-    expect(starter).toHaveAttribute("aria-live", "polite");
-    expect(anotherSuggestion).toHaveAttribute("aria-controls", starter.id);
-    await user.click(anotherSuggestion);
-    expect(within(card).getByText(/Sarah Jones.*you/).textContent).not.toBe(firstStarter);
-    await user.click(moreActions(card, "Sarah Jones"));
-    const overflow = within(card).getByRole("group", { name: "More actions for Sarah Jones" });
-    expect(within(overflow).getAllByRole("button").map((button) => button.textContent)).toEqual(["Edit note"]);
-    const note = within(card).getByRole("checkbox", { name: "Mark note complete: Ask how the appointment went" });
-    await user.click(note);
-    await waitFor(() => {
-      card = screen.getByRole("article", { name: "Sarah Jones" });
-      expect(within(card).getByRole("checkbox", { name: "Mark note complete: Ask how the appointment went" })).toBeChecked();
-    });
-    expect(await (await getDatabase()).getAll("interactions")).toEqual([]);
-    expect(await (await getDatabase()).get("followUps", "follow-up-person-sarah-0")).toMatchObject({ status: "pending" });
-    await user.click(within(card).getByRole("checkbox", { name: "Mark note complete: Ask how the appointment went" }));
-    await waitFor(() => {
-      card = screen.getByRole("article", { name: "Sarah Jones" });
-      expect(within(card).getByRole("checkbox", { name: "Mark note complete: Ask how the appointment went" })).not.toBeChecked();
-    });
-    await user.click(within(card).getByRole("checkbox", { name: "Mark note complete: Ask how the appointment went" }));
-    card = await screen.findByRole("article", { name: "Sarah Jones" });
-    await user.click(within(card).getByRole("button", { name: "Not today" }));
-    await waitFor(() => expect(screen.queryByRole("article", { name: "Sarah Jones" })).not.toBeInTheDocument());
-    expect((await (await getDatabase()).get("people", "person-sarah"))?.todayNoteCompletedAt).toBeDefined();
-    expect(await (await getDatabase()).get("followUps", "follow-up-person-sarah-0")).toMatchObject({
-      status: "pending",
-      dueDate: "2026-07-10",
-      snoozedUntilDate: "2026-07-24",
-      reason: "Reconnect with person-sarah"
-    });
-  });
-
-  it("opens a deterministic chooser, launches the chosen target and records nothing", async () => {
+  it("lets Message choose WhatsApp or email, opens only a draft and records nothing", async () => {
     const id = "person-sarah";
     await seedDuePerson({
       contacts: [
@@ -253,14 +213,17 @@ describe("V1-10 Today experience", () => {
       expect.stringContaining("WhatsApp · Work mobile")
     ]);
     expect(within(dialog).getByText("Preferred")).toBeInTheDocument();
-    await user.click(methods[0]);
-    await waitFor(() => expect(handoff).toHaveBeenCalledWith("mailto:sarah@example.com"));
+    expect(within(dialog).getByText("WhatsApp opens with a draft. Nothing is sent until you press Send.")).toBeInTheDocument();
+    await user.click(methods[1]);
+    await waitFor(() => expect(handoff).toHaveBeenCalledWith(
+      `https://wa.me/447900123456?text=${encodeURIComponent("Hi Sarah Jones, how are things with you?")}`
+    ), { timeout: 10_000 });
     const refreshedCard = screen.getByRole("article", { name: "Sarah Jones" });
     await waitFor(() => expect(within(refreshedCard).getByRole("button", { name: "Message" })).toHaveFocus());
     expect(await (await getDatabase()).getAll("interactions")).toHaveLength(0);
   });
 
-  it("launches a sole email directly and makes no domain write", async () => {
+  it("launches a sole email directly without cluttering the card and makes no domain write", async () => {
     const id = "person-sarah";
     await seedDuePerson({ contacts: [contact(id, "email-only", "email", { label: "Personal email" })] });
     const handoff = vi.fn();
@@ -270,18 +233,45 @@ describe("V1-10 Today experience", () => {
     expect(within(card).queryByRole("button", { name: "Add phone number" })).not.toBeInTheDocument();
     await user.click(within(card).getByRole("button", { name: "Message" }));
     await waitFor(() => expect(handoff).toHaveBeenCalledOnce());
-    expect(handoff).toHaveBeenCalledWith("mailto:sarah@example.com");
+    expect(handoff).toHaveBeenCalledWith(
+      `mailto:sarah@example.com?body=${encodeURIComponent("Hi Sarah Jones, how are things with you?")}`
+    );
     expect(screen.queryByRole("dialog", { name: "Contact Sarah Jones" })).not.toBeInTheDocument();
     expect(await (await getDatabase()).getAll("interactions")).toHaveLength(0);
   });
 
-  it("launches a sole phone directly with its canonical tel target", async () => {
+  it("takes Call to add a phone when only email is available", async () => {
+    const id = "person-sarah";
+    await seedDuePerson({ contacts: [contact(id, "email-only", "email", { label: "Personal email" })] });
+    const navigate = vi.fn();
+    const handoff = vi.fn();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<TodayScreen navigate={navigate} onAddFollowUp={vi.fn()} handoff={handoff} />);
+
+    const card = await screen.findByRole("article", { name: "Sarah Jones" });
+    await user.click(within(card).getByRole("button", { name: "Call" }));
+
+    expect(handoff).not.toHaveBeenCalled();
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith(
+      "/people/person-sarah/contact-methods",
+      expect.objectContaining({
+        state: expect.objectContaining({ autoAddPhone: true, fromPath: "/" })
+      })
+    ), { timeout: 10_000 });
+    expect(await (await getDatabase()).getAll("interactions")).toHaveLength(0);
+  });
+
+  it("opens a sole phone as a WhatsApp draft for Message and as tel for Call", async () => {
     const id = "person-sarah";
     await seedDuePerson({ contacts: [contact(id, "phone-only", "phone", { label: "Work mobile" })] });
     const handoff = vi.fn();
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} handoff={handoff} />);
     const card = await screen.findByRole("article", { name: "Sarah Jones" });
+    await user.click(within(card).getByRole("button", { name: "Message" }));
+    await waitFor(() => expect(handoff).toHaveBeenCalledWith(
+      `https://wa.me/447900123456?text=${encodeURIComponent("Hi Sarah Jones, how are things with you?")}`
+    ));
     await user.click(within(card).getByRole("button", { name: "Call" }));
     await waitFor(() => expect(handoff).toHaveBeenCalledWith("tel:+447900123456"));
     expect(screen.getByRole("article", { name: "Sarah Jones" })).toBeInTheDocument();
@@ -304,7 +294,7 @@ describe("V1-10 Today experience", () => {
   it("keeps a failed external handoff in a chooser with Copy and contact-editing fallbacks", async () => {
     const id = "person-sarah";
     await seedDuePerson({ contacts: [contact(id, "email-only", "email", { label: "Personal email" })] });
-    const handoff = vi.fn().mockRejectedValue(new Error("unavailable"));
+    const handoff = vi.fn().mockRejectedValueOnce(new Error("unavailable")).mockResolvedValue(undefined);
     const writeText = vi.fn().mockResolvedValue(undefined);
     const navigate = vi.fn();
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -313,187 +303,130 @@ describe("V1-10 Today experience", () => {
     const card = await screen.findByRole("article", { name: "Sarah Jones" });
     await user.click(within(card).getByRole("button", { name: "Message" }));
     const dialog = await screen.findByRole("dialog", { name: "Contact Sarah Jones" });
+    const draftHref = `mailto:sarah@example.com?body=${encodeURIComponent("Hi Sarah Jones, how are things with you?")}`;
+    expect(handoff).toHaveBeenNthCalledWith(1, draftHref);
     expect(within(dialog).getByRole("alert")).toHaveTextContent(/Copy it, choose another option, or manage contact details/);
     await user.click(within(dialog).getByRole("button", { name: "Copy contact detail" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("sarah@example.com"));
     expect(within(dialog).getByRole("button", { name: "Manage contact methods" })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await user.click(within(card).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(handoff).toHaveBeenNthCalledWith(2, draftHref));
     expect(screen.getByRole("article", { name: "Sarah Jones" })).toBeInTheDocument();
     expect(await (await getDatabase()).getAll("interactions")).toHaveLength(0);
   });
 
-  it("moves an explicit plan to tomorrow with one tap and leaves no contact interaction", async () => {
+  it("marks a due person Done once and uses the safe default when no contact frequency is stored", async () => {
     await seedDuePerson();
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
     const card = await screen.findByRole("article", { name: "Sarah Jones" });
-    await user.dblClick(within(card).getByRole("button", { name: "Not today" }));
+    await user.dblClick(within(card).getByRole("button", { name: "Done" }));
     await waitFor(() => expect(screen.queryByRole("article", { name: "Sarah Jones" })).not.toBeInTheDocument());
-    expect(screen.getByText("Sarah Jones is off Today until tomorrow. You’re all caught up.")).toHaveAttribute("aria-live", "polite");
+    expect(screen.getByRole("heading", { name: "That’s everyone for today." })).toBeInTheDocument();
     const db = await getDatabase();
-    const saved = await db.get("followUps", "follow-up-person-sarah-0");
-    expect(saved).toMatchObject({ status: "pending", snoozedUntilDate: "2026-07-24" });
-    expect(await db.get("todaySkips", "person-sarah:2026-07-23")).toBeDefined();
-    expect(await db.getAll("interactions")).toHaveLength(0);
-    expect(await db.getAllFromIndex("followUpEvents", "by-person", "person-sarah")).toHaveLength(1);
-  });
-
-  it("hides a Reach Out reminder only for today while keeping its active plan for tomorrow", async () => {
-    const record = person("person-reach-out", "Reach Out Person");
-    const db = await getDatabase();
-    await createRepositories(db).people.create(record);
-    const created = await createReachOut(db, prepareCreateReachOutCommand({
-      person: record,
-      reason: "Reconnect after the fellowship",
-      reminderDate: "2026-07-23"
-    }, { now: NOW, localDate: "2026-07-23" }));
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const view = render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
-    const card = await screen.findByRole("article", { name: "Reach Out Person" });
-    await user.click(within(card).getByRole("button", { name: "Not today" }));
-    await waitFor(() => expect(screen.queryByRole("article", { name: "Reach Out Person" })).not.toBeInTheDocument());
-
-    expect(await db.get("reachOutEntries", created.entry.id)).toMatchObject({
-      intentStatus: "active",
-      currentFollowUpId: created.followUp!.id
-    });
-    expect(await db.get("followUps", created.followUp!.id)).toMatchObject({
-      status: "pending",
-      reachOutEntryId: created.entry.id,
-      snoozedUntilDate: "2026-07-24"
-    });
-    expect(await db.getAll("interactions")).toEqual([]);
-
-    view.unmount();
-    vi.setSystemTime(new Date("2026-07-24T12:00:00.000Z"));
-    render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
-    expect(await screen.findByRole("article", { name: "Reach Out Person" })).toBeInTheDocument();
-  });
-
-  it("creates one tomorrow plan when Not today handles a new-relationship recommendation", async () => {
-    const repositories = createRepositories(await getDatabase());
-    const record = person("person-new", "New Person");
-    await repositories.people.create(record);
-    await repositories.interactions.create({
-      id: "interaction-met",
-      revision: 1,
-      personId: record.id,
-      kind: "met",
-      occurredAt: "2026-07-16T12:00:00.000Z",
-      createdAt: "2026-07-16T12:00:00.000Z",
-      updatedAt: "2026-07-16T12:00:00.000Z"
-    });
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
-    const card = await screen.findByRole("article", { name: "New Person" });
-    await user.click(within(card).getByRole("button", { name: "Not today" }));
-    await waitFor(() => expect(screen.queryByRole("article", { name: "New Person" })).not.toBeInTheDocument());
-    const created = await (await getDatabase()).getAllFromIndex("followUps", "by-person", record.id);
-    expect(created).toEqual([expect.objectContaining({ dueDate: "2026-07-24", reason: "Reconnect with New Person", status: "pending" })]);
-  });
-
-  it("completes a one-off contact without asking for or creating another reminder", async () => {
-    await seedDuePerson({ extraFollowUp: true });
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
-    const card = await screen.findByRole("article", { name: "Sarah Jones" });
-    await user.click(within(card).getByRole("button", { name: "Contacted" }));
-    await waitFor(() => expect(screen.queryByRole("article", { name: "Sarah Jones" })).not.toBeInTheDocument());
-    expect(screen.queryByRole("dialog", { name: "When should I remind you again?" })).not.toBeInTheDocument();
-    const db = await getDatabase();
-    expect(await db.getAll("interactions")).toEqual([expect.objectContaining({ personId: "person-sarah", kind: "contacted" })]);
     const records = await db.getAllFromIndex("followUps", "by-person", "person-sarah");
     expect(records.filter((record) => record.status === "completed")).toHaveLength(1);
-    expect(records.filter((record) => record.status === "pending")).toHaveLength(1);
-    expect(records.find((record) => record.id === "follow-up-person-sarah-extra")).toMatchObject({ status: "pending" });
-  });
-
-  it("restarts an expired paused reminder from Contacted using the saved Keep in touch interval", async () => {
-    const regular = {
-      ...person("person-regular", "Regular Person"),
-      contactCadenceDays: 14,
-      contactCadenceFirstDueDate: "2026-07-23" as const,
-      contactCadenceDeferredUntilDate: "2026-07-23" as const
-    };
-    await createRepositories(await getDatabase()).people.create(regular);
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    render(<TodayScreen navigate={vi.fn()} />);
-    const card = await screen.findByRole("article", { name: "Regular Person" });
-    await user.click(within(card).getByRole("button", { name: "Contacted" }));
-    await waitFor(() => expect(screen.queryByRole("article", { name: "Regular Person" })).not.toBeInTheDocument());
-    expect(screen.queryByRole("dialog", { name: "When should I remind you again?" })).not.toBeInTheDocument();
-    const db = await getDatabase();
-    expect(await db.getAllFromIndex("followUps", "by-person", regular.id)).toEqual([]);
-    expect(await listUpcomingCadences(db, { localDate: "2026-07-23", activeMode: "personal" })).toEqual([
-      expect.objectContaining({ person: expect.objectContaining({ id: regular.id }), effectiveDate: "2026-08-06", cadenceDays: 14 })
+    expect(records.filter((record) => record.status === "pending")).toEqual([
+      expect.objectContaining({ dueDate: "2026-08-06" })
+    ]);
+    expect(await db.getAll("interactions")).toEqual([
+      expect.objectContaining({ personId: "person-sarah", kind: "contacted" })
     ]);
   });
 
-  it("announces the normal interval after Contacted clears a later finite deferral", async () => {
-    const record = await seedDuePerson({ id: "person-deferred", name: "Deferred Person" });
-    await createRepositories(await getDatabase()).people.update({
-      ...record,
-      contactCadenceDays: 14,
-      contactCadenceFirstDueDate: "2026-07-23",
-      contactCadenceDeferredUntilDate: "2026-08-20"
-    }, record.revision, NOW);
+  it("uses the person’s contact frequency when Done schedules the next contact", async () => {
+    const record = await seedDuePerson();
+    const db = await getDatabase();
+    await db.put("people", { ...record, contactCadence: { value: 3, unit: "days" } });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    render(<TodayScreen navigate={vi.fn()} />);
-    const card = await screen.findByRole("article", { name: "Deferred Person" });
-    await user.click(within(card).getByRole("button", { name: "Contacted" }));
-    await waitFor(() => expect(screen.queryByRole("article", { name: "Deferred Person" })).not.toBeInTheDocument());
-    expect(screen.getByText("Contact recorded. Next reminder: 06/08/2026. You’re all caught up.")).toHaveAttribute("aria-live", "polite");
-  });
-
-  it("announces the normal interval after Contacted clears a legacy indefinite pause", async () => {
-    const record = await seedDuePerson({ id: "person-paused", name: "Paused Person" });
-    await createRepositories(await getDatabase()).people.update({
-      ...record,
-      contactCadenceDays: 14,
-      contactCadenceFirstDueDate: "2026-07-23",
-      contactCadencePausedAt: NOW
-    }, record.revision, NOW);
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    render(<TodayScreen navigate={vi.fn()} />);
-    const card = await screen.findByRole("article", { name: "Paused Person" });
-    await user.click(within(card).getByRole("button", { name: "Contacted" }));
-    await waitFor(() => expect(screen.queryByRole("article", { name: "Paused Person" })).not.toBeInTheDocument());
-    expect(screen.getByText("Contact recorded. Next reminder: 06/08/2026. You’re all caught up.")).toHaveAttribute("aria-live", "polite");
-  });
-
-  it("shows caught up immediately after Not today while the refreshed projection is still pending", async () => {
-    await seedDuePerson();
-    const initialProjection = await todayQueries.getTodayScreenProjection(
-      await getDatabase(),
-      createRelationshipClock({ now: NOW })
-    );
-    let resolveRefresh!: (projection: todayQueries.TodayScreenProjection) => void;
-    const pendingRefresh = new Promise<todayQueries.TodayScreenProjection>((resolve) => {
-      resolveRefresh = resolve;
-    });
-    const projectionSpy = vi.spyOn(todayQueries, "getTodayScreenProjection")
-      .mockResolvedValueOnce(initialProjection)
-      .mockReturnValueOnce(pendingRefresh);
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const view = render(<TodayScreen navigate={vi.fn()} />);
+    render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
     const card = await screen.findByRole("article", { name: "Sarah Jones" });
-    await user.click(within(card).getByRole("button", { name: "Not today" }));
-    expect(await screen.findByRole("heading", { name: "You’re all caught up." })).toBeInTheDocument();
-    expect(screen.queryByRole("article", { name: "Sarah Jones" })).not.toBeInTheDocument();
-    expect(projectionSpy).toHaveBeenCalledTimes(2);
-    view.unmount();
-    resolveRefresh(initialProjection);
+    await user.click(within(card).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("article", { name: "Sarah Jones" })).not.toBeInTheDocument());
+    const created = await db.getAllFromIndex("followUps", "by-person", record.id);
+    expect(created.filter((followUp) => followUp.status === "pending")).toEqual([
+      expect.objectContaining({ dueDate: "2026-07-26", status: "pending" })
+    ]);
   });
 
-  it("opens one focused unsaved phone row from Call and returns to refreshed Today after save", async () => {
+  it("pauses a due Person for one week without changing their frequency, plans or contact history", async () => {
+    const record = await seedDuePerson({ extraFollowUp: true });
+    const db = await getDatabase();
+    await db.put("people", { ...record, contactCadence: { value: 3, unit: "days" } });
+    const followUpsBefore = await db.getAllFromIndex("followUps", "by-person", record.id);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
+    const card = await screen.findByRole("article", { name: "Sarah Jones" });
+
+    await user.click(within(card).getByRole("button", { name: "Pause" }));
+    let dialog = screen.getByRole("dialog", { name: "Pause from Today" });
+    expect(within(dialog).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "×", "1 week", "1 month", "Choose date", "Cancel"
+    ]);
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(within(card).getByRole("button", { name: "Pause" })).toHaveFocus());
+
+    await user.click(within(card).getByRole("button", { name: "Pause" }));
+    dialog = screen.getByRole("dialog", { name: "Pause from Today" });
+    await user.click(within(dialog).getByRole("button", { name: "1 week" }));
+    await waitFor(() => expect(screen.queryByRole("article", { name: "Sarah Jones" })).not.toBeInTheDocument());
+
+    expect(await db.get("people", record.id)).toMatchObject({
+      contactCadence: { value: 3, unit: "days" },
+      todayPausedUntilDate: "2026-07-30"
+    });
+    expect(await db.getAllFromIndex("followUps", "by-person", record.id)).toEqual(followUpsBefore);
+    expect(await db.getAll("interactions")).toEqual([]);
+    expect(await db.get("todaySkips", "person-sarah:2026-07-23")).toBeDefined();
+  });
+
+  it("completes a legacy Reach Out card without creating another Reach Out plan", async () => {
+    const record = await seedDuePerson();
+    const db = await getDatabase();
+    const due = (await db.get("followUps", "follow-up-person-sarah-0"))!;
+    await db.put("followUps", { ...due, reachOutEntryId: "reach-out-sarah" });
+    await db.put("reachOutEntries", {
+      id: "reach-out-sarah",
+      revision: 1,
+      personId: record.id,
+      reason: "Catch up",
+      intendedActionType: "other",
+      intentStatus: "active",
+      currentFollowUpId: due.id,
+      contextIds: [],
+      addedAt: "2026-07-01T09:00:00.000Z",
+      createdAt: "2026-07-01T09:00:00.000Z",
+      updatedAt: "2026-07-01T09:00:00.000Z"
+    });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
+    const card = await screen.findByRole("article", { name: "Sarah Jones" });
+    await user.click(within(card).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("article", { name: "Sarah Jones" })).not.toBeInTheDocument());
+    const completedEntry = await db.get("reachOutEntries", "reach-out-sarah");
+    expect(completedEntry).toMatchObject({ intentStatus: "completed" });
+    expect(completedEntry).not.toHaveProperty("currentFollowUpId");
+    expect((await db.getAllFromIndex("followUps", "by-person", record.id))
+      .filter((followUp) => followUp.status === "pending")).toEqual([]);
+    expect(await db.getAll("interactions")).toEqual([
+      expect.objectContaining({ personId: record.id, kind: "contacted" })
+    ]);
+  });
+
+  it("opens one unfocused phone row and returns to refreshed Today after save", async () => {
     await seedDuePerson();
     const confirm = vi.spyOn(window, "confirm");
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<App />);
     let card = await screen.findByRole("article", { name: "Sarah Jones" });
-    await user.click(within(card).getByRole("button", { name: "Call" }));
-    await waitFor(() => expect(window.location.pathname).toBe("/people/person-sarah/contact-methods"));
+    await user.click(within(card).getByRole("button", { name: "Message" }));
+    await waitFor(
+      () => expect(window.location.pathname).toBe("/people/person-sarah/contact-methods"),
+      { timeout: 10_000 }
+    );
     let phone = await screen.findByRole("textbox", { name: "Phone number" });
-    expect(phone).toHaveFocus();
+    expect(phone).not.toHaveFocus();
     expect(phone).toHaveValue("");
     await user.type(phone, "123");
     await user.click(screen.getByRole("button", { name: "Save contact detail" }));
@@ -509,7 +442,6 @@ describe("V1-10 Today experience", () => {
     expect(confirm).toHaveBeenCalledTimes(2);
 
     card = await screen.findByRole("article", { name: "Sarah Jones" });
-    expect(within(card).queryByRole("button", { name: "Add phone number" })).not.toBeInTheDocument();
     await user.click(within(card).getByRole("button", { name: "Call" }));
     phone = await screen.findByRole("textbox", { name: "Phone number" });
     await user.type(phone, "+447900123456");
@@ -526,8 +458,9 @@ describe("V1-10 Today experience", () => {
     }
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<App />);
-    expect(await screen.findAllByRole("article")).toHaveLength(6);
-    expect(screen.queryByRole("button", { name: "Show more due people" })).not.toBeInTheDocument();
+    expect(await screen.findAllByRole("article")).toHaveLength(5);
+    await user.click(screen.getByRole("button", { name: "Show more people" }));
+    expect(screen.getAllByRole("article")).toHaveLength(6);
     await user.click(screen.getByRole("button", { name: "Person 6" }));
     expect(await screen.findByRole("heading", { name: "Person 6" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "← Today" }));
@@ -548,10 +481,10 @@ describe("V1-10 Today experience", () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
     const card = await screen.findByRole("article", { name: "Sarah Jones" });
-    await user.click(within(card).getByRole("button", { name: "Not today" }));
-    expect(await screen.findByRole("heading", { name: "Today could not check every relationship." })).toBeInTheDocument();
-    expect(screen.getByText("Sarah Jones is off Today until tomorrow.")).toHaveAttribute("aria-live", "polite");
-    expect(screen.queryByText(/You’re all caught up/)).not.toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "Pause" }));
+    await user.click(within(await screen.findByRole("dialog", { name: "Pause from Today" })).getByRole("button", { name: "1 week" }));
+    expect(await screen.findByRole("heading", { name: "Today could not check everyone." })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "That’s everyone for today." })).not.toBeInTheDocument();
   });
 
   it("does not present an ordinary nobody-due empty state when evaluation failed", async () => {
@@ -565,9 +498,9 @@ describe("V1-10 Today experience", () => {
       evaluationIssues: [{ personId: "person-unchecked", displayName: "Unchecked Person" }]
     });
     render(<TodayScreen navigate={vi.fn()} onAddFollowUp={vi.fn()} />);
-    expect(await screen.findByText("One relationship could not be evaluated")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Today could not check every relationship." })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "You’re all caught up." })).not.toBeInTheDocument();
+    expect(await screen.findByText("One person could not be checked")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Today could not check everyone." })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "That’s everyone for today." })).not.toBeInTheDocument();
   });
 });
 
@@ -634,5 +567,31 @@ describe("V1-10 next-reminder retry state", () => {
       />
     );
     expect(screen.getByRole("button", { name: "In 21 days · 13 August 2026" })).toHaveAttribute("aria-pressed", "true");
+  });
+});
+
+describe("Today Pause choices", () => {
+  it("uses a clamped calendar month and rejects a custom date that is not after today", async () => {
+    const user = userEvent.setup();
+    const choose = vi.fn();
+    render(
+      <PauseTodaySheet
+        personName="Sarah Jones"
+        todayDate="2026-01-31"
+        saving={false}
+        onChooseDate={choose}
+        onClose={vi.fn()}
+      />
+    );
+    await user.click(screen.getByRole("button", { name: "1 month" }));
+    expect(choose).toHaveBeenCalledWith("2026-02-28");
+
+    await user.click(screen.getByRole("button", { name: "Choose date" }));
+    const date = screen.getByLabelText("Return to Today");
+    await user.type(date, "2026-01-31");
+    await user.click(screen.getByRole("button", { name: "Pause until this date" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Choose a date after today.");
+    await waitFor(() => expect(date).toHaveFocus());
+    expect(choose).toHaveBeenCalledTimes(1);
   });
 });

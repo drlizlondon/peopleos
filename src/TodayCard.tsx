@@ -1,49 +1,52 @@
 import type { TodayCardProjection } from "./application/todayQueries";
-import { useRef, useState } from "react";
+import { useState } from "react";
 
 type TodayCardProps = {
   card: TodayCardProjection;
   busy: boolean;
   error?: string;
   copyValue?: string;
-  onCall: () => void;
   onMessage: (draft?: string) => void;
-  onNotToday: () => void;
-  onAlreadyContacted: () => void;
+  onCall: () => void;
+  onDone: () => void;
+  onPause: () => void;
   onProfile: () => void;
-  onToggleNote: (completed: boolean) => void;
-  onEditNote: () => void;
   onRetry?: () => void;
   onCopy?: () => void;
 };
+
+function affiliation(card: TodayCardProjection): string | undefined {
+  if (!card.currentAffiliation) return undefined;
+  return [card.currentAffiliation.role, card.currentAffiliation.organisationName].filter(Boolean).join(" · ");
+}
+
+function initialConversationStarterIndex(card: TodayCardProjection): number {
+  if (card.conversationStarters.length === 0) return 0;
+  const seed = [...card.person.id, ...card.item.relevantDate]
+    .reduce((total, character) => total + character.charCodeAt(0), 0);
+  return seed % card.conversationStarters.length;
+}
 
 export default function TodayCard({
   card,
   busy,
   error,
   copyValue,
-  onCall,
   onMessage,
-  onNotToday,
-  onAlreadyContacted,
+  onCall,
+  onDone,
+  onPause,
   onProfile,
-  onToggleNote,
-  onEditNote,
   onRetry,
   onCopy
 }: TodayCardProps) {
-  const moreActionsRef = useRef<HTMLDetailsElement>(null);
-  const [starterIndex, setStarterIndex] = useState(() => {
-    const seed = [...card.person.id, ...card.item.relevantDate].reduce((total, character) => total + character.charCodeAt(0), 0);
-    return card.conversationStarters.length ? seed % card.conversationStarters.length : 0;
-  });
+  const affiliationText = affiliation(card);
+  const starterKey = `${card.person.id}:${card.item.relevantDate}:${card.conversationStarters.map((starter) => starter.id).join(":")}`;
+  const initialStarterIndex = initialConversationStarterIndex(card);
+  const [starterState, setStarterState] = useState({ key: starterKey, index: initialStarterIndex });
+  const starterIndex = starterState.key === starterKey ? starterState.index : initialStarterIndex;
   const starter = card.conversationStarters[starterIndex]?.template.replaceAll("{name}", card.person.displayName);
-  const starterId = `today-starter-${card.person.id}`;
-
-  function editNote() {
-    moreActionsRef.current?.removeAttribute("open");
-    onEditNote();
-  }
+  const starterId = `today-conversation-starter-${card.person.id}`;
 
   return (
     <article
@@ -53,35 +56,32 @@ export default function TodayCard({
       data-today-person-id={card.person.id}
     >
       <header className="today-card-heading">
-        <button id={`today-person-${card.person.id}`} className="today-person-link" type="button" onClick={onProfile}>
-          {card.person.displayName}
-        </button>
-        <details ref={moreActionsRef} className="today-more-actions">
-          <summary aria-label={`More actions for ${card.person.displayName}`}>•••</summary>
-          <div role="group" aria-label={`More actions for ${card.person.displayName}`}>
-            <button type="button" onClick={editNote}>{card.person.todayNote ? "Edit note" : "Add note"}</button>
-          </div>
-        </details>
+        <div>
+          <button id={`today-person-${card.person.id}`} className="today-person-link" type="button" onClick={onProfile}>
+            {card.person.displayName}
+          </button>
+          {affiliationText && <p>{affiliationText}</p>}
+        </div>
       </header>
-      {card.person.todayNote && (
-        <div className={`today-note${card.person.todayNoteCompletedAt ? " completed" : ""}`}>
-          <label className="today-note-toggle">
-            <input aria-label={`Mark note complete: ${card.person.todayNote}`} type="checkbox" checked={Boolean(card.person.todayNoteCompletedAt)} onChange={(event) => onToggleNote(event.target.checked)} />
-            <span aria-hidden="true" />
-          </label>
-          <button aria-label={`Edit note: ${card.person.todayNote}`} type="button" onClick={editNote}>{card.person.todayNote}</button>
+      {starter && (
+        <div className="today-conversation-suggestion" aria-label="Conversation starter">
+          <span>Conversation starter</span>
+          <p id={starterId} className="today-conversation-starter" aria-live="polite" aria-atomic="true">“{starter}”</p>
         </div>
       )}
-      {starter && <p id={starterId} className="today-conversation-starter" aria-live="polite" aria-atomic="true">“{starter}”</p>}
       {card.conversationStarters.length > 1 && (
         <button
           className="text-action today-another-starter"
           type="button"
-          aria-label={`Show another conversation suggestion for ${card.person.displayName}`}
+          aria-label={`Show another conversation starter for ${card.person.displayName}`}
           aria-controls={starterId}
-          onClick={() => setStarterIndex((current) => (current + 1) % card.conversationStarters.length)}
+          onClick={() => setStarterState({
+            key: starterKey,
+            index: (starterIndex + 1) % card.conversationStarters.length
+          })}
         >Another suggestion</button>
       )}
+
       {error && (
         <div className="today-card-error" role="alert">
           <p>{error}</p>
@@ -95,8 +95,10 @@ export default function TodayCard({
       <div className="today-card-actions" role="group" aria-label={`Actions for ${card.person.displayName}`}>
         <button className="primary-action" type="button" disabled={busy} onClick={() => onMessage(starter)}>Message</button>
         <button type="button" disabled={busy} onClick={onCall}>Call</button>
-        <button type="button" disabled={busy} onClick={onAlreadyContacted}>Contacted</button>
-        <button type="button" disabled={busy} onClick={onNotToday}>Not today</button>
+        <button type="button" disabled={busy} onClick={onDone}>Done</button>
+      </div>
+      <div className="today-card-links">
+        <button type="button" disabled={busy} onClick={onPause}>Pause</button>
       </div>
     </article>
   );

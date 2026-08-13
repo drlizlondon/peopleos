@@ -2,6 +2,8 @@
 
 Review date: 2026-07-22
 
+Notification sections in this historical readiness review were superseded by POS-D047 on 2026-08-11. The implemented chargeable MVP contract is Off by default, normal iOS permission after explicit opt-in, editable local time defaulting to 12:00, at most 30 verified anonymous native occurrences, and tap-to-Today only.
+
 Documents reviewed in full: `PRODUCT_SPEC.md`, `SCREEN_SPECIFICATIONS.md`, `USER_FLOWS.md`, `RELATIONSHIP_ENGINE_SPEC.md`, `NAVIGATION.md`, `SETTINGS_SPEC.md`, `VERSION1_SCOPE.md`, `ARCHITECTURE.md`, `DATA_MODEL.md`, `DECISIONS.md`, `ROADMAP.md`, `PROJECT.md`, `README.md`, and `ARCHITECTURE_REVIEW.md`.
 
 This review challenges implementation readiness without reopening accepted product choices. Product precedence follows `PRODUCT_SPEC.md`: V1 scope, Relationship Engine behavior, screen behavior, flows, and navigation take precedence over older architecture-roadmap wording in that order.

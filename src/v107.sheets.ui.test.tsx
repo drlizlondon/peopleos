@@ -251,33 +251,43 @@ describe("V1-07 follow-up and cadence sheets", () => {
     });
   });
 
-  it("validates and saves a custom Keep in touch reminder without creating follow-up work", async () => {
+  it("validates and saves a custom cadence from a real contact anchor without creating follow-up work", async () => {
     const person = await seedPerson();
+    const occurredAt = new Date().toISOString();
+    await createRepositories(await getDatabase()).interactions.create({
+      id: "interaction-contact-anchor",
+      revision: 1,
+      personId: person.id,
+      kind: "contacted",
+      occurredAt,
+      createdAt: occurredAt,
+      updatedAt: occurredAt
+    });
     const user = userEvent.setup();
     const onSaved = vi.fn();
     render(<CadenceEditorSheet person={person} onClose={vi.fn()} onSaved={onSaved} />);
 
-    const dialog = screen.getByRole("dialog", { name: "Keep in touch" });
-    const enabled = within(dialog).getByRole("checkbox", { name: "Remind me to stay in touch" });
-    await waitFor(() => expect(enabled).toHaveFocus());
-    await user.click(enabled);
-    await user.selectOptions(within(dialog).getByLabelText("How often?"), "custom");
-    const custom = within(dialog).getByLabelText("Days between reminders");
+    const dialog = screen.getByRole("dialog", { name: "Contact cadence" });
+    await waitFor(() => expect(within(dialog).getByLabelText("Recurring cadence")).toHaveFocus());
+    await user.selectOptions(within(dialog).getByLabelText("Recurring cadence"), "custom");
+    const custom = within(dialog).getByLabelText("Contact cadence value");
     await waitFor(() => expect(custom).toHaveFocus());
     await user.type(custom, "0");
-    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    await user.click(within(dialog).getByRole("button", { name: "Save cadence" }));
     expect(within(dialog).getByRole("alert")).toHaveTextContent("whole number from 1 to 3650");
     expect(custom).toHaveAttribute("aria-invalid", "true");
 
     await user.clear(custom);
     await user.type(custom, "45");
-    const form = within(dialog).getByRole("button", { name: "Save" }).closest("form");
+    const form = within(dialog).getByRole("button", { name: "Save cadence" }).closest("form");
     fireEvent.submit(form!);
     fireEvent.submit(form!);
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
     const data = await readAllData(await getDatabase());
-    expect(data.people[0]).toMatchObject({ id: person.id, revision: 2, contactCadenceDays: 45 });
+    expect(data.people[0]).toMatchObject({ id: person.id, revision: 2, contactCadence: { value: 45, unit: "days" } });
+    expect(data.people[0].contactCadenceDays).toBeUndefined();
+    expect(data.interactions).toEqual([expect.objectContaining({ kind: "contacted", personId: person.id })]);
     expect(data.followUps).toEqual([]);
     expect(data.followUpEvents).toEqual([]);
   });

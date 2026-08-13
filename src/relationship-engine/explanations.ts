@@ -12,6 +12,18 @@ function requiredFact(explanation: Explanation, label: string): string {
   return value;
 }
 
+function cadenceFactLabel(explanation: Explanation): string {
+  const value = fact(explanation, "cadenceValue");
+  const unit = fact(explanation, "cadenceUnit");
+  if (value !== undefined && unit !== undefined) {
+    const count = Number(value);
+    const label = count === 1 ? unit.replace(/s$/, "") : unit;
+    return `${value} ${label}`;
+  }
+  const days = requiredFact(explanation, "cadenceDays");
+  return `${days} ${days === "1" ? "day" : "days"}`;
+}
+
 export function formatEngineLocalDate(date: LocalDate, locale = "en-GB"): string {
   return new Intl.DateTimeFormat(locale, {
     day: "numeric",
@@ -66,11 +78,7 @@ export function formatExplanation(explanation: Explanation, locale = "en-GB"): s
     return `Your only recorded contact was ${requiredFact(explanation, "elapsedDays")} days ago and you have not recorded a later follow-up.`;
   }
   if (key === "today.cadence_due") {
-    const interval = requiredFact(explanation, "cadenceDays");
-    const elapsed = fact(explanation, "elapsedDays");
-    return elapsed
-      ? `You chose to keep in touch every ${interval} days. Your last logged interaction was ${elapsed} days ago.`
-      : `You chose to keep in touch every ${interval} days.`;
+    return `You usually reconnect every ${cadenceFactLabel(explanation)}. Your last recorded contact was ${requiredFact(explanation, "elapsedDays")} days ago.`;
   }
   if (key === "intended_action.follow_up") {
     const action = requiredFact(explanation, "actionType");
@@ -134,7 +142,7 @@ export function formatExplanation(explanation: Explanation, locale = "en-GB"): s
     return `Suggested for ${formatEngineLocalDate(requiredFact(explanation, "dueDate"), locale)}: 30 days after your introduction.`;
   }
   if (key === "suggested_reminder.cadence") {
-    return `Next: ${formatEngineLocalDate(requiredFact(explanation, "dueDate"), locale)}.`;
+    return `Suggested for ${formatEngineLocalDate(requiredFact(explanation, "dueDate"), locale)}: your contact cadence of ${cadenceFactLabel(explanation)}.`;
   }
 
   if (key === "reach_out.active") return "In Reach Out because you chose to contact this person.";

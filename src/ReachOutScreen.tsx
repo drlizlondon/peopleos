@@ -1,45 +1,39 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { SEARCH_DEBOUNCE_MS, useDebouncedValue } from "./useDebouncedValue";
+import { useCallback, useEffect, useRef, useState } from "react";
 import EmptyState from "./EmptyState";
-import ReachOutFilterSheet, {
-  REACH_OUT_STATUS_OPTIONS,
-  type ReachOutFilters
-} from "./ReachOutFilterSheet";
+import { ContactMethodChoiceSheet } from "./TodaySheets";
 import {
-  hasReachOutEntries,
+  completeReachOut,
+  prepareCompleteReachOutCommand,
+  prepareReachOutStatusCommand,
+  removeReachOut
+} from "./application/reachOut";
+import {
+  contactNowTargetHref,
+  getContactNowProjection,
+  revalidateContactNowTarget,
+  whatsappTargetHref,
+  type ContactNowProjection,
+  type ContactNowTarget
+} from "./application/contactNow";
+import {
   listReachOut,
-  listReachOutContexts,
-  type ReachOutListItem,
-  type ReachOutSearchSource
+  type ReachOutListItem
 } from "./application/reachOutQueries";
 // eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { getDatabase } from "./data/client";
-import { FOLLOW_UP_ACTION_OPTIONS } from "./domain/followUpPolicy";
-import type { ReachOutStatusFilter } from "./domain/reachOutPolicy";
-import type { FollowUpActionType, LocalDate, ReachOutContext } from "./domain/schema";
 import type { ActiveRelationshipMode } from "./domain/relationshipMode";
-import { personProfilePath, reachOutDetailPath } from "./navigation";
+import type { LocalDate } from "./domain/schema";
+import type { ContactHandoff } from "./integrations/contactHandoff";
+import { openContactHandoff } from "./integrations/contactHandoff";
+import { contactMethodsPath, personProfilePath } from "./navigation";
 
 type Navigate = (path: string, options?: { replace?: boolean; state?: Record<string, unknown> }) => void;
 
-type ReachOutViewState = {
-  query: string;
-  statusFilters: ReachOutStatusFilter[];
-  contextId: string;
-  scrollY: number;
-};
-
-const VALID_STATUS_FILTERS = new Set<ReachOutStatusFilter>(
-  REACH_OUT_STATUS_OPTIONS.map((option) => option.value)
-);
-
-const SEARCH_SOURCE_LABELS: Record<ReachOutSearchSource, string> = {
-  Person: "person",
-  Role: "role",
-  Organisation: "organisation",
-  Why: "reason",
-  Context: "context",
-  Notes: "notes"
+type ContactChoice = {
+  projection: ContactNowProjection;
+  requestedChannel: "call" | "message";
+  error?: string;
+  copyValue?: string;
 };
 
 function todayLocalDate(): LocalDate {
@@ -47,320 +41,345 @@ function todayLocalDate(): LocalDate {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
-function localDateLabel(value: LocalDate): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeZone: "UTC" })
-    .format(new Date(`${value}T12:00:00.000Z`));
-}
-
-function actionLabel(value: FollowUpActionType | undefined): string {
-  return FOLLOW_UP_ACTION_OPTIONS.find((option) => option.value === value)?.label ?? "Choose next action";
-}
-
-function statusLabel(item: ReachOutListItem, localDate: LocalDate): string {
-  if (item.displayState === "active" && item.relevantDate === localDate) return "Due today";
-  return {
-    active: "Active",
-    waiting: "Waiting",
-    snoozed: "Snoozed",
-    overdue: "Overdue",
-    completed: "Completed",
-    dormant: "Dormant"
-  }[item.displayState];
-}
-
-function readViewState(): ReachOutViewState {
-  const saved = window.history.state?.reachOutView;
-  if (!saved || typeof saved !== "object") {
-    return { query: "", statusFilters: [], contextId: "", scrollY: 0 };
-  }
-  const candidate = saved as Partial<ReachOutViewState>;
-  const statusFilters = Array.isArray(candidate.statusFilters)
-    ? candidate.statusFilters.filter((status): status is ReachOutStatusFilter =>
-      typeof status === "string" && VALID_STATUS_FILTERS.has(status as ReachOutStatusFilter)
-    )
-    : [];
-  return {
-    query: typeof candidate.query === "string" ? candidate.query : "",
-    statusFilters,
-    contextId: typeof candidate.contextId === "string" ? candidate.contextId : "",
-    scrollY: typeof candidate.scrollY === "number" && Number.isFinite(candidate.scrollY)
-      ? Math.max(0, candidate.scrollY)
-      : 0
-  };
-}
-
-function writeViewState(view: ReachOutViewState) {
-  window.history.replaceState(
-    { ...(window.history.state ?? {}), reachOutView: view },
-    "",
-    window.location.href
-  );
-}
-
-function sortedStatusFilters(filters: readonly ReachOutStatusFilter[]): ReachOutStatusFilter[] {
-  return REACH_OUT_STATUS_OPTIONS
-    .map((option) => option.value)
-    .filter((status) => filters.includes(status));
-}
-
-export default function ReachOutScreen({ activeMode = "personal", navigate, onAdd, relationshipFilter }: { activeMode?: ActiveRelationshipMode; navigate: Navigate; onAdd: (opener: HTMLElement) => void; relationshipFilter?: ReactNode }) {
-  const [initialView] = useState(readViewState);
-  const [query, setQuery] = useState(initialView.query);
-  const [statusFilters, setStatusFilters] = useState<ReachOutStatusFilter[]>(initialView.statusFilters);
-  const [contextId, setContextId] = useState(initialView.contextId);
-  const [items, setItems] = useState<ReachOutListItem[] | undefined>(undefined);
-  const [contexts, setContexts] = useState<ReachOutContext[]>([]);
-  const [hasEntries, setHasEntries] = useState<boolean | undefined>(undefined);
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [error, setError] = useState("");
-  const [localDate] = useState(todayLocalDate);
-  const filterButtonRef = useRef<HTMLButtonElement>(null);
-  const loadSequence = useRef(0);
-  const scrollRestored = useRef(false);
-  const rememberedScroll = useRef(initialView.scrollY);
-
-  // Debounced for the query only: the Reach Out list re-queries the database on
-  // every change, and typing a name should cost one search, not one per letter.
-  // Status and context filters change on a deliberate click and are not delayed.
-  const debouncedQuery = useDebouncedValue(query, SEARCH_DEBOUNCE_MS);
-
-  const load = useCallback(async () => {
-    const sequence = ++loadSequence.current;
-    setError("");
-    setItems(undefined);
-    try {
-      const db = await getDatabase();
-      const [nextItems, nextContexts, nextHasEntries] = await Promise.all([
-        listReachOut(db, {
-          localDate,
-          activeMode,
-          ...(debouncedQuery ? { query: debouncedQuery } : {}),
-          ...(statusFilters.length > 0 ? { statusFilters } : {}),
-          ...(contextId ? { contextId } : {})
-        }),
-        listReachOutContexts(db, activeMode),
-        hasReachOutEntries(db, activeMode)
-      ]);
-      if (sequence !== loadSequence.current) return;
-      setItems(nextItems);
-      setContexts(nextContexts);
-      setHasEntries(nextHasEntries);
-    } catch {
-      if (sequence !== loadSequence.current) return;
-      setError("PeopleOS could not load Reach Out from this device.");
-    }
-  }, [activeMode, contextId, debouncedQuery, localDate, statusFilters]);
-
-  useEffect(() => { void load(); }, [load]);
-
-  useEffect(() => {
-    writeViewState({ query, statusFilters, contextId, scrollY: rememberedScroll.current });
-  }, [contextId, query, statusFilters]);
-
-  useEffect(() => {
-    const rememberScroll = () => {
-      rememberedScroll.current = window.scrollY;
-      writeViewState({ query, statusFilters, contextId, scrollY: rememberedScroll.current });
-    };
-    window.addEventListener("scroll", rememberScroll, { passive: true });
-    return () => window.removeEventListener("scroll", rememberScroll);
-  }, [contextId, query, statusFilters]);
-
-  useEffect(() => {
-    if (items === undefined || scrollRestored.current) return;
-    scrollRestored.current = true;
-    const frame = requestAnimationFrame(() => {
-      window.scrollTo(0, initialView.scrollY);
-      rememberedScroll.current = initialView.scrollY;
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [initialView.scrollY, items]);
-
-  const selectedContext = useMemo(
-    () => contexts.find((context) => context.id === contextId),
-    [contextId, contexts]
-  );
-  const activeFilterCount = statusFilters.length + (contextId ? 1 : 0);
-  const hasRetrieval = Boolean(query.trim() || activeFilterCount);
-
-  function rememberBeforeNavigation() {
-    rememberedScroll.current = window.scrollY;
-    writeViewState({ query, statusFilters, contextId, scrollY: rememberedScroll.current });
-  }
-
-  function closeFilters() {
-    setFilterOpen(false);
-    requestAnimationFrame(() => filterButtonRef.current?.focus());
-  }
-
-  function applyFilters(filters: ReachOutFilters) {
-    setStatusFilters(sortedStatusFilters(filters.statusFilters));
-    setContextId(filters.contextId);
-    closeFilters();
-  }
-
-  function clearFilters() {
-    setStatusFilters([]);
-    setContextId("");
-  }
-
-  const heading = (loading = false) => (
-    <header className="page-heading page-heading-with-action" aria-hidden={loading || undefined}>
-      <div>
-        <p className="eyebrow">Reach Out</p>
-        <h2>People you mean to contact</h2>
-        {!loading && relationshipFilter}
-      </div>
-      {!loading && <button className="primary-action" type="button" onClick={(event) => onAdd(event.currentTarget)}>Add someone</button>}
+function ReachOutHeading() {
+  return (
+    <header
+      className="page-heading compact-heading reach-out-populated-heading"
+    >
+      <h2>Reach Out</h2>
+      <p>People you mean to contact.</p>
     </header>
   );
+}
+
+function targetsForChannel(
+  projection: ContactNowProjection,
+  channel: "call" | "message"
+): ContactNowTarget[] {
+  if (channel === "call") {
+    return projection.targets.filter((target) => target.channel === "phone_call");
+  }
+  return projection.targets.filter((target) => target.channel === "phone_call" || target.channel === "email");
+}
+
+export function ReachOutActions({
+  item,
+  navigate,
+  onCompleted,
+  handoff = openContactHandoff
+}: {
+  item: ReachOutListItem;
+  navigate: Navigate;
+  onCompleted: () => void | Promise<void>;
+  handoff?: ContactHandoff;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [completing, setCompleting] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [error, setError] = useState("");
+  const [contactChoice, setContactChoice] = useState<ContactChoice>();
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const openerRef = useRef<HTMLButtonElement>();
+  const overflowButtonRef = useRef<HTMLButtonElement>(null);
+  const removeButtonRef = useRef<HTMLButtonElement>(null);
+  const overflowId = `reach-out-more-${item.entry.id}`;
+
+  useEffect(() => {
+    if (overflowOpen) requestAnimationFrame(() => removeButtonRef.current?.focus());
+  }, [overflowOpen]);
+
+  function restoreFocus() {
+    requestAnimationFrame(() => openerRef.current?.isConnected && openerRef.current.focus());
+  }
+
+  function openContactMethods(autoAddPhone: boolean) {
+    setContactChoice(undefined);
+    navigate(contactMethodsPath(item.person.id), {
+      state: {
+        fromPath: "/reach-out",
+        autoAddPhone,
+        navigationOrigin: true
+      }
+    });
+  }
+
+  async function launchTarget(
+    target: ContactNowTarget,
+    requestedChannel: "call" | "message"
+  ) {
+    setBusy(true);
+    setError("");
+    try {
+      const db = await getDatabase();
+      const current = await revalidateContactNowTarget(db, item.person.id, target);
+      if (!current) {
+        const latest = await getContactNowProjection(db, item.person.id);
+        setContactChoice({
+          projection: { ...latest, targets: targetsForChannel(latest, requestedChannel) },
+          requestedChannel,
+          error: "That contact detail is no longer available. Choose another option."
+        });
+        return;
+      }
+      const href = requestedChannel === "message" && current.channel === "phone_call"
+        ? whatsappTargetHref(current)
+        : contactNowTargetHref(current);
+      await handoff(href);
+      setContactChoice(undefined);
+      restoreFocus();
+    } catch {
+      const latest = await getContactNowProjection(await getDatabase(), item.person.id)
+        .catch(() => ({ targets: [], hasActivePhone: false }));
+      setContactChoice({
+        projection: { ...latest, targets: targetsForChannel(latest, requestedChannel) },
+        requestedChannel,
+        error: "PeopleOS could not open that contact detail. Choose another option or manage their contact details.",
+        copyValue: target.canonicalValue
+      });
+      setError("PeopleOS could not open that contact detail.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function contactVia(
+    channel: "call" | "message",
+    opener: HTMLButtonElement
+  ) {
+    setOverflowOpen(false);
+    openerRef.current = opener;
+    setBusy(true);
+    setError("");
+    try {
+      const projection = await getContactNowProjection(await getDatabase(), item.person.id);
+      const targets = targetsForChannel(projection, channel);
+      if (targets.length === 0) {
+        openContactMethods(true);
+      } else if (targets.length === 1) {
+        await launchTarget(targets[0], channel);
+      } else {
+        setContactChoice({ projection: { ...projection, targets }, requestedChannel: channel });
+      }
+    } catch {
+      setError(`PeopleOS could not open ${channel} yet.`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function done() {
+    if (busy || item.entry.intentStatus !== "active") return;
+    setOverflowOpen(false);
+    setBusy(true);
+    setCompleting(true);
+    setError("");
+    try {
+      const command = prepareCompleteReachOutCommand(
+        item.entry,
+        item.person,
+        item.currentFollowUp,
+        {}
+      );
+      await completeReachOut(await getDatabase(), command);
+      await onCompleted();
+    } catch {
+      setError("PeopleOS could not finish this Reach Out. It is unchanged.");
+    } finally {
+      setCompleting(false);
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (busy || item.entry.intentStatus !== "active") return;
+    if (!window.confirm(
+      `Remove ${item.person.displayName} from Reach Out? They will remain in PeopleOS.`
+    )) {
+      setOverflowOpen(false);
+      requestAnimationFrame(() => overflowButtonRef.current?.focus());
+      return;
+    }
+    setBusy(true);
+    setRemoving(true);
+    setError("");
+    try {
+      const command = prepareReachOutStatusCommand(
+        item.entry,
+        item.person,
+        item.currentFollowUp,
+        "removed"
+      );
+      await removeReachOut(await getDatabase(), command);
+      await onCompleted();
+    } catch {
+      setError("PeopleOS could not remove this person from Reach Out. Nothing changed.");
+    } finally {
+      setRemoving(false);
+      setBusy(false);
+    }
+  }
 
   return (
-    <main className="screen reach-out-screen" id="main-content" tabIndex={-1}>
-      {hasEntries !== false && heading(hasEntries === undefined)}
-      {hasEntries && (
-        <section className="reach-out-retrieval" aria-label="Find Reach Out plans">
-          <div className="reach-out-search-row">
-            <div className="form-field">
-              <label htmlFor="reach-out-search">Search Reach Out</label>
-              <input
-                id="reach-out-search"
-                type="search"
-                value={query}
-                placeholder="Name, organisation, reason or notes"
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </div>
-            <button
-              ref={filterButtonRef}
-              className="secondary-action"
-              type="button"
-              aria-haspopup="dialog"
-              onClick={() => setFilterOpen(true)}
-            >
-              Filters{activeFilterCount ? ` (${activeFilterCount})` : ""}
-            </button>
-          </div>
-          {activeFilterCount > 0 && (
-            <div className="reach-out-active-filters" aria-label="Active Reach Out filters">
-              {statusFilters.map((status) => {
-                const label = REACH_OUT_STATUS_OPTIONS.find((option) => option.value === status)?.label ?? status;
-                return (
-                  <button
-                    key={status}
-                    className="reach-out-filter-chip"
-                    type="button"
-                    aria-label={`Remove ${label} filter`}
-                    onClick={() => setStatusFilters((current) => current.filter((candidate) => candidate !== status))}
-                  >{label} ×</button>
-                );
-              })}
-              {contextId && (
-                <button
-                  className="reach-out-filter-chip"
-                  type="button"
-                  aria-label={`Remove ${selectedContext?.label ?? "context"} filter`}
-                  onClick={() => setContextId("")}
-                >Context: {selectedContext?.label ?? "Unavailable"} ×</button>
-              )}
-              <button className="text-action" type="button" onClick={clearFilters}>Clear filters</button>
+    <>
+      {error && <p className="form-alert" role="alert">{error}</p>}
+      <div className="today-card-actions reach-out-card-actions" role="group" aria-label={`Actions for ${item.person.displayName}`}>
+        <button className="reach-out-contact-action" type="button" disabled={busy} onClick={(event) => void contactVia("message", event.currentTarget)}>Message</button>
+        <button className="reach-out-contact-action" type="button" disabled={busy} onClick={(event) => void contactVia("call", event.currentTarget)}>Call</button>
+        {item.entry.intentStatus === "active" && (
+          <button className="reach-out-done-action" type="button" disabled={busy} onClick={() => void done()}>{completing ? "Saving…" : "Done"}</button>
+        )}
+      </div>
+      {item.entry.intentStatus === "active" && (
+        <div
+          className="reach-out-overflow"
+          onKeyDown={(event) => {
+            if (event.key !== "Escape" || !overflowOpen) return;
+            event.preventDefault();
+            setOverflowOpen(false);
+            requestAnimationFrame(() => overflowButtonRef.current?.focus());
+          }}
+        >
+          <button
+            ref={overflowButtonRef}
+            className="reach-out-overflow-trigger"
+            type="button"
+            aria-label={`More actions for ${item.person.displayName}`}
+            aria-expanded={overflowOpen}
+            aria-controls={overflowId}
+            disabled={busy}
+            onClick={() => setOverflowOpen((current) => !current)}
+          >
+            <span aria-hidden="true">•••</span>
+          </button>
+          {overflowOpen && (
+            <div id={overflowId} className="reach-out-overflow-panel" role="group" aria-label={`More actions for ${item.person.displayName}`}>
+              <button
+                ref={removeButtonRef}
+                className="danger-text"
+                type="button"
+                disabled={busy}
+                onClick={() => void remove()}
+              >
+                {removing ? "Removing…" : "Remove from Reach Out"}
+              </button>
             </div>
           )}
-        </section>
+        </div>
       )}
+
+      {contactChoice && (
+        <ContactMethodChoiceSheet
+          personName={item.person.displayName}
+          targets={contactChoice.projection.targets}
+          hasPhone={contactChoice.projection.hasActivePhone}
+          error={contactChoice.error}
+          copyValue={contactChoice.copyValue}
+          requestedChannel={contactChoice.requestedChannel}
+          onChoose={(targetId) => {
+            const target = contactChoice.projection.targets.find((candidate) => candidate.id === targetId);
+            if (target) void launchTarget(target, contactChoice.requestedChannel);
+          }}
+          onAddPhone={() => openContactMethods(true)}
+          onManage={() => openContactMethods(false)}
+          onClose={() => {
+            setContactChoice(undefined);
+            restoreFocus();
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+export default function ReachOutScreen({
+  activeMode = "personal",
+  navigate,
+  onAdd,
+  handoff = openContactHandoff
+}: {
+  activeMode?: ActiveRelationshipMode;
+  navigate: Navigate;
+  onAdd: (opener: HTMLElement) => void;
+  handoff?: ContactHandoff;
+}) {
+  const [items, setItems] = useState<ReachOutListItem[]>();
+  const [error, setError] = useState("");
+  const [localDate] = useState(todayLocalDate);
+  const mainRef = useRef<HTMLElement>(null);
+  const completionFocusPendingRef = useRef(false);
+
+  const load = useCallback(async (showLoading = false) => {
+    if (showLoading) setItems(undefined);
+    setError("");
+    try {
+      const next = await listReachOut(await getDatabase(), { localDate, activeMode });
+      setItems(next);
+    } catch {
+      setError("PeopleOS could not load Reach Out from this device.");
+    }
+  }, [activeMode, localDate]);
+
+  useEffect(() => { void load(true); }, [load]);
+
+  useEffect(() => {
+    if (!items || !completionFocusPendingRef.current) return;
+    completionFocusPendingRef.current = false;
+    requestAnimationFrame(() => {
+      mainRef.current?.querySelector<HTMLElement>(
+        ".reach-out-person-link, .empty-action button, .page-heading .primary-action"
+      )?.focus();
+    });
+  }, [items]);
+
+  return (
+    <main ref={mainRef} className={`screen reach-out-screen${items?.length ? " reach-out-screen-populated" : ""}`} id="main-content" tabIndex={-1}>
+      {(items === undefined || items.length > 0) && <ReachOutHeading />}
+
       {items === undefined && !error && <p className="screen-status" role="status">Loading Reach Out…</p>}
       {error && (
         <div className="form-alert screen-status" role="alert">
           <p>{error}</p>
-          <button type="button" onClick={() => void load()}>Retry</button>
+          <button type="button" onClick={() => void load(true)}>Retry</button>
         </div>
       )}
-      {!error && items?.length === 0 && hasEntries === false && (
+
+      {!error && items?.length === 0 && (
         <EmptyState
           eyebrow="Reach Out"
-          title="People you mean to contact"
-          filter={relationshipFilter}
-          description="Keep a deliberate list of people you want to contact, reconnect with or build a relationship with."
-          note="You can even add someone if all you remember is where you met them."
+          title="Reach Out"
+          description="People you mean to contact."
           action={<button className="primary-action" type="button" onClick={(event) => onAdd(event.currentTarget)}>Add someone</button>}
         />
       )}
-      {!error && items?.length === 0 && hasEntries === true && (
-        <section className="reach-out-no-results" aria-labelledby="reach-out-no-results-title">
-          <h3 id="reach-out-no-results-title">
-            {hasRetrieval ? "No Reach Out plans match" : "No current Reach Out plans"}
-          </h3>
-          <p>
-            {hasRetrieval
-              ? "Try changing your search or filters."
-              : "Use filters to find completed or dormant outreach."}
-          </p>
-          <div className="button-row">
-            {query && <button type="button" onClick={() => setQuery("")}>Clear search</button>}
-            {activeFilterCount > 0 && <button type="button" onClick={clearFilters}>Clear filters</button>}
-            {!hasRetrieval && <button type="button" onClick={() => setFilterOpen(true)}>View filters</button>}
-          </div>
-        </section>
-      )}
+
       {!error && items && items.length > 0 && (
-        <>
-          <p className="reach-out-result-count" role="status">
-            {items.length} {items.length === 1 ? "person" : "people"}
-          </p>
-          <ol className="reach-out-list" aria-label="Current Reach Out queue">
-            {items.map((item) => (
-              <li key={item.entry.id}>
-                <article className="reach-out-card">
-                  <div className="reach-out-card-heading">
-                    <div>
-                      <button
-                        className="text-action reach-out-person-link"
-                        type="button"
-                        onClick={() => {
-                          rememberBeforeNavigation();
-                          navigate(personProfilePath(item.person.id));
-                        }}
-                      >
-                        {item.person.displayName}
-                      </button>
-                      {item.person.identityStatus === "provisional" && <span className="status-chip">Identity incomplete</span>}
-                      {item.affiliation && <p>{[item.affiliation.role, item.affiliation.organisationName].filter(Boolean).join(" · ")}</p>}
-                    </div>
-                    <span className={`status-chip reach-out-status-${item.displayState}`}>{statusLabel(item, localDate)}</span>
-                  </div>
-                  {item.primarySearchMatch && (
-                    <p className="reach-out-search-match">
-                      Matched {SEARCH_SOURCE_LABELS[item.primarySearchMatch.source]}: <strong>{item.primarySearchMatch.value}</strong>
-                    </p>
-                  )}
-                  <dl className="profile-details reach-out-summary">
-                    <div><dt>Why</dt><dd>{item.entry.reason ?? "Add why"}</dd></div>
-                    <div><dt>Next action</dt><dd>{item.entry.actionDetail ?? actionLabel(item.entry.intendedActionType)}</dd></div>
-                    {item.relevantDate && <div><dt>Planned</dt><dd><time dateTime={item.relevantDate}>{localDateLabel(item.relevantDate)}</time></dd></div>}
-                  </dl>
-                  {item.contexts.length > 0 && <p className="reach-out-contexts" aria-label="Contexts">{item.contexts.map((context) => context.label).join(" · ")}</p>}
-                  {item.repairNotice && <p className="form-alert" role="alert">{item.repairNotice}</p>}
-                  <button
-                    className="secondary-action"
-                    type="button"
-                    onClick={() => {
-                      rememberBeforeNavigation();
-                      navigate(reachOutDetailPath(item.entry.id));
-                    }}
-                  >Open plan</button>
-                </article>
-              </li>
-            ))}
-          </ol>
-        </>
-      )}
-      {filterOpen && (
-        <ReachOutFilterSheet
-          applied={{ statusFilters, contextId }}
-          contexts={contexts}
-          onApply={applyFilters}
-          onClose={closeFilters}
-        />
+        <ol className="reach-out-list" aria-label="Reach Out list">
+          {items.map((item) => (
+            <li key={item.entry.id}>
+              <article className="reach-out-card" aria-labelledby={`reach-out-person-${item.entry.id}`}>
+                <button
+                  id={`reach-out-person-${item.entry.id}`}
+                  className="text-action reach-out-person-link"
+                  type="button"
+                  onClick={() => navigate(personProfilePath(item.person.id), { state: { fromPath: "/reach-out", navigationOrigin: true } })}
+                >
+                  {item.person.displayName}
+                </button>
+                {item.entry.reason && <p className="reach-out-note preserve-lines">{item.entry.reason}</p>}
+                {item.repairNotice && <p className="form-alert" role="alert">{item.repairNotice}</p>}
+                <ReachOutActions
+                  item={item}
+                  navigate={navigate}
+                  handoff={handoff}
+                  onCompleted={() => {
+                    completionFocusPendingRef.current = true;
+                    return load();
+                  }}
+                />
+              </article>
+            </li>
+          ))}
+        </ol>
       )}
     </main>
   );

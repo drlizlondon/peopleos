@@ -7,7 +7,7 @@ import { assertValidRecord, ValidationError } from "../domain/validation";
 import type { PeopleOsDatabase } from "../data/database";
 import { RecordConflictError, StaleRevisionError } from "../data/repositories";
 import type { PreparedManualPersonCapture } from "./manualPersonCapture";
-import { normaliseDuplicateText } from "../domain/duplicates";
+import { normaliseDuplicateText, reviewedHumanName } from "../domain/duplicates";
 
 export type AddReviewedDetailsInput = {
   targetPersonId: string;
@@ -15,6 +15,8 @@ export type AddReviewedDetailsInput = {
   candidate: PreparedManualPersonCapture;
   selectedContactMethodIds: string[];
   includeAffiliation: boolean;
+  /** Explicit review choice; never inferred by the write command. */
+  includeDisplayName?: boolean;
   now?: string;
 };
 
@@ -24,11 +26,43 @@ export type AddReviewedDetailsHooks = {
 
 export type AddReviewedDetailsResult = {
   person: Person;
+  displayNameUpdated: boolean;
   addedContactMethods: ContactMethod[];
   skippedContactMethodIds: string[];
   addedAffiliation?: OrganisationAffiliation;
   skippedAffiliationId?: string;
 };
+
+function phoneIdentity(value: string): string {
+  return value.replace(/\D/gu, "");
+}
+
+export function personUsesOwnContactAsDisplayName(
+  person: Pick<Person, "displayName">,
+  contacts: readonly ContactMethod[]
+): boolean {
+  const displayName = person.displayName.trim();
+  if (!displayName) return false;
+  return contacts.some((contact) => {
+    if (contact.archivedAt) return false;
+    if (contact.kind === "email") {
+      const candidate = displayName.toLocaleLowerCase("en-US");
+      return candidate === contact.rawValue.trim().toLocaleLowerCase("en-US")
+        || candidate === contact.canonicalValue;
+    }
+    const candidate = phoneIdentity(displayName);
+    return Boolean(candidate) && (
+      candidate === phoneIdentity(contact.rawValue)
+      || candidate === phoneIdentity(contact.canonicalValue)
+    );
+  });
+}
+
+export function reviewedDisplayNameCandidate(
+  candidate: Pick<PreparedManualPersonCapture, "person">
+): string | undefined {
+  return reviewedHumanName(candidate.person.displayName);
+}
 
 function sameAffiliationDetails(
   left: OrganisationAffiliation,
@@ -155,6 +189,9 @@ function validateInput(input: AddReviewedDetailsInput): ContactMethod[] {
       }
     }
   }
+  if (input.includeDisplayName && !reviewedDisplayNameCandidate(input.candidate)) {
+    issues.push("Choose a recognisable name before adding it to the existing Person.");
+  }
   if (issues.length) throw new ValidationError(issues);
   return selected;
 }
@@ -184,6 +221,20 @@ export async function addReviewedDetailsToExistingPerson(
 
     const selectedIds = new Set(selectedContacts.map((contact) => contact.id));
     const targetContacts = await contacts.index("by-person").getAll(input.targetPersonId);
+    const requestedDisplayName = input.includeDisplayName
+      ? reviewedDisplayNameCandidate(input.candidate)
+      : undefined;
+    const displayNameAlreadyApplied = Boolean(
+      requestedDisplayName && target.displayName === requestedDisplayName
+    );
+    const displayNameWillChange = Boolean(
+      requestedDisplayName
+      && target.displayName !== requestedDisplayName
+      && personUsesOwnContactAsDisplayName(target, targetContacts)
+    );
+    if (requestedDisplayName && !displayNameAlreadyApplied && !displayNameWillChange) {
+      throw new RecordConflictError("This Person's name changed while you were reviewing it. Review the match again.");
+    }
     const baseTargetContacts = targetContacts.filter((contact) => !selectedIds.has(contact.id));
     const preferredKinds = new Set(
       baseTargetContacts
@@ -268,8 +319,8 @@ export async function addReviewedDetailsToExistingPerson(
       }
     }
 
-    const hasPendingDetails = pendingContacts.length > 0 || Boolean(pendingAffiliation);
-    const hasReplayedDetails = replayedContacts.length > 0 || Boolean(replayedAffiliation);
+    const hasPendingDetails = pendingContacts.length > 0 || Boolean(pendingAffiliation) || displayNameWillChange;
+    const hasReplayedDetails = replayedContacts.length > 0 || Boolean(replayedAffiliation) || displayNameAlreadyApplied;
     if (target.revision !== input.expectedPersonRevision) {
       const isExactRetry = target.revision > input.expectedPersonRevision
         && hasReplayedDetails
@@ -278,6 +329,7 @@ export async function addReviewedDetailsToExistingPerson(
       await tx.done;
       return {
         person: target,
+        displayNameUpdated: displayNameAlreadyApplied,
         addedContactMethods: replayedContacts,
         skippedContactMethodIds,
         ...(replayedAffiliation ? { addedAffiliation: replayedAffiliation } : {}),
@@ -292,6 +344,7 @@ export async function addReviewedDetailsToExistingPerson(
       await tx.done;
       return {
         person: target,
+        displayNameUpdated: false,
         addedContactMethods: [],
         skippedContactMethodIds,
         ...(skippedAffiliationId ? { skippedAffiliationId } : {})
@@ -303,6 +356,7 @@ export async function addReviewedDetailsToExistingPerson(
     const updatedPerson: Person = {
       ...target,
       revision: target.revision + 1,
+      ...(displayNameWillChange && requestedDisplayName ? { displayName: requestedDisplayName } : {}),
       updatedAt: now
     };
     assertValidRecord("people", updatedPerson);
@@ -319,6 +373,7 @@ export async function addReviewedDetailsToExistingPerson(
     await tx.done;
     return {
       person: updatedPerson,
+      displayNameUpdated: displayNameWillChange,
       addedContactMethods: pendingContacts,
       skippedContactMethodIds,
       ...(pendingAffiliation ? { addedAffiliation: pendingAffiliation } : {}),

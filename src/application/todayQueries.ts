@@ -1,7 +1,6 @@
 import {
   DATA_STORE_NAMES,
   type AppMetadata,
-  DEFAULT_CONVERSATION_STARTERS,
   type ConversationStarter,
   type FollowUp,
   type OrganisationAffiliation,
@@ -50,8 +49,8 @@ export type TodayCardProjection = {
   primaryFollowUp?: FollowUp;
   additionalDueFollowUps: FollowUp[];
   reachOut?: TodayReachOutProjection;
-  contact: ContactNowProjection;
   conversationStarters: ConversationStarter[];
+  contact: ContactNowProjection;
 };
 
 export type TodayScreenProjection = {
@@ -63,6 +62,7 @@ export type TodayScreenProjection = {
   eligibleBeforeSkipsCount: number;
   skippedEligibleCount: number;
   cards: TodayCardProjection[];
+  incompleteRegularContactPeople: Person[];
   evaluationIssues: TodayEvaluationIssue[];
 };
 
@@ -159,6 +159,18 @@ function buildCardIndex(data: PeopleOsData, grouped: GroupedRelationshipData): C
   };
 }
 
+function conversationStartersForPerson(
+  starters: readonly ConversationStarter[],
+  person: Person
+): ConversationStarter[] {
+  const relationshipMode = person.relationshipMode ?? "personal";
+  return starters
+    .filter((starter) => starter.relationshipMode === "both"
+      || relationshipMode === "both"
+      || starter.relationshipMode === relationshipMode)
+    .map((starter) => ({ ...starter }));
+}
+
 function cardFromItem(
   item: TodayItem,
   data: PeopleOsData,
@@ -201,11 +213,8 @@ function cardFromItem(
         })
       }
     } : {}),
-    contact: resolveContactNowTargets(contactMethods, settings.defaultPhoneRegion),
-    conversationStarters: (settings.conversationStarters ?? DEFAULT_CONVERSATION_STARTERS).filter((starter) => {
-      const mode = person.relationshipMode ?? "personal";
-      return starter.relationshipMode === "both" || mode === "both" || starter.relationshipMode === mode;
-    })
+    conversationStarters: conversationStartersForPerson(settings.conversationStarters, person),
+    contact: resolveContactNowTargets(contactMethods, settings.defaultPhoneRegion)
   };
 }
 
@@ -241,6 +250,10 @@ async function buildTodayProjection(
     eligibleBeforeSkipsCount,
     skippedEligibleCount: Math.max(0, eligibleBeforeSkipsCount - result.totalCount),
     cards: cardItems.map((item) => cardFromItem(item, data, assessmentsByPerson, index)),
+    incompleteRegularContactPeople: data.people
+      .filter((person) => assessmentsByPerson.get(person.id)?.scheduleState.kind === "incomplete_regular_schedule")
+      .sort((left, right) => left.displayName.localeCompare(right.displayName, "en-US", { sensitivity: "base" })
+        || left.id.localeCompare(right.id)),
     evaluationIssues: issues
   };
 }

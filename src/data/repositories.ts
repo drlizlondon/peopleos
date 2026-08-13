@@ -3,6 +3,7 @@ import type { PeopleOsDb, PeopleOsDatabase } from "./database";
 import type {
   AppSettings,
   ContactMethod,
+  ExternalIdentity,
   FollowUp,
   FollowUpEvent,
   Interaction,
@@ -31,11 +32,12 @@ export class StaleRevisionError extends Error {
   }
 }
 
-type MutableStoreName = "people" | "contactMethods" | "affiliations" | "interactions" | "events" | "memoryFacts" | "followUps" | "reachOutEntries" | "reachOutContexts" | "appSettings";
+type MutableStoreName = "people" | "contactMethods" | "externalIdentities" | "affiliations" | "interactions" | "events" | "memoryFacts" | "followUps" | "reachOutEntries" | "reachOutContexts" | "appSettings";
 
 type StoreRecords = {
   people: Person;
   contactMethods: ContactMethod;
+  externalIdentities: ExternalIdentity;
   affiliations: OrganisationAffiliation;
   interactions: Interaction;
   events: RelationshipEvent;
@@ -175,6 +177,7 @@ export function createRepositories(db: PeopleOsDatabase) {
   return {
     people: new PersonRepository(db),
     contactMethods: new MutableRepository(db, "contactMethods"),
+    externalIdentities: new MutableRepository(db, "externalIdentities"),
     affiliations: new MutableRepository(db, "affiliations"),
     interactions: new MutableRepository(db, "interactions"),
     events: new MutableRepository(db, "events"),

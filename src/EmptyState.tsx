@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { appAssetPath } from "./platformRouting";
 
 type Props = {
   eyebrow?: string;
@@ -26,7 +27,7 @@ export default function EmptyState({
     <section className={`empty-state${mark === "check" ? " empty-state-complete" : ""}`} aria-labelledby="empty-state-title">
       {mark === "check"
         ? <div className="empty-check" aria-hidden="true">✓</div>
-        : <div className="empty-mark" aria-hidden="true"><span /><span /><span /></div>}
+        : <img className="empty-mark" src={appAssetPath("peopleos-mark.svg")} alt="" aria-hidden="true" />}
       {eyebrow && <p className="eyebrow">{eyebrow}</p>}
       <Heading id="empty-state-title">{title}</Heading>
       {filter}
