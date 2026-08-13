@@ -218,7 +218,10 @@ describe("V1-11 deterministic People search", () => {
   it("returns exact, starts-with, and other name-token matches in tiers 1, 2, and 3", () => {
     const source = data([
       person("exact", "Pilot"),
-      person("prefix", "Pilot Smith"),
+      // Keep this fixture focused on the official-name prefix tier. Legacy
+      // records without an explicit familiar name correctly treat "Pilot" as
+      // the conversational-name exact match instead.
+      person("prefix", "Pilot Smith", { conversationalName: "Pilot Smith" }),
       person("token", "Sarah Pilot")
     ]);
     const results = searchPeopleFromData(source, { clock, query: "pilot" });

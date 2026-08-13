@@ -1,6 +1,6 @@
 export const DATABASE_NAME = "peopleos-v1";
-export const DATABASE_VERSION = 4;
-export const BACKUP_SCHEMA_VERSION = 6;
+export const DATABASE_VERSION = 5;
+export const BACKUP_SCHEMA_VERSION = 7;
 export const DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS = 14;
 export const DEFAULT_TODAY_NOTIFICATION_TIME = "12:00";
 
@@ -63,6 +63,8 @@ export type MutableRecord = {
 
 export type Person = MutableRecord & {
   displayName: string;
+  /** The familiar name used on conversational surfaces. Legacy records may omit it. */
+  conversationalName?: string;
   relationshipMode?: "personal" | "professional" | "both";
   identityStatus: "provisional" | "confirmed" | "merged";
   mergedIntoPersonId?: EntityId;
@@ -81,6 +83,8 @@ export type Person = MutableRecord & {
   contactCadencePausedAt?: IsoInstant;
   /** A user-chosen date before which this Person must not appear in Today. */
   todayPausedUntilDate?: LocalDate;
+  /** A date-scoped, non-contacting override that temporarily brings this Person into Today. */
+  broughtToTodayDate?: LocalDate;
   /** Legacy lightweight Today note, retained for lossless compatibility. */
   todayNote?: string;
   todayNoteCompletedAt?: IsoInstant;
@@ -193,6 +197,15 @@ export type TodaySkip = {
   createdAt: IsoInstant;
 };
 
+/** Append-only evidence that an exact stored starter was used for one Person. */
+export type ConversationStarterUse = {
+  id: EntityId;
+  personId: EntityId;
+  starterId: EntityId;
+  starterTemplate: string;
+  occurredAt: IsoInstant;
+};
+
 export type ReachOutIntentStatus = "active" | "completed" | "dormant";
 
 export type ReachOutActionType = FollowUpActionType;
@@ -290,6 +303,7 @@ export type PeopleOsData = {
   memoryFacts: MemoryFact[];
   followUps: FollowUp[];
   followUpEvents: FollowUpEvent[];
+  conversationStarterUses: ConversationStarterUse[];
   todaySkips: TodaySkip[];
   reachOutEntries: ReachOutEntry[];
   reachOutEvents: ReachOutEvent[];
@@ -322,6 +336,7 @@ export const DATA_STORE_NAMES = [
   "memoryFacts",
   "followUps",
   "followUpEvents",
+  "conversationStarterUses",
   "todaySkips",
   "reachOutEntries",
   "reachOutEvents",
@@ -342,6 +357,7 @@ export function emptyPeopleOsData(settings: AppSettings): PeopleOsData {
     memoryFacts: [],
     followUps: [],
     followUpEvents: [],
+    conversationStarterUses: [],
     todaySkips: [],
     reachOutEntries: [],
     reachOutEvents: [],

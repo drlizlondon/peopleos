@@ -41,7 +41,13 @@ export type RelationshipPersonBundle = {
 };
 
 export type RelationshipScheduleState =
-  | { kind: "scheduled"; localDate: LocalDate }
+  | {
+      kind: "scheduled";
+      localDate: LocalDate;
+      /** A date-scoped override whose ordinary schedule resumes later. */
+      temporary?: true;
+      resumesOn?: LocalDate;
+    }
   | { kind: "incomplete_regular_schedule" }
   | { kind: "not_scheduled" };
 
@@ -59,6 +65,7 @@ export type Explanation = {
 
 export type TodayEligibilityCode =
   | "explicit_follow_up"
+  | "brought_to_today"
   | "new_relationship"
   | "cadence_due";
 

@@ -479,14 +479,15 @@ function buildTodayAssessment(
   timeZone: string
 ): TodayAssessment | undefined {
   if (bundle.person.archivedAt || bundle.person.identityStatus === "merged") return undefined;
-  if (activeTodayPauseDate(bundle.person, localDate)) return undefined;
+  const paused = Boolean(activeTodayPauseDate(bundle.person, localDate));
+  const broughtToToday = bundle.person.broughtToTodayDate === localDate;
   const followUps = bundle.followUps.filter((followUp) => followUp.personId === bundle.person.id);
   const pending = followUps.filter((followUp) => followUp.status === "pending");
   const due = pending
     .filter((followUp) => effectiveFollowUpDate(followUp) <= localDate)
     .sort(compareFollowUpsByEffectiveDate);
   const primary = due[0];
-  if (primary) {
+  if (primary && (!paused || broughtToToday)) {
     const relevantDate = effectiveFollowUpDate(primary);
     const dueState = relevantDate < localDate ? "overdue" : "due_today";
     const reachOut = currentReachOutForFollowUp(bundle.reachOutEntries, primary);
@@ -500,6 +501,28 @@ function buildTodayAssessment(
       intendedActionContext: buildIntendedAction(bundle, primary)
     };
   }
+
+  if (broughtToToday) {
+    const futurePrimary = pending
+      .filter((followUp) => effectiveFollowUpDate(followUp) > localDate)
+      .sort(compareFollowUpsByEffectiveDate)[0];
+    return {
+      eligibilityCode: "brought_to_today",
+      dueState: "rule_due",
+      relevantDate: localDate,
+      ...(futurePrimary ? { primaryFollowUpId: futurePrimary.id } : {}),
+      additionalDueFollowUpIds: [],
+      explanation: explanation("today.brought_to_today", "today.brought_to_today", [
+        sourceFact("broughtDate", localDate, bundle.person.id),
+        ...(futurePrimary
+          ? [sourceFact("originalDate", effectiveFollowUpDate(futurePrimary), futurePrimary.id)]
+          : [])
+      ]),
+      intendedActionContext: buildIntendedAction(bundle, futurePrimary)
+    };
+  }
+
+  if (paused) return undefined;
 
   if (pending.some((followUp) => effectiveFollowUpDate(followUp) > localDate)) return undefined;
 
@@ -572,7 +595,7 @@ function buildTodayAssessment(
  * rules wins. Once eligible, the Person remains eligible until relationship
  * data changes; date-specific Today skips are applied by the caller.
  */
-export function resolveRelationshipScheduleState(
+function resolveNaturalRelationshipScheduleState(
   bundle: RelationshipPersonBundle,
   clock: RelationshipClock
 ): RelationshipScheduleState {
@@ -623,6 +646,23 @@ export function resolveRelationshipScheduleState(
     };
   }
   return { kind: "not_scheduled" };
+}
+
+export function resolveRelationshipScheduleState(
+  bundle: RelationshipPersonBundle,
+  clock: RelationshipClock
+): RelationshipScheduleState {
+  const localDate = assertClock(clock);
+  const natural = resolveNaturalRelationshipScheduleState(bundle, clock);
+  if (bundle.person.broughtToTodayDate !== localDate
+    || natural.kind !== "scheduled"
+    || natural.localDate <= localDate) return natural;
+  return {
+    kind: "scheduled",
+    localDate,
+    temporary: true,
+    resumesOn: natural.localDate
+  };
 }
 
 export function nextTodayEligibleLocalDate(
@@ -865,8 +905,9 @@ export function assessRelationship(
 
 function todayBand(today: TodayAssessment): number {
   if (today.eligibilityCode === "explicit_follow_up") return today.dueState === "overdue" ? 0 : 1;
-  if (today.eligibilityCode === "new_relationship") return 2;
-  return 3;
+  if (today.eligibilityCode === "brought_to_today") return 2;
+  if (today.eligibilityCode === "new_relationship") return 3;
+  return 4;
 }
 
 function compareImportance(left: RelationshipAssessment, right: RelationshipAssessment): number {

@@ -91,6 +91,7 @@ export function completeData(): PeopleOsData {
       occurredAt: fixedNow,
       toDate: "2026-08-08"
     }],
+    conversationStarterUses: [],
     todaySkips: [{
       id: "person-sarah:2026-08-01",
       personId: "person-sarah",

@@ -360,6 +360,7 @@ export function buildReferenceCorpus(seed = 20260725): PeopleOsData {
     memoryFacts,
     followUps,
     followUpEvents: [],
+    conversationStarterUses: [],
     todaySkips: [],
     reachOutEntries,
     reachOutEvents: [],

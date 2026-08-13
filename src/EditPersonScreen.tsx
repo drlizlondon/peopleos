@@ -22,6 +22,7 @@ import {
   maxContactCadenceValue
 } from "./domain/cadence";
 import type { ContactCadence, ContactCadenceUnit, FollowUp, LocalDate, Person } from "./domain/schema";
+import { conversationalNameFor, defaultConversationalName } from "./domain/personNames";
 import { RELATIONSHIP_MODE_OPTIONS, relationshipModeOf } from "./domain/relationshipMode";
 import { ValidationError } from "./domain/validation";
 import { contactMethodsPath } from "./navigation";
@@ -30,6 +31,7 @@ type Navigate = (path: string, options?: { replace?: boolean; state?: Record<str
 
 type FieldErrors = {
   displayName?: string;
+  conversationalName?: string;
   tags?: string;
   cadence?: string;
   start?: string;
@@ -96,6 +98,7 @@ export default function EditPersonScreen({
   const scheduleCancellationEventIdRef = useRef(`follow-up-event-${crypto.randomUUID()}`);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
+  const conversationalNameRef = useRef<HTMLInputElement>(null);
   const tagsRef = useRef<HTMLInputElement>(null);
   const cadenceRef = useRef<HTMLInputElement>(null);
   const startFieldsetRef = useRef<HTMLFieldSetElement>(null);
@@ -117,6 +120,7 @@ export default function EditPersonScreen({
         const contactCadence = contactCadenceOf(record);
         setDraft({
           displayName: record.displayName,
+          conversationalName: conversationalNameFor(record),
           relationshipMode: relationshipModeOf(record),
           importance: record.importance,
           tags: record.tags,
@@ -182,12 +186,15 @@ export default function EditPersonScreen({
   function validate(): PersonEditDraft | undefined {
     const nextErrors: FieldErrors = {};
     const displayName = draft.displayName.trim();
+    const conversationalName = draft.conversationalName?.trim()
+      || defaultConversationalName(displayName);
     const tags = parseTags(tagsText);
     const cadence: ContactCadence | undefined = cadenceText.trim()
       ? { value: Number(cadenceText), unit: cadenceUnit }
       : undefined;
     if (!displayName) nextErrors.displayName = "Add a name or description so you can recognise this person.";
     else if (displayName.length > 120) nextErrors.displayName = "Use 120 characters or fewer.";
+    if (conversationalName.length > 120) nextErrors.conversationalName = "Use 120 characters or fewer.";
     if (tags.length > 10) nextErrors.tags = "Add no more than 10 tags.";
     else if (tags.some((tag) => tag.length > 40)) nextErrors.tags = "Each tag must be 40 characters or fewer.";
     if (cadence !== undefined && !isValidContactCadence(cadence)) {
@@ -199,9 +206,11 @@ export default function EditPersonScreen({
     setErrors(nextErrors);
     const first = nextErrors.displayName
       ? nameRef.current
-      : nextErrors.tags
-        ? tagsRef.current
-        : undefined;
+      : nextErrors.conversationalName
+        ? conversationalNameRef.current
+        : nextErrors.tags
+          ? tagsRef.current
+          : undefined;
     if (Object.keys(nextErrors).length > 0) {
       requestAnimationFrame(() => {
         if (first) first.focus();
@@ -211,6 +220,7 @@ export default function EditPersonScreen({
     }
     return {
       displayName,
+      conversationalName,
       relationshipMode: draft.relationshipMode,
       importance: draft.importance,
       tags,
@@ -373,6 +383,7 @@ export default function EditPersonScreen({
             </section>
           ) : (
             <form className="person-edit-form" onSubmit={save} noValidate>
+              <fieldset className="person-edit-controls" disabled={saving}>
               <fieldset className="choice-fieldset relationship-mode-fieldset">
                 <legend>Relationship</legend>
                 <div className="segmented-control three-way">
@@ -384,7 +395,7 @@ export default function EditPersonScreen({
                 </div>
               </fieldset>
               <div className="form-field">
-                <label htmlFor={`${prefix}-name`}>{person.identityStatus === "provisional" ? "Name or description" : "Display name"} <span>Required</span></label>
+                <label htmlFor={`${prefix}-name`}>{person.identityStatus === "provisional" ? "Name or description" : "Full or contact name"} <span>Required</span></label>
                 <input
                   ref={nameRef}
                   id={`${prefix}-name`}
@@ -397,6 +408,20 @@ export default function EditPersonScreen({
                   onChange={(event) => changed({ displayName: event.target.value })}
                 />
                 {errors.displayName && <p id={`${prefix}-name-error`} className="field-error" role="alert">{errors.displayName}</p>}
+              </div>
+              <div className="form-field">
+                <label htmlFor={`${prefix}-conversational-name`}>What do you call them?</label>
+                <input
+                  ref={conversationalNameRef}
+                  id={`${prefix}-conversational-name`}
+                  value={draft.conversationalName ?? ""}
+                  maxLength={121}
+                  aria-invalid={Boolean(errors.conversationalName) || undefined}
+                  aria-describedby={`${prefix}-conversational-name-hint${errors.conversationalName ? ` ${prefix}-conversational-name-error` : ""}`}
+                  onChange={(event) => changed({ conversationalName: event.target.value })}
+                />
+                <p id={`${prefix}-conversational-name-hint`} className="field-hint">Used in conversation starters; their full name stays unchanged.</p>
+                {errors.conversationalName && <p id={`${prefix}-conversational-name-error`} className="field-error" role="alert">{errors.conversationalName}</p>}
               </div>
               <div className="form-field">
                 <label htmlFor={`${prefix}-frequency`}>How often do you want to contact them?</label>
@@ -486,6 +511,7 @@ export default function EditPersonScreen({
                 <p>Remove this person from active views while keeping their saved information.</p>
                 <button className="danger-action" type="button" onClick={() => void archive()} disabled={saving}>Archive person</button>
               </section>
+              </fieldset>
             </form>
           )}
         </>

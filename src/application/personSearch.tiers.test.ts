@@ -58,7 +58,7 @@ const settings: AppSettings[] = [{
 function emptyData(): PeopleOsData {
   return {
     people: [], contactMethods: [], externalIdentities: [], affiliations: [], interactions: [], events: [],
-    memoryFacts: [], followUps: [], followUpEvents: [], todaySkips: [],
+    memoryFacts: [], followUps: [], followUpEvents: [], conversationStarterUses: [], todaySkips: [],
     reachOutEntries: [], reachOutEvents: [], reachOutContexts: [], appSettings: settings
   };
 }
@@ -97,6 +97,23 @@ describe("search match tiers", () => {
     const [result] = searchPeopleFromData(data, { clock: CLOCK, query: "acme" });
     expect(result.match?.source).toBe("display_name_exact");
     expect(result.match?.tier).toBe(1);
+  });
+
+  it("prefers an exact familiar-name match over a weaker full-name token match", () => {
+    const data = emptyData();
+    data.people.push({
+      id: "person-lizzie", revision: 1, displayName: "Dr Elizabeth Soyode",
+      conversationalName: "Elizabeth", identityStatus: "confirmed",
+      importance: "normal", tags: [], createdAt: NOW, updatedAt: NOW
+    });
+
+    const [result] = searchPeopleFromData(data, { clock: CLOCK, query: "elizabeth" });
+    expect(result.match).toMatchObject({
+      source: "display_name_exact",
+      tier: 1,
+      label: "What you call them",
+      value: "Elizabeth"
+    });
   });
 
   it("falls through to a later source when earlier ones do not match", () => {

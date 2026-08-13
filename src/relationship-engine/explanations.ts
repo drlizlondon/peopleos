@@ -71,6 +71,9 @@ export function formatExplanation(explanation: Explanation, locale = "en-GB"): s
     const reachOutReason = fact(explanation, "reachOutReason");
     return reachOutReason ? `${planned} You added this person to Reach Out because ${reachOutReason}.` : planned;
   }
+  if (key === "today.brought_to_today") {
+    return "You chose to bring this person forward to Today. No contact has been recorded yet.";
+  }
   if (key === "today.new_relationship.event") {
     return `You met at ${requiredFact(explanation, "eventName")} ${requiredFact(explanation, "elapsedDays")} days ago and have not recorded a later follow-up.`;
   }

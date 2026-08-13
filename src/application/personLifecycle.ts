@@ -12,10 +12,12 @@ import {
 import type { ContactCadence, Person } from "../domain/schema";
 import { regularContactSetupState } from "../domain/regularContactSchedule";
 import type { RelationshipMode } from "../domain/relationshipMode";
+import { defaultConversationalName } from "../domain/personNames";
 import { assertValidRecord, ValidationError } from "../domain/validation";
 
 export type PersonEditDraft = {
   displayName: string;
+  conversationalName?: string;
   relationshipMode?: RelationshipMode;
   importance: Person["importance"];
   tags: string[];
@@ -47,10 +49,13 @@ export type PersonRelationshipModeCommand = {
 
 function normalizeDraft(draft: PersonEditDraft): PersonEditDraft {
   const displayName = draft.displayName.trim();
+  const conversationalName = draft.conversationalName?.trim()
+    || defaultConversationalName(displayName);
   const tags = draft.tags.map((tag) => tag.trim()).filter(Boolean);
   const issues: string[] = [];
   if (!displayName) issues.push("Add a name or description so you can recognise this person.");
   if (displayName.length > 120) issues.push("Use 120 characters or fewer for the name or description.");
+  if (!conversationalName || conversationalName.length > 120) issues.push("Use 120 characters or fewer for what you call them.");
   if (!(["normal", "high"] as const).includes(draft.importance)) issues.push("Choose a supported importance level.");
   if (draft.relationshipMode !== undefined && !(["personal", "professional", "both"] as const).includes(draft.relationshipMode)) issues.push("Choose a supported relationship type.");
   if (tags.length > 10) issues.push("Add no more than 10 tags.");
@@ -66,6 +71,7 @@ function normalizeDraft(draft: PersonEditDraft): PersonEditDraft {
   const contactCadence = contactCadenceOf(draft);
   return {
     displayName,
+    conversationalName,
     relationshipMode: draft.relationshipMode ?? "personal",
     importance: draft.importance,
     tags,
@@ -75,6 +81,7 @@ function normalizeDraft(draft: PersonEditDraft): PersonEditDraft {
 
 function sameEditableValues(person: Person, draft: PersonEditDraft): boolean {
   return person.displayName === draft.displayName
+    && (person.conversationalName ?? defaultConversationalName(person.displayName)) === draft.conversationalName
     && (person.relationshipMode ?? "personal") === (draft.relationshipMode ?? "personal")
     && person.importance === draft.importance
     && JSON.stringify(person.tags) === JSON.stringify(draft.tags)

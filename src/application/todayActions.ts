@@ -137,14 +137,19 @@ function requirePreparedContext(context: TodayActionContext): void {
   if (item.personId !== card.person.id) {
     throw new ValidationError(["The Today card does not match this person."]);
   }
-  if (item.eligibilityCode === "explicit_follow_up") {
+  if (item.eligibilityCode === "explicit_follow_up" || item.eligibilityCode === "brought_to_today") {
     const primary = card.primaryFollowUp;
-    if (!primary || item.primaryFollowUpId !== primary.id
-      || primary.personId !== card.person.id || primary.status !== "pending"
-      || effectiveFollowUpDate(primary) > projection.result.localDate) {
+    const mustHavePrimary = item.eligibilityCode === "explicit_follow_up";
+    if ((mustHavePrimary && !primary)
+      || Boolean(primary) !== Boolean(item.primaryFollowUpId)
+      || (primary && (item.primaryFollowUpId !== primary.id
+        || primary.personId !== card.person.id || primary.status !== "pending"
+        || (item.eligibilityCode === "explicit_follow_up"
+          ? effectiveFollowUpDate(primary) > projection.result.localDate
+          : effectiveFollowUpDate(primary) <= projection.result.localDate)))) {
       throw new ValidationError(["The primary Today plan is no longer available."]);
     }
-    if (primary.reachOutEntryId) {
+    if (primary?.reachOutEntryId) {
       const entry = card.reachOut?.entry;
       if (!entry || entry.id !== primary.reachOutEntryId
         || entry.personId !== card.person.id || entry.removedAt
@@ -171,6 +176,9 @@ export function prepareNotTodayFromContext(
   requireInstant(occurredAt, "Not today needs a valid action time.");
   if (localDateForInstant(occurredAt, projection.result.timeZone) !== projection.result.localDate) {
     throw new StaleRevisionError();
+  }
+  if (card.item.eligibilityCode === "brought_to_today") {
+    throw new ValidationError(["Pause this person instead of moving their unchanged future plan."]);
   }
   return createNotTodayCommand(card.person, {
     localDate: projection.result.localDate,
@@ -368,6 +376,18 @@ function buildArtifacts(command: AlreadyContactedCommand): AlreadyContactedArtif
   };
 }
 
+/**
+ * Rebuild the exact records owned by a prepared completion command. Completion
+ * Undo uses this to reject a receipt whose result no longer matches the command
+ * that created it.
+ */
+export function expectedAlreadyContactedResult(
+  command: AlreadyContactedCommand
+): AlreadyContactedResult {
+  requireFingerprint(command);
+  return buildArtifacts(command);
+}
+
 async function updateMetadata<Names extends ArrayLike<StoreNames<PeopleOsDb>>>(
   store: IDBPObjectStore<PeopleOsDb, Names, "metadata", "readwrite">,
   expectedRevision: number,
@@ -441,6 +461,7 @@ export async function pauseToday(
       && person.revision === command.expectedPersonRevision + 1
       && person.displayName === command.displayName
       && person.todayPausedUntilDate === command.untilDate
+      && person.broughtToTodayDate === undefined
       && person.updatedAt === command.occurredAt
       && storedSkip) {
       await tx.done;
@@ -451,8 +472,9 @@ export async function pauseToday(
     if (metadata?.datasetRevision !== command.expectedDatasetRevision) {
       throw new StaleRevisionError();
     }
+    const { broughtToTodayDate: _broughtToTodayDate, ...withoutBring } = writablePerson;
     const pausedPerson: Person = {
-      ...writablePerson,
+      ...withoutBring,
       revision: writablePerson.revision + 1,
       todayPausedUntilDate: command.untilDate,
       updatedAt: command.occurredAt
@@ -588,7 +610,9 @@ export async function alreadyContacted(
     if (command.expectedPrimaryFollowUp) {
       if (!storedPrimary || !identical(storedPrimary, command.expectedPrimaryFollowUp)
         || storedPrimary.status !== "pending"
-        || effectiveFollowUpDate(storedPrimary) > command.localDate) {
+        || (command.eligibilityCode === "brought_to_today"
+          ? effectiveFollowUpDate(storedPrimary) <= command.localDate
+          : effectiveFollowUpDate(storedPrimary) > command.localDate)) {
         throw new StaleRevisionError();
       }
     } else if (command.eligibilityCode === "explicit_follow_up") {
@@ -613,11 +637,15 @@ export async function alreadyContacted(
       throw new RecordConflictError("The linked Reach Out entry is missing from this command.");
     }
 
-    if (writablePerson.contactCadenceDays
-      && (writablePerson.contactCadenceDeferredUntilDate || writablePerson.contactCadencePausedAt)) {
+    if (writablePerson.broughtToTodayDate
+      || writablePerson.todayPausedUntilDate
+      || (writablePerson.contactCadenceDays
+        && (writablePerson.contactCadenceDeferredUntilDate || writablePerson.contactCadencePausedAt))) {
       const {
         contactCadenceDeferredUntilDate: _deferredUntil,
         contactCadencePausedAt: _pausedAt,
+        todayPausedUntilDate: _todayPausedUntilDate,
+        broughtToTodayDate: _broughtToTodayDate,
         ...unpausedPerson
       } = writablePerson;
       const resumedPerson: Person = {

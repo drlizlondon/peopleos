@@ -8,7 +8,13 @@ import {
 import { assertValidRecord } from "../domain/validation";
 import type { CloudRecordEnvelope, SyncTombstone } from "./types";
 
-const appendStores = new Set<DataStoreName>(["interactions", "followUpEvents", "todaySkips", "reachOutEvents"]);
+const appendStores = new Set<DataStoreName>([
+  "interactions",
+  "followUpEvents",
+  "conversationStarterUses",
+  "todaySkips",
+  "reachOutEvents"
+]);
 
 export function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;

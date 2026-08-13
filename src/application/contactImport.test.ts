@@ -117,6 +117,7 @@ describe("reviewed contact import", () => {
     const revisionBefore = await db.get("metadata", "app");
     const session = await prepareContactImportFromSelectedContacts(db, [{
       displayName: "Sarah Ahmed",
+      givenName: "Sarah",
       phoneNumbers: [
         { value: "07900 123456", label: "Mobile" },
         { value: "+44 20 7946 0018", label: "Work" }
@@ -156,8 +157,9 @@ describe("reviewed contact import", () => {
       organisationName: "PeopleOS",
       role: "Founder"
     });
+    expect(session.rows[0].prepared?.person.conversationalName).toBe("Sarah");
     expect(session.rows[1].prepared).toMatchObject({
-      person: { displayName: "Dad" },
+      person: { displayName: "Dad", conversationalName: "Dad" },
       contactMethods: []
     });
     expect(await db.count("people")).toBe(0);

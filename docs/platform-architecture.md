@@ -30,6 +30,8 @@ ios/App/App/public/          generated Capacitor output; never hand-edit
 
 Web browsers intentionally keep working when a native adapter is unavailable. Native-only controls are hidden or report the capability as unavailable; the shared product must not crash.
 
+CloudKit uses the existing `PeopleOSZoneV1` private zone. New local stores must be introduced with an expand/contract rollout: first release clients that ignore unknown remote stores, then enable uploads for the new store only once that compatibility release is the supported upgrade floor. Enabling a deferred store must also force a one-time full-zone fetch because compatibility clients advance their shared change token past ignored records. Conversation-starter usage is therefore local and included in JSON backups in its first release, but is deliberately not uploaded to the V1 zone yet.
+
 ## Build flow
 
 ```text

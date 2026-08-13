@@ -1,12 +1,18 @@
 import "fake-indexeddb/auto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRepositories } from "../data/repositories";
+import { recordConversationStarterUse } from "../application/conversationStarterHistory";
 import { createDefaultSettings, deletePeopleOsDatabase, openPeopleOsDatabase } from "../data/database";
 import { DEFAULT_CONVERSATION_STARTERS, type Person } from "../domain/schema";
 import { cloudRecordName, decideRecord, migrateLegacyCloudRecord } from "./reconciliation";
 import { runCloudSync, scanLocalChanges, setCloudSyncEnabled } from "./coordinator";
 import { FakeCloudKitAdapter } from "./fakeAdapter";
-import type { CloudRecordEnvelope, SyncTombstone } from "./types";
+import type {
+  CloudRecordEnvelope,
+  SyncOutboxOperation,
+  SyncRecordMetadata,
+  SyncTombstone
+} from "./types";
 
 const databases: string[] = [];
 const openedDatabases: Awaited<ReturnType<typeof openPeopleOsDatabase>>[] = [];
@@ -55,6 +61,29 @@ describe("iCloud Sync reconciliation", () => {
     const db = await enabledDatabase(); const cloud = new FakeCloudKitAdapter(); const value = person("remote", "Remote");
     cloud.records.set(cloudRecordName("people", value.id), remotePerson(value)); await runCloudSync(db, cloud, T2);
     expect(await db.get("people", "remote")).toEqual(value);
+  });
+
+  it("ignores a future store while still applying supported remote records", async () => {
+    const db = await enabledDatabase();
+    const cloud = new FakeCloudKitAdapter();
+    const value = person("supported-after-future", "Supported");
+    cloud.records.set("future_store:future-record", {
+      store: "futureStore" as CloudRecordEnvelope["store"],
+      entityId: "future-record",
+      recordName: "future_store:future-record",
+      schemaVersion: 2,
+      revision: 1,
+      updatedAt: T2,
+      deleted: false,
+      originDeviceId: "newer-client",
+      payload: { id: "future-record", updatedAt: T2 }
+    });
+    cloud.records.set(cloudRecordName("people", value.id), remotePerson(value));
+
+    await expect(runCloudSync(db, cloud, T2)).resolves.toBeUndefined();
+
+    expect(await db.get("people", value.id)).toEqual(value);
+    expect((await db.get("syncState", "app"))?.initialMigrationPhase).toBe("complete");
   });
 
   it("migrates legacy CloudKit AppSettings before validation and heals the cloud record", async () => {
@@ -152,6 +181,96 @@ describe("iCloud Sync reconciliation", () => {
     await runCloudSync(db, cloud, T2); expect(await db.getAll("interactions")).toHaveLength(2);
   });
 
+  it("keeps exact starter-use history local during the mixed-version compatibility release", async () => {
+    const first = await enabledDatabase();
+    const second = await enabledDatabase();
+    const cloud = new FakeCloudKitAdapter();
+    const sharedPerson = person("starter-person", "Bibi");
+    await createRepositories(first).people.create(sharedPerson);
+    await runCloudSync(first, cloud, T1);
+    await runCloudSync(second, cloud, T1);
+
+    const starter = DEFAULT_CONVERSATION_STARTERS[0]!;
+    await recordConversationStarterUse(first, {
+      id: "starter-use-first-device",
+      personId: sharedPerson.id,
+      starterId: starter.id,
+      starterTemplate: starter.template,
+      occurredAt: T1
+    });
+    await recordConversationStarterUse(second, {
+      id: "starter-use-second-device",
+      personId: sharedPerson.id,
+      starterId: starter.id,
+      starterTemplate: starter.template,
+      occurredAt: T2
+    });
+
+    await runCloudSync(first, cloud, T2);
+    await runCloudSync(second, cloud, "2026-08-03T09:00:00.000Z");
+
+    expect((await first.getAll("conversationStarterUses")).map((use) => use.id)).toEqual([
+      "starter-use-first-device"
+    ]);
+    expect((await second.getAll("conversationStarterUses")).map((use) => use.id)).toEqual([
+      "starter-use-second-device"
+    ]);
+    expect([...cloud.records.values()].some((record) => record.store === "conversationStarterUses")).toBe(false);
+  });
+
+  it("quarantines pre-release starter-history sync work without deleting local history", async () => {
+    const db = await enabledDatabase();
+    const cloud = new FakeCloudKitAdapter();
+    await createRepositories(db).people.create(person("starter-person", "Bibi"));
+    const starter = DEFAULT_CONVERSATION_STARTERS[0]!;
+    const use = {
+      id: "starter-use-pre-release-outbox",
+      personId: "starter-person",
+      starterId: starter.id,
+      starterTemplate: starter.template,
+      occurredAt: T2
+    };
+    await recordConversationStarterUse(db, use);
+    const key = `conversationStarterUses:${use.id}`;
+    const recordName = cloudRecordName("conversationStarterUses", use.id);
+    const syncState = (await db.get("syncState", "app"))!;
+    await db.put("syncOutbox", {
+      id: `${key}:s:${T2}`,
+      key,
+      kind: "save",
+      store: "conversationStarterUses",
+      entityId: use.id,
+      cloudRecordName: recordName,
+      schemaVersion: 1,
+      revision: 0,
+      updatedAt: T2,
+      originDeviceId: syncState.installationId,
+      payload: use,
+      attemptCount: 0,
+      nextAttemptAt: T2,
+      createdAt: T2,
+      updatedOperationAt: T2
+    } satisfies SyncOutboxOperation);
+    await db.put("syncRecords", {
+      key,
+      store: "conversationStarterUses",
+      entityId: use.id,
+      status: "pending",
+      localRevision: 0,
+      localUpdatedAt: T2,
+      localFingerprint: "pre-release",
+      cloudRecordName: recordName,
+      retryCount: 0
+    } satisfies SyncRecordMetadata);
+
+    await runCloudSync(db, cloud, T2);
+
+    expect(await db.get("conversationStarterUses", use.id)).toEqual(use);
+    expect(await db.get("syncOutbox", `${key}:s:${T2}`)).toBeUndefined();
+    expect(await db.get("syncRecords", key)).toBeUndefined();
+    expect([...cloud.records.values()].some((record) => record.store === "conversationStarterUses")).toBe(false);
+  });
+
   it("keeps a newer local deletion over an older remote update", () => {
     const value = person("deleted", "Old", T1); const tombstone: SyncTombstone = { key: "people:deleted", store: "people", entityId: "deleted", cloudRecordName: cloudRecordName("people", "deleted"), deletedAt: T2, originDeviceId: "local", retainUntil: "2027-01-30T09:00:00.000Z" };
     expect(decideRecord(undefined, remotePerson(value), "local", tombstone)).toBe("apply-deletion");
@@ -162,6 +281,35 @@ describe("iCloud Sync reconciliation", () => {
     const deleted = { ...remotePerson(person("gone", "Gone")), deleted: true, deletedAt: T2, updatedAt: T2, payload: undefined };
     cloud.records.set(deleted.recordName, deleted); await runCloudSync(db, cloud, T2);
     expect(await db.get("people", "gone")).toBeUndefined(); expect(await db.get("syncTombstones", "people:gone")).toBeTruthy();
+  });
+
+  it("removes local-only starter history when its Person is deleted remotely", async () => {
+    const db = await enabledDatabase();
+    const cloud = new FakeCloudKitAdapter();
+    const value = person("gone-with-history", "Gone with history");
+    await createRepositories(db).people.create(value);
+    const starter = DEFAULT_CONVERSATION_STARTERS[0]!;
+    await recordConversationStarterUse(db, {
+      id: "starter-use-for-deleted-person",
+      personId: value.id,
+      starterId: starter.id,
+      starterTemplate: starter.template,
+      occurredAt: T1
+    });
+    const deleted = {
+      ...remotePerson(value),
+      deleted: true,
+      deletedAt: T2,
+      updatedAt: T2,
+      payload: undefined
+    };
+    cloud.records.set(deleted.recordName, deleted);
+
+    await expect(runCloudSync(db, cloud, T2)).resolves.toBeUndefined();
+
+    expect(await db.get("people", value.id)).toBeUndefined();
+    expect(await db.get("conversationStarterUses", "starter-use-for-deleted-person")).toBeUndefined();
+    expect((await db.get("syncState", "app"))?.initialMigrationPhase).toBe("complete");
   });
 
   it("retains an offline mutation in the outbox until reconnection", async () => {

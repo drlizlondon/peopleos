@@ -14,6 +14,7 @@ import {
   regularContactSetupState
 } from "../domain/regularContactSchedule";
 import type { RelationshipMode } from "../domain/relationshipMode";
+import { defaultConversationalName } from "../domain/personNames";
 import { assertValidRecord, isLocalDate, ValidationError } from "../domain/validation";
 import { RecordConflictError, StaleRevisionError } from "../data/repositories";
 import type { PeopleOsDatabase } from "../data/database";
@@ -38,6 +39,7 @@ export type ManualPersonCaptureDraft = {
   initialFollowUpEventId: string;
   createdAt: string;
   displayName: string;
+  conversationalName?: string;
   relationshipMode: RelationshipMode;
   identityStatus: "confirmed" | "provisional";
   importance: "normal" | "high";
@@ -137,6 +139,10 @@ function assertCaptureFields(draft: ManualPersonCaptureDraft): void {
     issues.push("Add a name, mobile number or email address.");
   }
   if (displayName.length > 120) issues.push("Name or description must be 120 characters or fewer.");
+  if (draft.conversationalName !== undefined
+    && (!draft.conversationalName.trim() || draft.conversationalName.trim().length > 120)) {
+    issues.push("What you call them must be 120 characters or fewer.");
+  }
   if (draft.tags.length > 10) issues.push("Add no more than 10 tags.");
   if (draft.tags.some((tag) => tag.trim().length > 40)) issues.push("Each tag must be 40 characters or fewer.");
   if (draft.contactCadence !== undefined && !isValidContactCadence(draft.contactCadence)) {
@@ -219,6 +225,8 @@ export function prepareManualPersonCapture(
     id: draft.personId,
     revision: 1,
     displayName,
+    conversationalName: optionalTrimmed(draft.conversationalName)
+      ?? defaultConversationalName(displayName),
     relationshipMode: draft.relationshipMode,
     identityStatus: draft.identityStatus,
     importance: draft.importance,
@@ -446,8 +454,11 @@ export async function updatePersonWithInitialSchedule(
     throw new ValidationError(["Choose how often you want to contact this person."]);
   }
   const displayName = command.draft.displayName.trim();
+  const conversationalName = command.draft.conversationalName?.trim()
+    || defaultConversationalName(displayName);
   const tags = command.draft.tags.map((tag) => tag.trim()).filter(Boolean);
   if (!displayName || displayName.length > 120) throw new ValidationError(["Add a name using 120 characters or fewer."]);
+  if (!conversationalName || conversationalName.length > 120) throw new ValidationError(["Use 120 characters or fewer for what you call them."]);
   if (tags.length > 10 || tags.some((tag) => tag.length > 40)) throw new ValidationError(["Check this person's tags."]);
 
   const tx = db.transaction(["people", "interactions", "followUps", "followUpEvents", "metadata"], "readwrite");
@@ -476,6 +487,7 @@ export async function updatePersonWithInitialSchedule(
       ...current,
       revision: current.revision + 1,
       displayName,
+      conversationalName,
       relationshipMode: command.draft.relationshipMode ?? "personal",
       importance: command.draft.importance,
       tags,
@@ -547,8 +559,11 @@ export async function updatePersonWithoutRegularSchedule(
     throw new ValidationError(["Remove the contact frequency before turning off the schedule."]);
   }
   const displayName = command.draft.displayName.trim();
+  const conversationalName = command.draft.conversationalName?.trim()
+    || defaultConversationalName(displayName);
   const tags = command.draft.tags.map((tag) => tag.trim()).filter(Boolean);
   if (!displayName || displayName.length > 120) throw new ValidationError(["Add a name using 120 characters or fewer."]);
+  if (!conversationalName || conversationalName.length > 120) throw new ValidationError(["Use 120 characters or fewer for what you call them."]);
   if (tags.length > 10 || tags.some((tag) => tag.length > 40)) throw new ValidationError(["Check this person's tags."]);
   const cancellationEvent: FollowUpEvent = {
     id: command.cancellationEventId,
@@ -587,6 +602,7 @@ export async function updatePersonWithoutRegularSchedule(
       ...current,
       revision: current.revision + 1,
       displayName,
+      conversationalName,
       relationshipMode: command.draft.relationshipMode ?? "personal",
       importance: command.draft.importance,
       tags,

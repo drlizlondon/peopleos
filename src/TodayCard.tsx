@@ -1,15 +1,29 @@
 import type { TodayCardProjection } from "./application/todayQueries";
-import { useState } from "react";
+import { formatUkLocalDate } from "./application/conversationStarterHistory";
+import { conversationalNameFor } from "./domain/personNames";
 
-type TodayCardProps = {
+export type ConversationStarterMessageIntent = {
+  draft: string;
+  starterId: string;
+  starterTemplate: string;
+};
+
+export type TodayCardCompletionState = "idle" | "saving" | "complete";
+
+export type TodayCardProps = {
   card: TodayCardProjection;
   busy: boolean;
+  expanded: boolean;
+  selectedStarterId?: string;
+  completionState?: TodayCardCompletionState;
   error?: string;
   copyValue?: string;
-  onMessage: (draft?: string) => void;
+  onMessage: (intent?: ConversationStarterMessageIntent) => void;
   onCall: () => void;
-  onDone: () => void;
-  onPause: () => void;
+  onAnother: () => void;
+  onExpand: () => void;
+  onComplete: () => void;
+  onNotToday: () => void;
   onProfile: () => void;
   onRetry?: () => void;
   onCopy?: () => void;
@@ -20,86 +34,138 @@ function affiliation(card: TodayCardProjection): string | undefined {
   return [card.currentAffiliation.role, card.currentAffiliation.organisationName].filter(Boolean).join(" · ");
 }
 
-function initialConversationStarterIndex(card: TodayCardProjection): number {
-  if (card.conversationStarters.length === 0) return 0;
-  const seed = [...card.person.id, ...card.item.relevantDate]
-    .reduce((total, character) => total + character.charCodeAt(0), 0);
-  return seed % card.conversationStarters.length;
-}
-
 export default function TodayCard({
   card,
   busy,
+  expanded,
+  selectedStarterId,
+  completionState = "idle",
   error,
   copyValue,
   onMessage,
   onCall,
-  onDone,
-  onPause,
+  onAnother,
+  onExpand,
+  onComplete,
+  onNotToday,
   onProfile,
   onRetry,
   onCopy
 }: TodayCardProps) {
   const affiliationText = affiliation(card);
-  const starterKey = `${card.person.id}:${card.item.relevantDate}:${card.conversationStarters.map((starter) => starter.id).join(":")}`;
-  const initialStarterIndex = initialConversationStarterIndex(card);
-  const [starterState, setStarterState] = useState({ key: starterKey, index: initialStarterIndex });
-  const starterIndex = starterState.key === starterKey ? starterState.index : initialStarterIndex;
-  const starter = card.conversationStarters[starterIndex]?.template.replaceAll("{name}", card.person.displayName);
+  const personName = card.person.conversationalName?.trim() || card.person.displayName;
+  const starterName = conversationalNameFor(card.person);
+  const starterSuggestion = card.conversationStarters.find((starter) => starter.id === selectedStarterId)
+    ?? card.conversationStarters[0];
+  const starter = starterSuggestion?.template.replaceAll("{name}", starterName);
   const starterId = `today-conversation-starter-${card.person.id}`;
+  const bodyId = `today-card-body-${card.person.id}`;
+  const completionPending = completionState === "saving";
+  const completed = completionState === "complete";
+  const disabled = busy || completionPending || completed;
+  const bodyExpanded = expanded && !completed;
+  const broughtToToday = card.item.eligibilityCode === "brought_to_today";
 
   return (
     <article
-      className="today-card"
+      className={`today-card today-card--${bodyExpanded ? "expanded" : "collapsed"}${completionPending ? " today-card--completing" : ""}${completed ? " today-card--complete" : ""}`}
       aria-labelledby={`today-person-${card.person.id}`}
-      aria-busy={busy || undefined}
+      aria-busy={busy || completionPending || undefined}
       data-today-person-id={card.person.id}
+      data-completion-state={completionState}
     >
       <header className="today-card-heading">
-        <div>
-          <button id={`today-person-${card.person.id}`} className="today-person-link" type="button" onClick={onProfile}>
-            {card.person.displayName}
+        <div className="today-card-person">
+          <button id={`today-person-${card.person.id}`} className="today-person-link" type="button" disabled={disabled} onClick={onProfile}>
+            {personName}
           </button>
-          {affiliationText && <p>{affiliationText}</p>}
+          {(affiliationText || broughtToToday) && (
+            <div className="today-card-meta">
+              {affiliationText && <p>{affiliationText}</p>}
+              {broughtToToday && <span className="today-brought-forward">Brought to Today</span>}
+            </div>
+          )}
+        </div>
+        <div className="today-card-heading-actions">
+          <button
+            className="today-card-disclosure"
+            type="button"
+            aria-expanded={bodyExpanded}
+            aria-controls={bodyId}
+            aria-label={`${bodyExpanded ? "Collapse" : "Show"} actions for ${personName}`}
+            disabled={disabled}
+            onClick={onExpand}
+          >
+            <span aria-hidden="true">⌄</span>
+          </button>
+          <button
+            className="today-completion-tick"
+            type="button"
+            aria-label={completed
+              ? `${personName} completed`
+              : completionPending
+                ? `Marking ${personName} complete`
+                : `Mark ${personName} complete`}
+            disabled={disabled}
+            onClick={onComplete}
+          >
+            <span aria-hidden="true">✓</span>
+          </button>
         </div>
       </header>
-      {starter && (
-        <div className="today-conversation-suggestion" aria-label="Conversation starter">
-          <span>Conversation starter</span>
-          <p id={starterId} className="today-conversation-starter" aria-live="polite" aria-atomic="true">“{starter}”</p>
-        </div>
-      )}
-      {card.conversationStarters.length > 1 && (
-        <button
-          className="text-action today-another-starter"
-          type="button"
-          aria-label={`Show another conversation starter for ${card.person.displayName}`}
-          aria-controls={starterId}
-          onClick={() => setStarterState({
-            key: starterKey,
-            index: (starterIndex + 1) % card.conversationStarters.length
-          })}
-        >Another suggestion</button>
-      )}
 
-      {error && (
-        <div className="today-card-error" role="alert">
-          <p>{error}</p>
-          <div className="button-row compact-buttons">
-            {onRetry && <button type="button" onClick={onRetry} disabled={busy}>Retry</button>}
-            {copyValue && onCopy && <button type="button" onClick={onCopy}>Copy contact detail</button>}
-          </div>
-        </div>
-      )}
+      <div id={bodyId} className="today-card-body" hidden={!bodyExpanded}>
+        {bodyExpanded && (
+          <>
+            {starter && (
+              <div className="today-conversation-suggestion">
+                <p id={starterId} className="today-conversation-starter" aria-live="polite" aria-atomic="true">{starter}</p>
+                {starterSuggestion?.lastUsedDate && (
+                  <p className="today-conversation-history">Last used: {formatUkLocalDate(starterSuggestion.lastUsedDate)}</p>
+                )}
+              </div>
+            )}
+            {card.conversationStarters.length > 1 && (
+              <button
+                className="text-action today-another-starter"
+                type="button"
+                aria-label={`Show another conversation starter for ${personName}`}
+                aria-controls={starterId}
+                disabled={disabled}
+                onClick={onAnother}
+              >Another suggestion</button>
+            )}
 
-      <div className="today-card-actions" role="group" aria-label={`Actions for ${card.person.displayName}`}>
-        <button className="primary-action" type="button" disabled={busy} onClick={() => onMessage(starter)}>Message</button>
-        <button type="button" disabled={busy} onClick={onCall}>Call</button>
-        <button type="button" disabled={busy} onClick={onDone}>Done</button>
+            {error && (
+              <div className="today-card-error" role="alert">
+                <p>{error}</p>
+                <div className="button-row compact-buttons">
+                  {onRetry && <button type="button" onClick={onRetry} disabled={disabled}>Retry</button>}
+                  {copyValue && onCopy && <button type="button" onClick={onCopy} disabled={disabled}>Copy contact detail</button>}
+                </div>
+              </div>
+            )}
+
+            <div className="today-card-actions" role="group" aria-label={`Contact ${personName}`}>
+              <button className="primary-action" type="button" disabled={disabled} onClick={() => onMessage(starter && starterSuggestion ? {
+                draft: starter,
+                starterId: starterSuggestion.id,
+                starterTemplate: starterSuggestion.template
+              } : undefined)}>Message</button>
+              <button type="button" disabled={disabled} onClick={onCall}>Call</button>
+            </div>
+            <div className="today-card-links">
+              <button className="today-not-today" type="button" disabled={disabled} onClick={onNotToday}>Not today</button>
+            </div>
+          </>
+        )}
       </div>
-      <div className="today-card-links">
-        <button type="button" disabled={busy} onClick={onPause}>Pause</button>
-      </div>
+
+      {completed && (
+        <span className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
+          {personName} completed.
+        </span>
+      )}
     </article>
   );
 }

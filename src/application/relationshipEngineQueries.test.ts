@@ -141,7 +141,7 @@ describe("Relationship Engine application queries", () => {
   it("produces stable per-Person assessments and Today order from shuffled snapshots", () => {
     const empty = (): PeopleOsData => ({
       people: [], contactMethods: [], externalIdentities: [], affiliations: [], interactions: [], events: [], memoryFacts: [],
-      followUps: [], followUpEvents: [], todaySkips: [], reachOutEntries: [], reachOutEvents: [],
+      followUps: [], followUpEvents: [], conversationStarterUses: [], todaySkips: [], reachOutEntries: [], reachOutEvents: [],
       reachOutContexts: [], appSettings: []
     });
     const data = empty();

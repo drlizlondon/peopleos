@@ -9,6 +9,7 @@ public final class PeopleOSContactsPlugin: CAPPlugin, CAPBridgedPlugin, CNContac
     public let identifier = "PeopleOSContactsPlugin"
     public let jsName = "PeopleOSContacts"
     public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "pickContact", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "pickContacts", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "createContact", returnType: CAPPluginReturnPromise)
     ]
@@ -16,6 +17,48 @@ public final class PeopleOSContactsPlugin: CAPPlugin, CAPBridgedPlugin, CNContac
     private let idempotencyDefaultsKey = "peopleos.contacts.created-operations.v1"
     private let stateLock = NSLock()
     private var pendingPickerCall: CAPPluginCall?
+    private var singlePickerDelegate: SingleContactPickerDelegate?
+
+    @objc public func pickContact(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard self.pendingPickerCall == nil else {
+                call.reject("The contact picker is already open.", "picker_busy")
+                return
+            }
+            guard let presenter = self.bridge?.viewController,
+                  presenter.presentedViewController == nil else {
+                call.reject("The contact picker is unavailable right now.", "unavailable")
+                return
+            }
+
+            let picker = CNContactPickerViewController()
+            // Keep this delegate separate from the bulk picker delegate below.
+            // Implementing only the singular selection callback lets Apple's
+            // standard picker provide its native searchable selection flow.
+            let delegate = SingleContactPickerDelegate(
+                onSelect: { [weak self] contact in
+                    guard let self else { return }
+                    self.finishPicker([
+                        "status": "selected",
+                        "contacts": [self.selectedContact(contact)]
+                    ])
+                },
+                onCancel: { [weak self] in
+                    self?.finishPicker(["status": "cancelled", "contacts": []])
+                }
+            )
+            picker.delegate = delegate
+            picker.displayedPropertyKeys = [
+                CNContactPhoneNumbersKey,
+                CNContactEmailAddressesKey,
+                CNContactOrganizationNameKey,
+                CNContactJobTitleKey
+            ]
+            self.pendingPickerCall = call
+            self.singlePickerDelegate = delegate
+            presenter.present(picker, animated: true)
+        }
+    }
 
     @objc public func pickContacts(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
@@ -108,6 +151,7 @@ public final class PeopleOSContactsPlugin: CAPPlugin, CAPBridgedPlugin, CNContac
     private func finishPicker(_ result: [String: Any]) {
         let call = pendingPickerCall
         pendingPickerCall = nil
+        singlePickerDelegate = nil
         call?.resolve(result)
     }
 
@@ -130,6 +174,9 @@ public final class PeopleOSContactsPlugin: CAPPlugin, CAPBridgedPlugin, CNContac
         }
         if let jobTitle = availableString(contact, key: CNContactJobTitleKey, value: { contact.jobTitle }) {
             result["jobTitle"] = jobTitle
+        }
+        if let givenName = availableString(contact, key: CNContactGivenNameKey, value: { contact.givenName }) {
+            result["givenName"] = givenName
         }
         return result
     }
@@ -397,4 +444,25 @@ public final class PeopleOSContactsPlugin: CAPPlugin, CAPBridgedPlugin, CNContac
     }
 
     private enum ContactsPayloadError: Error { case invalid }
+}
+
+private final class SingleContactPickerDelegate: NSObject, CNContactPickerDelegate {
+    private let onSelect: (CNContact) -> Void
+    private let onCancel: () -> Void
+
+    init(onSelect: @escaping (CNContact) -> Void, onCancel: @escaping () -> Void) {
+        self.onSelect = onSelect
+        self.onCancel = onCancel
+    }
+
+    func contactPickerDidCancel(_ picker: CNContactPickerViewController) {
+        onCancel()
+    }
+
+    func contactPicker(
+        _ picker: CNContactPickerViewController,
+        didSelect contact: CNContact
+    ) {
+        onSelect(contact)
+    }
 }

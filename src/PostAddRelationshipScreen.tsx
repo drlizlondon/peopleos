@@ -174,6 +174,7 @@ export default function PostAddRelationshipScreen({
         expectedRevision: person.revision,
         draft: {
           displayName: person.displayName,
+          conversationalName: person.conversationalName,
           relationshipMode: relationshipModeOf(person),
           importance: person.importance,
           tags: person.tags,

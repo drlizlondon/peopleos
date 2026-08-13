@@ -20,6 +20,7 @@ const labels: Record<keyof BackupCounts, string> = {
   memoryFacts: "Memory facts",
   followUps: "Follow-ups",
   followUpEvents: "Follow-up history",
+  conversationStarterUses: "Conversation starter history",
   todaySkips: "Today skips",
   reachOutEntries: "Reach Out entries",
   reachOutEvents: "Reach Out history",

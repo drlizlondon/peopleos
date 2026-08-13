@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { isLocalDate, validatePeopleOsData, ValidationError } from "./validation";
 import { DEFAULT_CONVERSATION_STARTERS } from "./schema";
-import { completeData } from "../test/fixtures";
+import { completeData, fixedNow } from "../test/fixtures";
 
 describe("V1 data validation", () => {
   it("accepts a complete referentially valid dataset", () => {
@@ -26,6 +26,35 @@ describe("V1 data validation", () => {
     const data = completeData();
     data.people[0] = { ...data.people[0], displayName: "" };
     expect(() => validatePeopleOsData(data)).toThrow(/people\[0\] is invalid/);
+  });
+
+  it("accepts legacy People without a conversational name and validates familiar names and starter ownership", () => {
+    const legacy = completeData();
+    expect(legacy.people[0]).not.toHaveProperty("conversationalName");
+    expect(validatePeopleOsData(legacy)).toBe(legacy);
+
+    const valid = completeData();
+    valid.people[0] = {
+      ...valid.people[0]!,
+      conversationalName: "Lizzie",
+      broughtToTodayDate: "2026-08-13"
+    };
+    valid.conversationStarterUses.push({
+      id: "starter-use-lizzie",
+      personId: valid.people[0]!.id,
+      starterId: valid.appSettings[0]!.conversationStarters[0]!.id,
+      starterTemplate: valid.appSettings[0]!.conversationStarters[0]!.template,
+      occurredAt: fixedNow
+    });
+    expect(validatePeopleOsData(valid)).toBe(valid);
+
+    const blankName = structuredClone(valid);
+    blankName.people[0]!.conversationalName = " ";
+    expect(() => validatePeopleOsData(blankName)).toThrow(/people\[0\] is invalid/);
+
+    const orphanedUse = structuredClone(valid);
+    orphanedUse.conversationStarterUses[0]!.personId = "missing-person";
+    expect(() => validatePeopleOsData(orphanedUse)).toThrow(/conversationStarterUses.*references a missing/);
   });
 
   it("requires a whole Already contacted default from 1 through 3650 days", () => {

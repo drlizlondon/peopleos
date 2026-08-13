@@ -339,7 +339,7 @@ describe("PeopleOS IndexedDB foundation", () => {
     const migrated = await openPeopleOsDatabase(name, "2026-08-13T09:00:00.000Z");
     expect(migrated.version).toBe(DATABASE_VERSION);
     expect(Array.from(migrated.objectStoreNames)).toEqual([
-      "affiliations", "appSettings", "contactMethods", "events", "externalIdentities", "followUpEvents",
+      "affiliations", "appSettings", "contactMethods", "conversationStarterUses", "events", "externalIdentities", "followUpEvents",
       "followUps", "interactions", "memoryFacts", "metadata", "people", "reachOutContexts",
       "reachOutEntries", "reachOutEvents", "syncOutbox", "syncRecords", "syncState",
       "syncTombstones", "todaySkips"
@@ -431,7 +431,7 @@ describe("PeopleOS IndexedDB foundation", () => {
     const migrated = await openPeopleOsDatabase(name, "2026-08-13T09:00:00.000Z");
     expect(migrated.version).toBe(DATABASE_VERSION);
     expect(Array.from(migrated.objectStoreNames)).toEqual([
-      "affiliations", "appSettings", "contactMethods", "events", "externalIdentities", "followUpEvents",
+      "affiliations", "appSettings", "contactMethods", "conversationStarterUses", "events", "externalIdentities", "followUpEvents",
       "followUps", "interactions", "memoryFacts", "metadata", "people", "reachOutContexts",
       "reachOutEntries", "reachOutEvents", "syncOutbox", "syncRecords", "syncState",
       "syncTombstones", "todaySkips"
@@ -548,10 +548,14 @@ describe("PeopleOS IndexedDB foundation", () => {
   it("creates every V1 store and deterministic singleton defaults", async () => {
     const db = await openPeopleOsDatabase(databaseName("schema"), fixedNow);
     expect(Array.from(db.objectStoreNames)).toEqual([
-      "affiliations", "appSettings", "contactMethods", "events", "externalIdentities", "followUpEvents",
+      "affiliations", "appSettings", "contactMethods", "conversationStarterUses", "events", "externalIdentities", "followUpEvents",
       "followUps", "interactions", "memoryFacts", "metadata", "people",
       "reachOutContexts", "reachOutEntries", "reachOutEvents", "syncOutbox", "syncRecords",
       "syncState", "syncTombstones", "todaySkips"
+    ]);
+    expect(Array.from(db.transaction("conversationStarterUses").store.indexNames)).toEqual([
+      "by-occurred",
+      "by-person"
     ]);
     const settings = await db.get("appSettings", "app");
     expect(settings).toMatchObject({

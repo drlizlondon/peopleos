@@ -146,7 +146,7 @@ export default function PersonContactLinkReview({
     <section className="profile-card" aria-labelledby={headingId} aria-busy={busy}>
       <div className="card-heading-with-action">
         <div>
-          <h3 ref={headingRef} id={headingId} tabIndex={-1}>Link iPhone contact</h3>
+          <h3 ref={headingRef} id={headingId} tabIndex={-1}>Add or update from iPhone Contacts</h3>
           <p>Review the details to add to {targetPerson.displayName}. This is a one-time copy, not ongoing sync.</p>
         </div>
         <button type="button" onClick={onCancel} disabled={busy}>Cancel</button>
@@ -246,7 +246,10 @@ export default function PersonContactLinkReview({
                   {row.prepared.affiliation.role ? ` · ${row.prepared.affiliation.role}` : ""}
                 </label>
               )}
-              {row.prepared.contactMethods.length === 0 && !row.prepared.affiliation && (
+              {row.prepared.contactMethods.length === 0
+                && !row.prepared.affiliation
+                && !(reviewedDisplayNameCandidate(row.prepared)
+                  && personUsesOwnContactAsDisplayName(targetPerson, targetContactMethods)) && (
                 <p className="muted-copy">This iPhone contact has no supported details to add.</p>
               )}
             </fieldset>

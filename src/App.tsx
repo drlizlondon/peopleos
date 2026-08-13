@@ -43,7 +43,8 @@ import {
 import { getAppSettings } from "./application/peopleQueries";
 import {
   getIPhoneContactsAdapter,
-  isIPhoneContactsSupported
+  isIPhoneContactsSupported,
+  pickSingleIPhoneContact
 } from "./contacts/capacitorAdapter";
 import type { Person } from "./domain/schema";
 import type { ActiveRelationshipMode } from "./domain/relationshipMode";
@@ -89,6 +90,7 @@ export default function App() {
   const [globalReachOutOpen, setGlobalReachOutOpen] = useState(false);
   const [globalReachOutPerson, setGlobalReachOutPerson] = useState<Person | undefined>();
   const [reachOutRefreshVersion, setReachOutRefreshVersion] = useState(0);
+  const [navigationLocked, setNavigationLockedState] = useState(false);
   const routeRef = useRef(route);
   const activeHistoryStateRef = useRef<Record<string, unknown>>(window.history.state ?? {});
   const unsavedChangesRef = useRef(false);
@@ -119,6 +121,7 @@ export default function App() {
 
   const setNavigationLocked = useCallback((locked: boolean) => {
     navigationLockedRef.current = locked;
+    setNavigationLockedState(locked);
     if (!locked) replayPendingNotificationTap();
   }, [replayPendingNotificationTap]);
 
@@ -401,6 +404,7 @@ export default function App() {
   }
 
   function openReachOutCapture(person?: Person, opener?: HTMLElement | null) {
+    if (navigationLockedRef.current) return;
     reachOutCaptureOpenerRef.current = opener ?? null;
     setGlobalReachOutPerson(person);
     setGlobalReachOutOpen(true);
@@ -470,7 +474,7 @@ export default function App() {
     if (unsavedChangesRef.current && !window.confirm("Discard changes?")) return "cancelled";
     const adapter = getIPhoneContactsAdapter();
     if (!adapter) throw Object.assign(new Error("iPhone Contacts are unavailable."), { code: "unavailable" });
-    const result = await adapter.pickContacts();
+    const result = await pickSingleIPhoneContact(adapter);
     if (result.status === "cancelled") return "cancelled";
     const db = await getDatabase();
     const settings = await getAppSettings(db);
@@ -499,13 +503,20 @@ export default function App() {
       />
     ) : undefined;
     switch (route.id) {
-      case "today": return <TodayScreen activeMode={activeRelationshipMode} navigate={navigatePath} />;
+      case "today": return (
+        <TodayScreen
+          activeMode={activeRelationshipMode}
+          navigate={navigatePath}
+          onBusyChange={setNavigationLocked}
+        />
+      );
       case "reach-out": return (
         <ReachOutScreen
           key={reachOutRefreshVersion}
           activeMode={activeRelationshipMode}
           navigate={navigatePath}
           onAdd={(opener) => openReachOutCapture(undefined, opener)}
+          onBusyChange={setNavigationLocked}
         />
       );
       case "people": return (
@@ -774,6 +785,7 @@ export default function App() {
               ref={globalAddButtonRef}
               className="header-add-person"
               type="button"
+              disabled={navigationLocked}
               onClick={(event) => {
                 if (route.id === "reach-out") openReachOutCapture(undefined, event.currentTarget);
                 else navigatePath("/people/new");
@@ -790,8 +802,10 @@ export default function App() {
             <button
               key={mode}
               type="button"
+              disabled={navigationLocked}
               aria-pressed={activeRelationshipMode === mode}
               onClick={() => {
+                if (navigationLockedRef.current) return;
                 writeActiveRelationshipMode(mode);
                 setActiveRelationshipMode(mode);
                 requestTodayNotificationReconcile();

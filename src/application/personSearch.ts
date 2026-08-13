@@ -13,6 +13,7 @@ import type {
   RelationshipEvent
 } from "../domain/schema";
 import { personMatchesActiveMode, type ActiveRelationshipMode } from "../domain/relationshipMode";
+import { conversationalNameFor } from "../domain/personNames";
 import {
   assessRelationship,
   assessRelationshipStage,
@@ -181,16 +182,20 @@ function compareSourceCandidate(left: MatchCandidate, right: MatchCandidate): nu
 }
 
 function nameMatch(person: Person, query: string): MatchCandidate | undefined {
-  const name = normalizePersonSearchText(person.displayName);
-  const base = {
-    sourceId: person.id,
-    value: person.displayName,
-    label: "Name"
-  } as const;
-  if (name === query) return { ...base, source: "display_name_exact", tier: 1 };
-  if (name.startsWith(query)) return { ...base, source: "display_name_prefix", tier: 2 };
-  if (directTokenPrefixMatch(name, query)) return { ...base, source: "name_token_prefix", tier: 3 };
-  return undefined;
+  const names = [{ value: person.displayName, label: "Name" }];
+  const conversationalName = conversationalNameFor(person);
+  if (normalizePersonSearchText(conversationalName) !== normalizePersonSearchText(person.displayName)) {
+    names.push({ value: conversationalName, label: "What you call them" });
+  }
+  const matches: MatchCandidate[] = [];
+  for (const candidate of names) {
+    const name = normalizePersonSearchText(candidate.value);
+    const base = { sourceId: person.id, ...candidate };
+    if (name === query) matches.push({ ...base, source: "display_name_exact", tier: 1 });
+    else if (name.startsWith(query)) matches.push({ ...base, source: "display_name_prefix", tier: 2 });
+    else if (directTokenPrefixMatch(name, query)) matches.push({ ...base, source: "name_token_prefix", tier: 3 });
+  }
+  return matches.sort(compareSourceCandidate)[0];
 }
 
 function contactMatch(bundle: PersonSearchBundle, rawQuery: string): MatchCandidate[] {

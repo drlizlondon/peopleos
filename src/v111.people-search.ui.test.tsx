@@ -278,7 +278,7 @@ describe("V1-11 People search and filters UI", () => {
     expect(await screen.findByRole("button", { name: "Add email" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "← Person" }));
     expect(await screen.findByRole("heading", { name: "Edit person" })).toBeInTheDocument();
-    const name = await screen.findByLabelText(/Display name/);
+    const name = await screen.findByLabelText(/Full or contact name/);
     await user.clear(name);
     await user.type(name, "Aaron Clarke updated");
     await waitFor(() => expect(name).toHaveValue("Aaron Clarke updated"));

@@ -122,6 +122,35 @@ describe("PeopleOS backup and restore", () => {
     target.close();
   });
 
+  it("round-trips exact per-person starter history and migrates schema six with an empty history", async () => {
+    const data = completeData();
+    data.conversationStarterUses.push({
+      id: "starter-use-sarah",
+      personId: data.people[0]!.id,
+      starterId: data.appSettings[0]!.conversationStarters[0]!.id,
+      starterTemplate: data.appSettings[0]!.conversationStarters[0]!.template,
+      occurredAt: "2026-08-06T09:00:00.000Z"
+    });
+    const current = previewBackup({
+      product: "peopleos",
+      schemaVersion: BACKUP_SCHEMA_VERSION,
+      exportedAt: fixedNow,
+      data
+    });
+    expect(current.envelope.data.conversationStarterUses).toEqual(data.conversationStarterUses);
+
+    const { conversationStarterUses: _history, ...schemaSixData } = completeData();
+    const migrated = previewBackup({
+      product: "peopleos",
+      schemaVersion: 6,
+      exportedAt: fixedNow,
+      data: schemaSixData
+    });
+    expect(migrated.migratedFromVersion).toBe(6);
+    expect(migrated.envelope.schemaVersion).toBe(BACKUP_SCHEMA_VERSION);
+    expect(migrated.envelope.data.conversationStarterUses).toEqual([]);
+  });
+
   it("round-trips a structured contact cadence without flattening its unit", async () => {
     const data = completeData();
     data.people[0] = {

@@ -1311,6 +1311,21 @@ export async function completeReachOut(
 
     const person = requireWritablePerson(await tx.objectStore("people").get(command.personId));
     if (person.revision !== command.expectedPersonRevision) throw new StaleRevisionError();
+    if (command.completionOrigin === "already_contacted"
+      && (person.broughtToTodayDate || person.todayPausedUntilDate)) {
+      const {
+        broughtToTodayDate: _broughtToTodayDate,
+        todayPausedUntilDate: _todayPausedUntilDate,
+        ...contactedPerson
+      } = person;
+      const updatedPerson: Person = {
+        ...contactedPerson,
+        revision: person.revision + 1,
+        updatedAt: command.occurredAt
+      };
+      assertValidRecord("people", updatedPerson);
+      await tx.objectStore("people").put(updatedPerson);
+    }
     const entry = requireCurrentEntry(await entries.get(command.entryId), command);
     if (entry.intentStatus !== "active") throw new RecordConflictError("Only active outreach can be completed.");
     const currentFollowUp = requireReciprocalPendingFollowUp(

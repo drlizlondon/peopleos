@@ -9,6 +9,7 @@ import {
   type AppMetadata,
   type AppSettings,
   type ContactMethod,
+  type ConversationStarterUse,
   type ExternalIdentity,
   type FollowUp,
   type FollowUpEvent,
@@ -36,6 +37,7 @@ export interface PeopleOsDb extends DBSchema {
   memoryFacts: { key: string; value: MemoryFact; indexes: { "by-person": string; "by-kind": string } };
   followUps: { key: string; value: FollowUp; indexes: { "by-person": string; "by-due": string; "by-status": string; "by-reach-out": string } };
   followUpEvents: { key: string; value: FollowUpEvent; indexes: { "by-follow-up": string; "by-person": string; "by-occurred": string } };
+  conversationStarterUses: { key: string; value: ConversationStarterUse; indexes: { "by-person": string; "by-occurred": string } };
   todaySkips: { key: string; value: TodaySkip; indexes: { "by-person": string; "by-local-date": string } };
   reachOutEntries: { key: string; value: ReachOutEntry; indexes: { "by-person": string; "by-status": string; "by-updated": string } };
   reachOutEvents: { key: string; value: ReachOutEvent; indexes: { "by-entry": string; "by-occurred": string } };
@@ -206,6 +208,12 @@ export async function openPeopleOsDatabase(
 
       if (!database.objectStoreNames.contains("syncState")) {
         database.createObjectStore("syncState", { keyPath: "id" });
+      }
+
+      if (!database.objectStoreNames.contains("conversationStarterUses")) {
+        const starterUses = database.createObjectStore("conversationStarterUses", { keyPath: "id" });
+        starterUses.createIndex("by-person", "personId");
+        starterUses.createIndex("by-occurred", "occurredAt");
       }
 
       if (oldVersion < 4) {

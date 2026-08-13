@@ -127,7 +127,13 @@ export function buildTodayNotificationPlanningResult(
         return [];
       }
       return scheduleState.kind === "scheduled"
-        ? [{ personId: person.id, localDate: scheduleState.localDate }]
+        ? [{
+            personId: person.id,
+            localDate: scheduleState.localDate,
+            ...(scheduleState.temporary && scheduleState.resumesOn
+              ? { resumesOn: scheduleState.resumesOn }
+              : {})
+          }]
         : [];
     } catch {
       return [];
@@ -147,10 +153,11 @@ export function buildTodayNotificationPlanningResult(
   let localDate = firstEligibleDate < firstSchedulableDate ? firstSchedulableDate : firstEligibleDate;
   const currentLocalDate = localDateForInstant(options.now.toISOString(), options.timeZone);
   const plan: TodayNotificationPlanEntry[] = [];
-  const maxAttempts = limit + skippedDates.size + 1;
+  const maxAttempts = limit + skippedDates.size + eligible.length + 1;
 
   for (let attempts = 0; plan.length < limit && attempts < maxAttempts; attempts += 1) {
     const count = eligible.filter((candidate) => candidate.localDate <= localDate
+      && (!candidate.resumesOn || localDate === candidate.localDate || candidate.resumesOn <= localDate)
       && !skipped.has(`${candidate.personId}:${localDate}`)).length;
     if (count > 0) {
       plan.push({
@@ -164,7 +171,25 @@ export function buildTodayNotificationPlanningResult(
         extra: { kind: "today-summary", destination: "today" }
       });
     }
-    localDate = addDaysToLocalDate(localDate, 1);
+    if (count === 0) {
+      const skippedCandidateCanReturnTomorrow = eligible.some((candidate) =>
+        candidate.localDate <= localDate
+        && (!candidate.resumesOn || localDate === candidate.localDate || candidate.resumesOn <= localDate)
+        && skipped.has(`${candidate.personId}:${localDate}`)
+      );
+      const nextEligibility = eligible
+        .flatMap((candidate) => [
+          ...(candidate.localDate > localDate ? [candidate.localDate] : []),
+          ...(candidate.resumesOn && candidate.resumesOn > localDate ? [candidate.resumesOn] : [])
+        ])
+        .sort()[0];
+      const tomorrow = addDaysToLocalDate(localDate, 1);
+      localDate = skippedCandidateCanReturnTomorrow && (!nextEligibility || tomorrow < nextEligibility)
+        ? tomorrow
+        : nextEligibility ?? tomorrow;
+    } else {
+      localDate = addDaysToLocalDate(localDate, 1);
+    }
   }
   return { entries: plan, incompleteRegularSchedulePersonIds };
 }

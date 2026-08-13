@@ -7,6 +7,15 @@ import { SYNC_SCHEMA_VERSION, type CloudRecordEnvelope, type PeopleOSCloudSyncAd
 const BATCH_SIZE = 100;
 const RETENTION_MS = 180 * 24 * 60 * 60 * 1000;
 
+// Conversation-starter history is new in this release. Keep it local (and in
+// JSON backups) until a compatibility release that teaches every supported
+// client to ignore future stores has become the upgrade floor. Uploading a new
+// store into the existing V1 CloudKit zone sooner would stall older clients.
+const SYNCED_STORE_NAMES: readonly DataStoreName[] = DATA_STORE_NAMES.filter(
+  (store) => store !== "conversationStarterUses"
+);
+const SYNCED_STORE_SET = new Set<DataStoreName>(SYNCED_STORE_NAMES);
+
 function revisionOf(record: Record<string, unknown>): number {
   return typeof record.revision === "number" ? record.revision : 0;
 }
@@ -26,11 +35,34 @@ export async function scanLocalChanges(db: PeopleOsDatabase, now = new Date().to
   const data = await readAllData(db);
   const local = recordsByKey(data);
   const shadows = await db.getAll("syncRecords");
+  const [outbox, tombstones] = await Promise.all([
+    db.getAll("syncOutbox"),
+    db.getAll("syncTombstones")
+  ]);
   const shadowByKey = new Map(shadows.map((shadow) => [shadow.key, shadow]));
   let queued = 0;
   const tx = db.transaction(["syncRecords", "syncOutbox", "syncTombstones", "syncState"], "readwrite");
 
-  for (const store of DATA_STORE_NAMES) {
+  // Remove any pre-release operations for a store whose CloudKit rollout is
+  // intentionally deferred. The canonical local rows remain untouched and a
+  // later enabling release can rescan them after its required full fetch.
+  for (const operation of outbox) {
+    if (!SYNCED_STORE_SET.has(operation.store)) {
+      await tx.objectStore("syncOutbox").delete(operation.id);
+    }
+  }
+  for (const shadow of shadows) {
+    if (!SYNCED_STORE_SET.has(shadow.store)) {
+      await tx.objectStore("syncRecords").delete(shadow.key);
+    }
+  }
+  for (const tombstone of tombstones) {
+    if (!SYNCED_STORE_SET.has(tombstone.store)) {
+      await tx.objectStore("syncTombstones").delete(tombstone.key);
+    }
+  }
+
+  for (const store of SYNCED_STORE_NAMES) {
     for (const candidate of data[store]) {
       const record = candidate as unknown as Record<string, unknown>;
       const key = syncKey(store, candidate.id);
@@ -57,6 +89,7 @@ export async function scanLocalChanges(db: PeopleOsDatabase, now = new Date().to
   }
 
   for (const shadow of shadows) {
+    if (!SYNCED_STORE_SET.has(shadow.store)) continue;
     if (local.has(shadow.key) || shadow.status === "deleted") continue;
     const tombstone: SyncTombstone = {
       key: shadow.key, store: shadow.store, entityId: shadow.entityId, cloudRecordName: shadow.cloudRecordName,
@@ -95,7 +128,10 @@ async function applyRemoteRecords(db: PeopleOsDatabase, records: CloudRecordEnve
   }> = [];
   for (const incomingRemote of records) {
     const remote = migrateLegacyCloudRecord(incomingRemote);
-    if (!DATA_STORE_NAMES.includes(remote.store)) throw new Error("Remote store is not allowed");
+    // Forward-compatible clients must advance their CloudKit token past stores
+    // introduced by a newer app. They cannot interpret or write those records,
+    // but failing the entire batch would permanently stall every older store.
+    if (!SYNCED_STORE_SET.has(remote.store)) continue;
     const key = syncKey(remote.store, remote.entityId);
     const local = (data[remote.store] as Array<{ id: string }>).find((item) => item.id === remote.entityId) as unknown as Record<string, unknown> | undefined;
     const decision = decideRecord(local, remote, state.installationId, tombstones.get(key));
@@ -106,6 +142,19 @@ async function applyRemoteRecords(db: PeopleOsDatabase, records: CloudRecordEnve
     });
     if (decision === "apply-remote") data = withRecord(data, remote.store, remote.payload, remote.entityId);
     if (decision === "apply-deletion") data = withRecord(data, remote.store, undefined, remote.entityId);
+  }
+  const remotelyDeletedPersonIds = new Set(decisions
+    .filter(({ remote, decision }) => remote.store === "people" && decision === "apply-deletion")
+    .map(({ remote }) => remote.entityId));
+  const cascadedStarterUseIds = data.conversationStarterUses
+    .filter((use) => remotelyDeletedPersonIds.has(use.personId))
+    .map((use) => use.id);
+  if (cascadedStarterUseIds.length > 0) {
+    const deletedUseIds = new Set(cascadedStarterUseIds);
+    data = {
+      ...data,
+      conversationStarterUses: data.conversationStarterUses.filter((use) => !deletedUseIds.has(use.id))
+    };
   }
   validatePeopleOsData(data);
   const tx = db.transaction([...DATA_STORE_NAMES, "metadata", "syncRecords", "syncTombstones", "syncOutbox"] as never, "readwrite");
@@ -138,6 +187,9 @@ async function applyRemoteRecords(db: PeopleOsDatabase, records: CloudRecordEnve
         retryCount: 0, acknowledgedAt: now
       } satisfies SyncRecordMetadata as never);
     }
+  }
+  for (const starterUseId of cascadedStarterUseIds) {
+    await tx.objectStore("conversationStarterUses" as never).delete(starterUseId as never);
   }
   const metadataStore = tx.objectStore("metadata" as never);
   const metadata = await metadataStore.get("app" as never) as { datasetRevision: number; updatedAt: string };

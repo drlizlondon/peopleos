@@ -181,10 +181,14 @@ describe("reviewed duplicate resolution", () => {
   it("atomically replaces an identifier fallback with an explicitly reviewed human name", async () => {
     const db = await openDatabase("reviewed-name");
     const repositories = createRepositories(db);
-    await repositories.people.create(targetPerson({ displayName: "07900 123456" }));
+    await repositories.people.create(targetPerson({
+      displayName: "07900 123456",
+      conversationalName: "07900 123456"
+    }));
     await repositories.contactMethods.create(contact());
     const prepared = candidate({
       displayName: "Bibi Jones",
+      conversationalName: "Bibi",
       contactMethods: [{ id: "contact-candidate-phone", kind: "phone", value: "+44 7900 123456" }]
     });
     const metadataBefore = await db.get("metadata", "app");
@@ -201,7 +205,12 @@ describe("reviewed duplicate resolution", () => {
     const result = await addReviewedDetailsToExistingPerson(db, input);
 
     expect(result).toMatchObject({
-      person: { id: "person-target", displayName: "Bibi Jones", revision: 2 },
+      person: {
+        id: "person-target",
+        displayName: "Bibi Jones",
+        conversationalName: "Bibi",
+        revision: 2
+      },
       displayNameUpdated: true,
       addedContactMethods: [],
       skippedContactMethodIds: []
@@ -216,6 +225,36 @@ describe("reviewed duplicate resolution", () => {
     expect(retry.displayNameUpdated).toBe(true);
     expect(await db.count("people")).toBe(1);
     expect(await db.count("contactMethods")).toBe(1);
+  });
+
+  it("preserves a custom familiar name when replacing an identifier fallback", async () => {
+    const db = await openDatabase("reviewed-name-custom-familiar");
+    const repositories = createRepositories(db);
+    await repositories.people.create(targetPerson({
+      displayName: "07900 123456",
+      conversationalName: "Mum"
+    }));
+    await repositories.contactMethods.create(contact());
+    const prepared = candidate({
+      displayName: "Elizabeth Jones",
+      conversationalName: "Elizabeth",
+      contactMethods: []
+    });
+
+    const result = await addReviewedDetailsToExistingPerson(db, {
+      targetPersonId: "person-target",
+      expectedPersonRevision: 1,
+      candidate: prepared,
+      selectedContactMethodIds: [],
+      includeAffiliation: false,
+      includeDisplayName: true,
+      now: commandNow
+    });
+
+    expect(result.person).toMatchObject({
+      displayName: "Elizabeth Jones",
+      conversationalName: "Mum"
+    });
   });
 
   it("never overwrites an existing real name during reviewed contact enrichment", async () => {

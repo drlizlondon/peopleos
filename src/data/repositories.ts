@@ -3,6 +3,7 @@ import type { PeopleOsDb, PeopleOsDatabase } from "./database";
 import type {
   AppSettings,
   ContactMethod,
+  ConversationStarterUse,
   ExternalIdentity,
   FollowUp,
   FollowUpEvent,
@@ -50,6 +51,7 @@ type StoreRecords = {
 
 type AppendOnlyStoreRecords = {
   followUpEvents: FollowUpEvent;
+  conversationStarterUses: ConversationStarterUse;
   todaySkips: TodaySkip;
   reachOutEvents: ReachOutEvent;
 };
@@ -197,6 +199,7 @@ export async function createAppendOnlyRecord<S extends keyof AppendOnlyStoreReco
   assertValidRecord(store, record);
   const candidate = record as Record<string, unknown>;
   if (store === "todaySkips" && !await db.get("people", String(candidate.personId))) throw new RecordConflictError(`${store}.${record.id} references missing person`);
+  if (store === "conversationStarterUses" && !await db.get("people", String(candidate.personId))) throw new RecordConflictError(`${store}.${record.id} references missing person`);
   if (store === "followUpEvents") {
     const followUp = await db.get("followUps", String(candidate.followUpId));
     if (!followUp || followUp.personId !== candidate.personId) throw new RecordConflictError(`${store}.${record.id} references missing or incompatible follow-up`);

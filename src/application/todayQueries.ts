@@ -30,6 +30,10 @@ import {
   relationshipBundleFromGroups,
   type GroupedRelationshipData
 } from "./relationshipEngineQueries";
+import {
+  rankConversationStarters,
+  type ConversationStarterSuggestion
+} from "./conversationStarterHistory";
 
 export type TodayEvaluationIssue = {
   personId: string;
@@ -49,7 +53,7 @@ export type TodayCardProjection = {
   primaryFollowUp?: FollowUp;
   additionalDueFollowUps: FollowUp[];
   reachOut?: TodayReachOutProjection;
-  conversationStarters: ConversationStarter[];
+  conversationStarters: ConversationStarterSuggestion[];
   contact: ContactNowProjection;
 };
 
@@ -161,21 +165,24 @@ function buildCardIndex(data: PeopleOsData, grouped: GroupedRelationshipData): C
 
 function conversationStartersForPerson(
   starters: readonly ConversationStarter[],
-  person: Person
-): ConversationStarter[] {
+  person: Person,
+  data: PeopleOsData,
+  clock: RelationshipClock
+): ConversationStarterSuggestion[] {
   const relationshipMode = person.relationshipMode ?? "personal";
-  return starters
+  return rankConversationStarters(starters
     .filter((starter) => starter.relationshipMode === "both"
       || relationshipMode === "both"
       || starter.relationshipMode === relationshipMode)
-    .map((starter) => ({ ...starter }));
+    .map((starter) => ({ ...starter })), data.conversationStarterUses, person.id, clock.timeZone, data.people);
 }
 
 function cardFromItem(
   item: TodayItem,
   data: PeopleOsData,
   assessmentsByPerson: ReadonlyMap<string, RelationshipAssessment>,
-  index: CardIndex
+  index: CardIndex,
+  clock: RelationshipClock
 ): TodayCardProjection {
   const person = index.peopleById.get(item.personId);
   const assessment = assessmentsByPerson.get(item.personId);
@@ -213,7 +220,7 @@ function cardFromItem(
         })
       }
     } : {}),
-    conversationStarters: conversationStartersForPerson(settings.conversationStarters, person),
+    conversationStarters: conversationStartersForPerson(settings.conversationStarters, person, data, clock),
     contact: resolveContactNowTargets(contactMethods, settings.defaultPhoneRegion)
   };
 }
@@ -249,7 +256,7 @@ async function buildTodayProjection(
     totalActivePersonCount: data.people.filter(activePerson).length,
     eligibleBeforeSkipsCount,
     skippedEligibleCount: Math.max(0, eligibleBeforeSkipsCount - result.totalCount),
-    cards: cardItems.map((item) => cardFromItem(item, data, assessmentsByPerson, index)),
+    cards: cardItems.map((item) => cardFromItem(item, data, assessmentsByPerson, index, clock)),
     incompleteRegularContactPeople: data.people
       .filter((person) => assessmentsByPerson.get(person.id)?.scheduleState.kind === "incomplete_regular_schedule")
       .sort((left, right) => left.displayName.localeCompare(right.displayName, "en-US", { sensitivity: "base" })

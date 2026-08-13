@@ -9,8 +9,10 @@ import {
 import { parseVCard, type ParsedVCard } from "../integrations/vcard";
 import type {
   ContactPickerResult,
-  ConventionalContact
+  ConventionalContact,
+  SelectedIPhoneContact
 } from "../contacts/types";
+import { defaultConversationalName } from "../domain/personNames";
 import {
   addPreparedCaptureToDuplicateSnapshot,
   findDuplicateMatches,
@@ -143,7 +145,7 @@ function preferredFirst<T extends { isPreferred: boolean }>(records: T[]): T[] {
 }
 
 function draftFromContact(
-  contact: ConventionalContact,
+  contact: ConventionalContact & { givenName?: string },
   createdAt: string,
   idFactory: () => string
 ): ManualPersonCaptureDraft {
@@ -156,9 +158,12 @@ function draftFromContact(
     value: method.value,
     ...(method.label ? { label: method.label } : {})
   }));
+  const conversationalName = contact.givenName?.trim()
+    || defaultConversationalName(contact.displayName);
   return {
     ...base,
     displayName: contact.displayName,
+    ...(conversationalName ? { conversationalName } : {}),
     identityStatus: "confirmed",
     contactMethods: methods,
     ...(contact.organisation ? { organisationName: contact.organisation } : {}),
@@ -256,7 +261,7 @@ type ContactImportSource = {
 
 async function prepareContactImportFromContacts(
   db: PeopleOsDatabase,
-  contacts: readonly ConventionalContact[],
+  contacts: readonly (ConventionalContact & { givenName?: string })[],
   source: ContactImportSource,
   defaultPhoneRegion: string,
   options: ContactImportFactoryOptions = {}
@@ -296,7 +301,7 @@ async function prepareContactImportFromContacts(
  */
 export async function prepareContactImportFromSelectedContacts(
   db: PeopleOsDatabase,
-  contacts: readonly ConventionalContact[],
+  contacts: readonly SelectedIPhoneContact[],
   defaultPhoneRegion: string,
   options: ContactImportFactoryOptions = {}
 ): Promise<ContactImportSession> {

@@ -18,6 +18,7 @@ import type {
   TodaySkip
 } from "../domain/schema";
 import { assertValidRecord, isIsoInstant, ValidationError } from "../domain/validation";
+import { defaultConversationalName } from "../domain/personNames";
 
 export type IdentityResolutionHooks = {
   beforeCommit?: () => void;
@@ -208,6 +209,10 @@ export async function completeProvisionalPerson(
       ...current,
       revision: current.revision + 1,
       displayName: command.displayName,
+      ...(current.conversationalName === undefined
+        || current.conversationalName === defaultConversationalName(current.displayName)
+        ? { conversationalName: defaultConversationalName(command.displayName) }
+        : {}),
       identityStatus: "confirmed",
       identityCompletionFingerprint: command.commandFingerprint,
       updatedAt: command.occurredAt

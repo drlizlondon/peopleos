@@ -22,7 +22,8 @@ import {
 } from "./application/appleContacts";
 import {
   getIPhoneContactsAdapter,
-  isIPhoneContactsSupported
+  isIPhoneContactsSupported,
+  pickSingleIPhoneContact
 } from "./contacts/capacitorAdapter";
 import {
   chooseLinkDetailsForExistingPerson,
@@ -59,6 +60,7 @@ import {
 } from "./application/personSearch";
 import { SEARCH_DEBOUNCE_MS, useDebouncedValue } from "./useDebouncedValue";
 import { restorePerson } from "./application/personLifecycle";
+import { bringToToday } from "./application/bringToToday";
 import {
   getPersonHistory,
   type PersonHistory
@@ -74,6 +76,7 @@ import { getDatabase } from "./data/client";
 // eslint-disable-next-line no-restricted-imports -- V1-R4 debt: UI reaches the data layer directly; migrate to src/application/*
 import { StaleRevisionError } from "./data/repositories";
 import type { ContactCadenceUnit, ContactMethod, Person } from "./domain/schema";
+import { conversationalNameFor } from "./domain/personNames";
 import type { ActiveRelationshipMode, RelationshipMode } from "./domain/relationshipMode";
 import { formatContactCadence } from "./domain/cadence";
 import type { DuplicateMatch } from "./domain/duplicates";
@@ -247,7 +250,9 @@ export function PeopleScreen({
         );
         if (active) setFallbackPeople(people.filter((summary) => {
           const normalizedQuery = debouncedQuery.trim().toLocaleLowerCase("en-US");
-          return !normalizedQuery || summary.person.displayName.toLocaleLowerCase("en-US").includes(normalizedQuery);
+          return !normalizedQuery
+            || summary.person.displayName.toLocaleLowerCase("en-US").includes(normalizedQuery)
+            || conversationalNameFor(summary.person).toLocaleLowerCase("en-US").includes(normalizedQuery);
         }));
       } catch {
         if (active) setFallbackPeople([]);
@@ -1101,7 +1106,10 @@ export function PersonProfileScreen({
   const [contactLinkBusy, setContactLinkBusy] = useState(false);
   const [contactLinkError, setContactLinkError] = useState("");
   const [contactLinkStatus, setContactLinkStatus] = useState("");
+  const [bringingToToday, setBringingToToday] = useState(false);
+  const [bringToTodayError, setBringToTodayError] = useState("");
   const noteSavingRef = useRef(false);
+  const profileMutationRef = useRef(false);
   const noteDirtyRef = useRef(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const contactLinkOpenerRef = useRef<HTMLButtonElement>(null);
@@ -1132,7 +1140,8 @@ export function PersonProfileScreen({
   async function saveNote(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const summaryText = noteDraft.trim();
-    if (!summaryText || noteSavingRef.current || !summary || summary.person.archivedAt) return;
+    if (!summaryText || profileMutationRef.current || !summary || summary.person.archivedAt) return;
+    profileMutationRef.current = true;
     noteSavingRef.current = true;
     setSavingNote(true);
     onSavingChange(true);
@@ -1148,15 +1157,18 @@ export function PersonProfileScreen({
       setNoteError("PeopleOS could not save this note. Your text is still here.");
     } finally {
       noteSavingRef.current = false;
+      profileMutationRef.current = false;
       setSavingNote(false);
       onSavingChange(false);
     }
   }
 
   async function restoreArchivedPerson() {
-    if (!summary?.person.archivedAt || restoring) return;
+    if (!summary?.person.archivedAt || profileMutationRef.current) return;
+    profileMutationRef.current = true;
     setRestoring(true);
     setRestoreError("");
+    onSavingChange(true);
     try {
       await restorePerson(await getDatabase(), {
         personId: summary.person.id,
@@ -1168,7 +1180,9 @@ export function PersonProfileScreen({
     } catch (caught) {
       setRestoreError(firstIssue(caught));
     } finally {
+      profileMutationRef.current = false;
       setRestoring(false);
+      onSavingChange(false);
     }
   }
 
@@ -1179,18 +1193,19 @@ export function PersonProfileScreen({
   }
 
   async function chooseMatchingIPhoneContact() {
-    if (!summary || contactLinkBusy) return;
+    if (!summary || profileMutationRef.current) return;
     const adapter = getIPhoneContactsAdapter();
     if (!adapter) {
       setContactLinkError("iPhone Contacts are unavailable right now. You can still add details manually.");
       return;
     }
+    profileMutationRef.current = true;
     setContactLinkBusy(true);
     setContactLinkError("");
     setContactLinkStatus("");
     onSavingChange(true);
     try {
-      const result = await adapter.pickContacts();
+      const result = await pickSingleIPhoneContact(adapter);
       const session = await prepareContactImportFromPickerResult(
         await getDatabase(),
         result,
@@ -1206,12 +1221,14 @@ export function PersonProfileScreen({
       setContactLinkError(iPhoneContactPickerError(caught));
     } finally {
       setContactLinkBusy(false);
+      profileMutationRef.current = false;
       onSavingChange(false);
     }
   }
 
   async function addSelectedIPhoneContactDetails(selection: PersonContactLinkSelection) {
-    if (!summary || !contactLinkSession || contactLinkBusy) return;
+    if (!summary || !contactLinkSession || profileMutationRef.current) return;
+    profileMutationRef.current = true;
     setContactLinkBusy(true);
     setContactLinkError("");
     setContactLinkStatus("");
@@ -1245,7 +1262,41 @@ export function PersonProfileScreen({
       setContactLinkError(firstIssue(caught));
     } finally {
       setContactLinkBusy(false);
+      profileMutationRef.current = false;
       onSavingChange(false);
+    }
+  }
+
+  async function bringPersonToToday() {
+    if (!summary || profileMutationRef.current) return;
+    if (noteDirtyRef.current && !window.confirm("Discard the unsaved note and bring this person to Today?")) {
+      return;
+    }
+    const discardingNote = noteDirtyRef.current;
+    const personId = summary.person.id;
+    let broughtToToday = false;
+    profileMutationRef.current = true;
+    setBringingToToday(true);
+    setBringToTodayError("");
+    onSavingChange(true);
+    try {
+      await bringToToday(await getDatabase(), personId, createRelationshipClock());
+      broughtToToday = true;
+      if (discardingNote) {
+        setNoteDraft("");
+        noteDirtyRef.current = false;
+        onDirtyChange(false);
+      }
+    } catch (caught) {
+      setBringToTodayError(firstIssue(caught));
+      setRefreshVersion((current) => current + 1);
+    } finally {
+      setBringingToToday(false);
+      profileMutationRef.current = false;
+      onSavingChange(false);
+    }
+    if (broughtToToday) {
+      navigate("/", { state: { todayFocusPersonId: personId } });
     }
   }
 
@@ -1293,6 +1344,7 @@ export function PersonProfileScreen({
           : relationship?.scheduleState.kind === "incomplete_regular_schedule"
             ? "Choose a start date in Edit"
             : "Not scheduled";
+  const profileBusy = savingNote || restoring || contactLinkBusy || bringingToToday;
 
   return (
     <main className="screen person-profile-screen simple-person-profile" id="main-content" tabIndex={-1}>
@@ -1304,6 +1356,7 @@ export function PersonProfileScreen({
           : resumesReachOut
             ? navigate(backPath, { replace: true, state: {} })
             : navigate(backRoute.path)}
+        disabled={profileBusy}
       >
         ← {resumesCapture
           ? "Continue adding person"
@@ -1337,7 +1390,7 @@ export function PersonProfileScreen({
               {affiliationLine(summary) && <p className="profile-affiliation">{affiliationLine(summary)}</p>}
             </div>
             {!summary.person.archivedAt && (
-              <button className="secondary-action" type="button" onClick={() => navigate(editPersonPath(summary.person.id))}>Edit</button>
+              <button className="secondary-action" type="button" disabled={profileBusy} onClick={() => navigate(editPersonPath(summary.person.id))}>Edit</button>
             )}
           </header>
 
@@ -1373,7 +1426,7 @@ export function PersonProfileScreen({
             </dl>
             {!summary.person.archivedAt && (
               <div className="button-row compact-buttons" aria-label="Contact detail actions">
-                <button className="text-action" type="button" onClick={() => navigate(contactMethodsPath(summary.person.id))}>
+                <button className="text-action" type="button" disabled={profileBusy} onClick={() => navigate(contactMethodsPath(summary.person.id))}>
                   {contacts.length === 0 ? "Add contact details" : "Edit contact details"}
                 </button>
                 {isIPhoneContactsSupported() && (
@@ -1381,15 +1434,25 @@ export function PersonProfileScreen({
                     ref={contactLinkOpenerRef}
                     className="text-action"
                     type="button"
-                    disabled={contactLinkBusy}
+                    disabled={profileBusy}
                     onClick={() => void chooseMatchingIPhoneContact()}
                   >
-                    {contactLinkBusy && !contactLinkSession ? "Opening Contacts…" : "Link iPhone contact"}
+                    {contactLinkBusy && !contactLinkSession ? "Opening Contacts…" : "Add or update from iPhone Contacts"}
                   </button>
                 )}
               </div>
             )}
           </section>
+
+          {backRoute.id === "upcoming" && nextDate && nextDate > today && !summary.person.archivedAt && (
+            <div className="profile-bring-to-today">
+              <button className="primary-action" type="button" disabled={profileBusy} onClick={() => void bringPersonToToday()}>
+                {bringingToToday ? "Bringing to Today…" : "Bring to Today"}
+              </button>
+              <p className="muted-copy">This does not record a contact or change the existing schedule.</p>
+            </div>
+          )}
+          {bringToTodayError && <p className="form-alert" role="alert">{bringToTodayError}</p>}
 
           {contactLinkStatus && <p className="undo-message" role="status">{contactLinkStatus}</p>}
           {contactLinkError && !contactLinkSession && <p className="form-alert" role="alert">{contactLinkError}</p>}
@@ -1399,7 +1462,7 @@ export function PersonProfileScreen({
               session={contactLinkSession}
               targetPerson={summary.person}
               targetContactMethods={summary.activeContactMethods}
-              busy={contactLinkBusy}
+              busy={profileBusy}
               error={contactLinkError}
               onCancel={finishContactLink}
               onSubmit={(selection) => void addSelectedIPhoneContactDetails(selection)}
@@ -1422,6 +1485,7 @@ export function PersonProfileScreen({
                   maxLength={5_000}
                   value={noteDraft}
                   placeholder="Write something you want to remember."
+                  disabled={profileBusy}
                   onChange={(event) => {
                     setNoteDraft(event.target.value);
                     setNoteError("");
@@ -1430,7 +1494,7 @@ export function PersonProfileScreen({
                   }}
                 />
                 {noteError && <p className="field-error" role="alert">{noteError}</p>}
-                <button className="primary-action" type="submit" disabled={savingNote || !noteDraft.trim()}>
+                <button className="primary-action" type="submit" disabled={profileBusy || !noteDraft.trim()}>
                   {savingNote ? "Saving…" : "Save note"}
                 </button>
               </form>

@@ -8,6 +8,7 @@ import type { PeopleOsDatabase } from "../data/database";
 import { RecordConflictError, StaleRevisionError } from "../data/repositories";
 import type { PreparedManualPersonCapture } from "./manualPersonCapture";
 import { normaliseDuplicateText, reviewedHumanName } from "../domain/duplicates";
+import { defaultConversationalName } from "../domain/personNames";
 
 export type AddReviewedDetailsInput = {
   targetPersonId: string;
@@ -232,6 +233,14 @@ export async function addReviewedDetailsToExistingPerson(
       && target.displayName !== requestedDisplayName
       && personUsesOwnContactAsDisplayName(target, targetContacts)
     );
+    const candidateConversationalName = input.candidate.person.conversationalName
+      ?? (requestedDisplayName ? defaultConversationalName(requestedDisplayName) : undefined);
+    const conversationalNameWillChange = Boolean(
+      displayNameWillChange
+      && candidateConversationalName
+      && (target.conversationalName === undefined
+        || target.conversationalName === defaultConversationalName(target.displayName))
+    );
     if (requestedDisplayName && !displayNameAlreadyApplied && !displayNameWillChange) {
       throw new RecordConflictError("This Person's name changed while you were reviewing it. Review the match again.");
     }
@@ -357,6 +366,9 @@ export async function addReviewedDetailsToExistingPerson(
       ...target,
       revision: target.revision + 1,
       ...(displayNameWillChange && requestedDisplayName ? { displayName: requestedDisplayName } : {}),
+      ...(conversationalNameWillChange && candidateConversationalName
+        ? { conversationalName: candidateConversationalName }
+        : {}),
       updatedAt: now
     };
     assertValidRecord("people", updatedPerson);

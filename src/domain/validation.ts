@@ -5,6 +5,7 @@ import {
   type BackupEnvelope,
   type ContactMethod,
   type ConversationStarter,
+  type ConversationStarterUse,
   type DataStoreName,
   type FollowUp,
   type FollowUpEvent,
@@ -88,6 +89,10 @@ function validatePerson(value: unknown): value is Person {
   if (!object(value) || !mutable(value)) return false;
   const status = value.identityStatus;
   return nonEmpty(value.displayName)
+    && (value.conversationalName === undefined || (typeof value.conversationalName === "string"
+      && value.conversationalName.trim() === value.conversationalName
+      && value.conversationalName.length > 0
+      && value.conversationalName.length <= 120))
     && (value.relationshipMode === undefined || ["personal", "professional", "both"].includes(String(value.relationshipMode)))
     && ["provisional", "confirmed", "merged"].includes(String(status))
     && (value.relationshipMode === undefined || ["personal", "professional", "both"].includes(String(value.relationshipMode)))
@@ -99,6 +104,7 @@ function validatePerson(value: unknown): value is Person {
     && optionalDate(value.contactCadenceDeferredUntilDate)
     && optionalInstant(value.contactCadencePausedAt)
     && optionalDate(value.todayPausedUntilDate)
+    && optionalDate(value.broughtToTodayDate)
     && (value.todayNote === undefined || (typeof value.todayNote === "string"
       && value.todayNote.trim() === value.todayNote
       && value.todayNote.length > 0
@@ -190,6 +196,22 @@ function validateFollowUpEvent(value: unknown): value is FollowUpEvent {
     default:
       return false;
   }
+}
+
+function validateConversationStarterUse(value: unknown): value is ConversationStarterUse {
+  return object(value)
+    && nonEmpty(value.id)
+    && nonEmpty(value.personId)
+    && typeof value.starterId === "string"
+    && value.starterId.trim() === value.starterId
+    && value.starterId.length > 0
+    && value.starterId.length <= 120
+    && typeof value.starterTemplate === "string"
+    && value.starterTemplate.trim() === value.starterTemplate
+    && value.starterTemplate.length > 0
+    && value.starterTemplate.length <= 240
+    && value.starterTemplate.includes("{name}")
+    && isIsoInstant(value.occurredAt);
 }
 
 function validateReachOutEntry(value: unknown): value is ReachOutEntry {
@@ -301,6 +323,7 @@ const storeValidators: Record<DataStoreName, (value: unknown) => boolean> = {
   memoryFacts: validateFact,
   followUps: validateFollowUp,
   followUpEvents: validateFollowUpEvent,
+  conversationStarterUses: validateConversationStarterUse,
   todaySkips: (value) => object(value) && nonEmpty(value.id) && nonEmpty(value.personId)
     && isLocalDate(value.localDate) && value.id === `${value.personId}:${value.localDate}`
     && isIsoInstant(value.createdAt),
@@ -357,7 +380,8 @@ export function validatePeopleOsData(value: unknown): PeopleOsData {
     ["contactMethods", data.contactMethods], ["affiliations", data.affiliations],
     ["interactions", data.interactions], ["memoryFacts", data.memoryFacts],
     ["followUps", data.followUps], ["todaySkips", data.todaySkips],
-    ["reachOutEntries", data.reachOutEntries], ["followUpEvents", data.followUpEvents]
+    ["reachOutEntries", data.reachOutEntries], ["followUpEvents", data.followUpEvents],
+    ["conversationStarterUses", data.conversationStarterUses]
   ];
   personChildren.forEach(([store, records]) => records.forEach((record) => requireReference(issues, personIds.has(record.personId), `${store}.${record.id}.personId`)));
 

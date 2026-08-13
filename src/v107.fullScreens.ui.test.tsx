@@ -104,6 +104,32 @@ describe("V1-07 full FollowUp screens", () => {
     expect(navigate).toHaveBeenCalledWith("/");
   });
 
+  it("opens an Upcoming person, brings them to Today, and preserves their future plan", async () => {
+    const futureDate = addDaysToLocalDate(today(), 5);
+    await seedPerson("person-bibi", "Bibi Jones");
+    const future = await seedFollowUp("person-bibi", futureDate, "Catch up with Bibi", "message");
+    const before = await readAllData(await getDatabase());
+    const user = userEvent.setup();
+    render(<App />);
+
+    const upcoming = await screen.findByRole("list", { name: "People coming up" });
+    expect(within(upcoming).queryByRole("button", { name: /Bring to Today/i })).not.toBeInTheDocument();
+    await user.click(within(upcoming).getByRole("link", { name: /Bibi Jones/ }));
+
+    expect(await screen.findByRole("heading", { name: "Bibi Jones" })).toBeInTheDocument();
+    expect(screen.queryByText(/Promote/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Bring to Today" }));
+
+    await waitFor(() => expect(window.location.pathname).toBe("/"));
+    expect(await screen.findByRole("article", { name: "Bibi Jones" })).toBeInTheDocument();
+    const after = await readAllData(await getDatabase());
+    expect(after.interactions).toEqual(before.interactions);
+    expect(after.followUps.find((record) => record.id === future.id)).toEqual(future);
+    expect(after.people.find((record) => record.id === "person-bibi")).toMatchObject({
+      broughtToTodayDate: today()
+    });
+  });
+
   it("shows FollowUp lifecycle state and makes a cancelled plan read-only", async () => {
     await seedPerson("person-sarah", "Sarah Jones");
     const followUp = await seedFollowUp(

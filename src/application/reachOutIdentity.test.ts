@@ -92,6 +92,7 @@ describe("provisional Reach Out identity resolution", () => {
     expect(first).toMatchObject({
       id: provisional.id,
       displayName: "Alex Morgan",
+      conversationalName: "Alex",
       identityStatus: "confirmed",
       identityCompletionFingerprint: command.commandFingerprint,
       revision: 2
@@ -106,6 +107,22 @@ describe("provisional Reach Out identity resolution", () => {
       personId: provisional.id,
       organisationName: "Watford Health"
     });
+  });
+
+  it("preserves a custom familiar name when completing a provisional identity", async () => {
+    const db = await openDatabase("complete-custom-name");
+    const provisional = {
+      ...person("person-custom", "Woman from fellowship", "provisional"),
+      conversationalName: "Auntie"
+    };
+    await createRepositories(db).people.create(provisional);
+
+    const saved = await completeProvisionalPerson(
+      db,
+      prepareCompleteProvisionalPersonCommand(provisional, "Aisha Khan", later)
+    );
+
+    expect(saved).toMatchObject({ displayName: "Aisha Khan", conversationalName: "Auntie" });
   });
 
   it("rejects valid alternate completion commands that reuse the same name and timestamp", async () => {

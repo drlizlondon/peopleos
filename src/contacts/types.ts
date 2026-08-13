@@ -15,7 +15,10 @@ export type ConventionalContact = {
   jobTitle?: string;
 };
 
-export type SelectedIPhoneContact = ConventionalContact;
+export type SelectedIPhoneContact = ConventionalContact & {
+  /** The native contact's given name when Apple makes it available. */
+  givenName?: string;
+};
 
 export type ContactPickerResult =
   | { status: "selected"; contacts: SelectedIPhoneContact[] }
@@ -40,6 +43,13 @@ export type IPhoneContactsErrorCode =
   | "picker_busy";
 
 export interface PeopleOSContactsAdapter {
+  /**
+   * Opens Apple's single-contact picker. The single-selection delegate keeps
+   * the native search experience available for correction and linking flows.
+   * Older native bundles may not expose this method, so callers must retain a
+   * pickContacts fallback until those builds have rolled forward.
+   */
+  pickContact?(): Promise<ContactPickerResult>;
   pickContacts(): Promise<ContactPickerResult>;
   createContact(input: CreateIPhoneContactInput): Promise<CreateIPhoneContactResult>;
 }

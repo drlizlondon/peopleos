@@ -10,9 +10,9 @@ The native boundary is a repository-owned Capacitor plugin. JavaScript owns sche
 
 ## Existing canonical model and boundaries
 
-The canonical schema is in `src/domain/schema.ts`; validation is in `src/domain/validation.ts`. `src/data/database.ts` opens IndexedDB version 4 and JSON export uses backup schema version 6. Earlier development histories independently used database version 3 and backup schema version 4 for different shapes, so the current migrations inspect and reconcile actual content, add missing Contacts/sync stores and indexes idempotently, and preserve legacy relationship scheduling fields. `src/data/repositories.ts` supplies generic optimistic-revision repositories, but compound application commands also write several stores directly in atomic IndexedDB transactions. Consequently sync capture cannot depend only on repository callbacks.
+The canonical schema is in `src/domain/schema.ts`; validation is in `src/domain/validation.ts`. `src/data/database.ts` opens IndexedDB version 5 and JSON export uses backup schema version 7. Earlier development histories independently used database version 3 and backup schema version 4 for different shapes, so the current migrations inspect and reconcile actual content, add missing Contacts/sync stores and indexes idempotently, and preserve legacy relationship scheduling fields. `src/data/repositories.ts` supplies generic optimistic-revision repositories, but compound application commands also write several stores directly in atomic IndexedDB transactions. Consequently sync capture cannot depend only on repository callbacks.
 
-Every successful domain mutation increments `metadata.app.datasetRevision`. Sync scans all canonical stores after that revision changes and at startup, comparing records with durable sync shadows. This makes capture restart-safe even if the app terminates after the domain transaction commits but before an outbox entry is produced. A local action never waits for CloudKit.
+Every successful domain mutation increments `metadata.app.datasetRevision`. Sync scans every CloudKit-enabled canonical store after that revision changes and at startup, comparing records with durable sync shadows. This makes capture restart-safe even if the app terminates after the domain transaction commits but before an outbox entry is produced. A local action never waits for CloudKit.
 
 Current identifiers are application-generated stable strings. Mutable records contain integer `revision`, ISO-8601 `createdAt`, and ISO-8601 `updatedAt`. Append-only records use stable IDs and an occurrence/creation time but no revision. User-visible removal is generally archival or terminal state, not physical deletion. Physical removals and full restore replacement must be represented by sync tombstones.
 
@@ -50,6 +50,7 @@ The entity mapping is:
 | `memoryFacts` | MemoryFact | mutable child | `updatedAt` |
 | `followUps` | FollowUp | mutable lifecycle aggregate | `updatedAt` |
 | `followUpEvents` | FollowUpEvent | immutable append history | `occurredAt` |
+| `conversationStarterUses` | ConversationStarterUse | local append history during compatibility rollout | `occurredAt` |
 | `todaySkips` | TodaySkip | immutable append history | `createdAt` |
 | `reachOutEntries` | ReachOutEntry | mutable lifecycle aggregate | `updatedAt` |
 | `reachOutEvents` | ReachOutEvent | immutable append history | `occurredAt` |
@@ -58,11 +59,11 @@ The entity mapping is:
 
 `ExternalIdentity` has a canonical, empty-capable IndexedDB store and backup field. The current product does not create a continuous provider link, but retaining the store keeps imported legacy data valid and avoids a future transport redesign. Older backups without the field migrate it to `[]`.
 
-`metadata` is device-local and never synchronised. Sync metadata stores are also device-local.
+`metadata` is device-local and never synchronised. Sync metadata stores are also device-local. `conversationStarterUses` is canonical local data and is included in JSON backups, but its CloudKit upload is deferred for this release so older clients in `PeopleOSZoneV1` never receive an unknown store. This release ignores future remote stores and advances the zone token. A later release may enable starter-history upload only after this compatibility version is the supported floor, and must force a one-time full-zone fetch when doing so.
 
 ## Durable local sync state
 
-The current version-4 database contains:
+The current version-5 database contains:
 
 * `externalIdentities`: canonical entity store.
 * `syncRecords`: one shadow per `<store>:<id>` containing status, local revision/timestamp/fingerprint, acknowledged remote revision/timestamp, record name, change tag/system fields, retry count, last error category, and acknowledgement time.

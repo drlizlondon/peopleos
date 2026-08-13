@@ -173,11 +173,15 @@ describe("simple Profile and Person lifecycle UI", () => {
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "Edit" }));
 
-    const name = await screen.findByLabelText(/Display name/);
+    const name = await screen.findByLabelText(/Full or contact name/);
     await user.clear(name);
     await user.click(screen.getByRole("button", { name: "Save changes" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Add a name or description");
     await user.type(name, "Sarah Ahmed");
+    const familiarName = screen.getByLabelText("What do you call them?");
+    expect(familiarName).toHaveValue("Sarah");
+    await user.clear(familiarName);
+    await user.type(familiarName, "Saz");
     await user.click(screen.getByRole("button", { name: "Professional" }));
     await user.selectOptions(screen.getByLabelText("How often do you want to contact them?"), "2-weeks");
     expect(screen.getByRole("group", { name: "Start" })).toBeInTheDocument();
@@ -189,6 +193,7 @@ describe("simple Profile and Person lifecycle UI", () => {
     expect(saved).toMatchObject({
       id: original.id,
       displayName: "Sarah Ahmed",
+      conversationalName: "Saz",
       relationshipMode: "professional",
       importance: "high",
       tags: ["mentor"],

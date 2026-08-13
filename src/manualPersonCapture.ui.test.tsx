@@ -172,7 +172,7 @@ describe("V1-03 manual person capture", () => {
       await user.click(screen.getByRole("button", { name: "Set regular contact" }));
 
       if (start === "Today") {
-        expect(await screen.findByRole("article", { name })).toBeInTheDocument();
+        expect(await screen.findByRole("article", { name: name.split(" ")[0] })).toBeInTheDocument();
       } else {
         expect(await screen.findByRole("link", { name: new RegExp(name) })).toBeInTheDocument();
       }
@@ -258,7 +258,7 @@ describe("V1-03 manual person capture", () => {
     expect(data.followUps).toEqual([]);
   });
 
-  it("moves a daily person from Today to tomorrow in Upcoming after Done", async () => {
+  it("moves a daily person from Today to tomorrow in Upcoming after completion", async () => {
     const user = userEvent.setup();
     await openCapture(user);
     await user.type(screen.getByLabelText("Name"), "Daily contact");
@@ -268,8 +268,8 @@ describe("V1-03 manual person capture", () => {
     await user.click(screen.getByRole("button", { name: "Today" }));
     await user.click(screen.getByRole("button", { name: "Set regular contact" }));
 
-    expect(await screen.findByRole("article", { name: "Daily contact" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Done" }));
+    expect(await screen.findByRole("article", { name: "Daily" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Mark Daily complete" }));
     await waitFor(async () => expect(
       (await readAllData(await getDatabase())).followUps.some((followUp) =>
         followUp.status === "pending" && followUp.suggestedByRule === "today_already_contacted"
@@ -321,7 +321,8 @@ describe("V1-03 manual person capture", () => {
     await openCapture(user);
     await user.type(screen.getByLabelText("Name"), "Schedule Off");
     await saveNewPerson(user);
-    await user.click(await screen.findByRole("button", { name: "Done" }));
+    await user.click(await screen.findByRole("button", { name: "Mark Schedule complete" }));
+    await waitFor(() => expect(screen.queryByRole("article", { name: "Schedule" })).not.toBeInTheDocument());
     await user.click(screen.getByRole("link", { name: "People" }));
     await user.click(await screen.findByRole("link", { name: /Schedule Off/ }));
     await user.click(await screen.findByRole("button", { name: "Edit" }));
