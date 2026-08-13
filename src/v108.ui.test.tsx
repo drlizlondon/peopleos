@@ -188,7 +188,15 @@ describe("V1-08 Reach Out UI", () => {
     expect(within(card).queryByText(/Legacy action detail|Legacy extra notes|Legacy fellowship|Waiting|Planned/)).not.toBeInTheDocument();
 
     await user.click(within(card).getByRole("button", { name: "Done" }));
-    expect(await screen.findByRole("heading", { name: "Reach Out" })).toBeInTheDocument();
+    await waitFor(async () => {
+      expect((await readAllData(await getDatabase())).reachOutEntries).toEqual([
+        expect.objectContaining({ id: created.entry.id, intentStatus: "completed" })
+      ]);
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("article", { name: "Sarah Jones" })).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("heading", { name: "Reach Out" })).toBeInTheDocument();
     const data = await readAllData(await getDatabase());
     expect(data.people).toEqual([expect.objectContaining({ id: person.id, displayName: person.displayName })]);
     expect(data.reachOutEntries).toEqual([expect.objectContaining({ id: created.entry.id, intentStatus: "completed" })]);

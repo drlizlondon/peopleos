@@ -294,6 +294,10 @@ describe("V1-03 manual person capture", () => {
   it("rebases Start tomorrow if the Add form remains open across a Europe/London midnight", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
+      const resolvedOptions = Intl.DateTimeFormat.prototype.resolvedOptions;
+      vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockImplementation(function (this: Intl.DateTimeFormat) {
+        return { ...resolvedOptions.call(this), timeZone: "Europe/London" };
+      });
       vi.setSystemTime(new Date("2026-08-12T22:59:00.000Z"));
       const user = userEvent.setup();
       await openCapture(user);
