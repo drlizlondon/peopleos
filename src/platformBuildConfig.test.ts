@@ -5,12 +5,13 @@ import vercel from "../vercel.json";
 describe("production platform routing", () => {
   it("keeps marketing routes at root and sends only /app product routes to the SPA", () => {
     expect(vercel.rewrites).toEqual(expect.arrayContaining([
-      { source: "/app", destination: "/app/index.html" },
-      { source: "/app/:path*", destination: "/app/index.html" },
-      { source: "/privacy", destination: "/privacy/index.html" },
-      { source: "/support", destination: "/support/index.html" },
-      { source: "/download", destination: "/download/index.html" }
+      { source: "/app", destination: "/app/index" },
+      { source: "/app/:path*", destination: "/app/index" },
+      { source: "/privacy", destination: "/privacy/index" },
+      { source: "/support", destination: "/support/index" },
+      { source: "/download", destination: "/download/index" }
     ]));
+    expect(vercel.rewrites.every((rewrite) => !rewrite.destination.endsWith(".html"))).toBe(true);
     expect(vercel.rewrites).not.toContainEqual(expect.objectContaining({ source: "/(.*)" }));
   });
 

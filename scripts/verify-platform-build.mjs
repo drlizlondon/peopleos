@@ -39,6 +39,10 @@ const workerScopeHeader = vercelConfig.headers?.find((entry) => entry.source ===
 if (workerScopeHeader !== "/app") {
   throw new Error("The /app worker must be allowed to control canonical /app itself.");
 }
+const appRewrites = vercelConfig.rewrites?.filter((entry) => entry.source === "/app" || entry.source === "/app/:path*");
+if (appRewrites?.length !== 2 || appRewrites.some((entry) => entry.destination !== "/app/index")) {
+  throw new Error("Clean-URL app routes must rewrite to the extensionless /app/index entry.");
+}
 if (!rootWorker.includes("registration.unregister")) throw new Error("The legacy root worker is not retired.");
 if (!retirementClient.includes("peopleos-root-pwa-retired-v1") || !retirementClient.includes("localStorage.getItem")) {
   throw new Error("Legacy root-worker retirement must be a one-time migration.");

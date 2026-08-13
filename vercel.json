@@ -17,15 +17,15 @@
   "rewrites": [
     {
       "source": "/app",
-      "destination": "/app/index.html"
+      "destination": "/app/index"
     },
     {
       "source": "/app/:path*",
-      "destination": "/app/index.html"
+      "destination": "/app/index"
     },
-    { "source": "/privacy", "destination": "/privacy/index.html" },
-    { "source": "/support", "destination": "/support/index.html" },
-    { "source": "/download", "destination": "/download/index.html" }
+    { "source": "/privacy", "destination": "/privacy/index" },
+    { "source": "/support", "destination": "/support/index" },
+    { "source": "/download", "destination": "/download/index" }
   ],
   "headers": [
     {
