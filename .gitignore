@@ -11,3 +11,4 @@ coverage
 !.env.example
 !.env.*.example
 *.log
+ads/**/out/
