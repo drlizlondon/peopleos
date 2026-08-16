@@ -301,11 +301,11 @@ All compound Today actions are idempotent. A retry uses the same prepared Intera
 
 Daily Today notifications are opt-in and Off by default. In the native iPhone app, normal iOS permission is requested only after the user turns reminders On. The default time is 12:00 in the device's local timezone and the user may change it or turn reminders Off.
 
-- PeopleOS derives at most 30 one-off daily occurrences from the same deterministic eligibility rules as Today and safely replaces them after launch, foreground/background transition, selected-mode, Settings, or dataset changes.
+- PeopleOS derives at most 30 one-off occurrences from the same deterministic eligibility rules as Today — for each qualifying date, the chosen time and a reminder every three hours, never at or after 22:00 local — and safely replaces them after launch, foreground/background transition, selected-mode, Settings, or dataset changes.
 - Empty forecast dates schedule nothing. One or more actionable People schedule one privacy-safe summary for that date, never one notification per Person.
 - Title: `PeopleOS`. A trustworthy same-day body may say “3 people are on your list today.” Forecast occurrences say “People are waiting on your list today.” Names and relationship details are omitted.
 
-Tapping a notification opens Today. The MVP adds no notification action buttons, Snooze, automatic messaging, or notification-only Not today command. Changing the time or turning reminders Off cancels/replaces pending PeopleOS summaries. If 30 summaries are ignored without reopening the app, the bounded local plan ends until PeopleOS is reopened. Scheduling and taps never change a Person, Interaction, FollowUp, Reach Out entry, TodaySkip, or Today eligibility.
+Tapping a notification, or its View Today action, opens Today. Not Now does nothing at all: the next reminder in the already-installed ladder simply arrives. Opening PeopleOS after a notification was sent ends that day's cycle; dismissing or ignoring one never does. The MVP adds no configurable snooze, automatic messaging, or notification-only Not today command. Changing the time or turning reminders Off cancels/replaces pending PeopleOS summaries. If the bounded plan is exhausted without reopening the app, it ends until PeopleOS is reopened. Scheduling, taps and notification actions never change a Person, Interaction, FollowUp, Reach Out entry, TodaySkip, or Today eligibility, and never remove anyone from Today.
 
 The summary payload targets Today and contains no Person or FollowUp identifier, name, contact detail, reason, note, affiliation, or other relationship data. Foreign or malformed payloads are ignored rather than opening another record by fallback matching.
 

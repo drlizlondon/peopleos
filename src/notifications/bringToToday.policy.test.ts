@@ -17,18 +17,20 @@ function broughtToTodayData() {
 
 describe("Bring to Today notification planning", () => {
   it.each([
-    ["before today's reminder", "2026-08-14T09:00:00.000Z", ["2026-08-14", "2026-08-20", "2026-08-21"]],
-    ["after today's reminder", "2026-08-14T12:30:00.000Z", ["2026-08-20", "2026-08-21", "2026-08-22"]]
-  ])("does not fill the gap before the original schedule %s", (_label, instant, expectedDates) => {
+    ["before today's first notification", "2026-08-14T09:00:00.000Z", 4],
+    ["after today's first notification", "2026-08-14T12:30:00.000Z", 3]
+  ])("does not fill the gap before the original schedule %s", (_label, instant, remainingToday) => {
     const plan = buildTodayNotificationPlan(broughtToTodayData(), {
       now: new Date(instant),
       timeZone: "Europe/London",
       time: "12:00",
       activeMode: "all",
-      limit: 3
+      limit: 12
     });
 
-    expect(plan.map((entry) => entry.localDate)).toEqual(expectedDates);
+    expect(plan.filter((entry) => entry.localDate === "2026-08-14")).toHaveLength(remainingToday);
+    expect([...new Set(plan.map((entry) => entry.localDate))].slice(0, 3))
+      .toEqual(["2026-08-14", "2026-08-20", "2026-08-21"]);
     expect(plan.some((entry) => entry.localDate > "2026-08-14" && entry.localDate < "2026-08-20"))
       .toBe(false);
   });
@@ -54,10 +56,11 @@ describe("Bring to Today notification planning", () => {
       timeZone: "Europe/London",
       time: "12:00",
       activeMode: "all",
-      limit: 3
+      limit: 12
     });
 
-    expect(plan.map((entry) => entry.localDate)).toEqual([
+    expect([...new Set(plan.map((entry) => entry.localDate))]).toEqual([
+      "2026-08-14",
       "2026-08-17",
       "2026-08-18",
       "2026-08-19"
@@ -87,9 +90,9 @@ describe("Bring to Today notification planning", () => {
       timeZone: "Europe/London",
       time: "12:00",
       activeMode: "all",
-      limit: 2
+      limit: 8
     });
 
-    expect(plan.map((entry) => entry.localDate)).toEqual(["2026-08-21", "2026-08-22"]);
+    expect([...new Set(plan.map((entry) => entry.localDate))]).toEqual(["2026-08-21", "2026-08-22"]);
   });
 });

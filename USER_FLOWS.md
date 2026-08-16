@@ -480,7 +480,7 @@ Today, Interactions, Privacy & Security, and About also show their fixed policy 
    - Same-day body when trustworthy: “3 people are on your list today.”
    - Forecast body: “People are waiting on your list today.”
 9. Do not include names, contact details, reasons, notes, affiliations, relationship details, or Person/FollowUp IDs. Do not create one notification per Person.
-10. Tap the summary to open Today. The MVP adds no notification action buttons, Snooze, automatic messaging, or notification-only Not today command.
+10. Tap the summary, or its View Today action, to open Today. Not Now leaves everything unchanged and the next reminder arrives three hours later, up to the 22:00 cut-off. Opening PeopleOS ends that day's reminders; dismissing or ignoring one does not. The MVP adds no configurable snooze, automatic messaging, or notification-only Not today command.
 11. Change the time to cancel and replace the pending plan. Turn reminders Off to cancel every pending PeopleOS summary.
 12. After 30 ignored occurrences the bounded plan ends; reopening PeopleOS replenishes it. Do not claim unlimited or live at-delivery evaluation while the app remains closed.
 

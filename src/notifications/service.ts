@@ -3,6 +3,7 @@ import { updateTodaySummaryNotificationSettings } from "../application/settings"
 import { getDatabase } from "../data/client";
 import { readAllData, type PeopleOsDatabase } from "../data/database";
 import { StaleRevisionError } from "../data/repositories";
+import { localDateForInstant } from "../domain/followUpPolicy";
 import type { AppSettings } from "../domain/schema";
 import { readActiveRelationshipMode } from "../relationshipModePreference";
 import {
@@ -12,6 +13,7 @@ import {
 } from "./capacitorAdapter";
 import {
   buildTodayNotificationPlanningResult,
+  elapsedTodayOccurrenceCount,
   type TodayNotificationPlanEntry
 } from "./policy";
 
@@ -23,6 +25,20 @@ export type TodayNotificationRuntimeState = {
   scheduledCount: number;
   incompleteRegularScheduleCount: number;
   error?: string;
+};
+
+/**
+ * The whole reminder state model: which local day's cycle the user has already
+ * ended by opening PeopleOS after a notification was sent. Nothing else is
+ * remembered — dismissing, ignoring and Not Now leave the installed ladder
+ * alone, and the next calendar day starts a fresh cycle. It is device-session
+ * state, never written to the database, backup or sync.
+ */
+export type TodayReminderCycle = { endedLocalDate?: string };
+
+export type TodayNotificationReconcileContext = {
+  appIsOpen: boolean;
+  cycle: TodayReminderCycle;
 };
 
 type RuntimeListener = (state: TodayNotificationRuntimeState) => void;
@@ -40,9 +56,10 @@ let pollTimer: number | undefined;
 let observedSignature = "";
 let running: Promise<void> | undefined;
 let rerunRequested = false;
-let removeTapListener: (() => void) | undefined;
-let tapListenerRetryTimer: number | undefined;
+let removeActionListener: (() => void) | undefined;
+let actionListenerRetryTimer: number | undefined;
 let serviceGeneration = 0;
+const serviceReminderCycle: TodayReminderCycle = {};
 
 function publish(next: TodayNotificationRuntimeState): TodayNotificationRuntimeState {
   runtimeState = next;
@@ -74,6 +91,34 @@ export async function recoverTodayNotificationSettings(
 
 function currentTimeZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
+function liveReconcileContext(): TodayNotificationReconcileContext {
+  return {
+    // Reconciliation also runs as the app goes to the background; only a visible
+    // document proves the user actually has PeopleOS open.
+    appIsOpen: typeof document === "undefined" || document.visibilityState === "visible",
+    cycle: serviceReminderCycle
+  };
+}
+
+/**
+ * Opening PeopleOS after a notification has been sent ends that day's cycle,
+ * whether the user tapped View Today or opened the app themselves. Reaching a
+ * new local date starts a fresh one.
+ */
+export function advanceTodayReminderCycle(
+  cycle: TodayReminderCycle,
+  input: { localDate: string; time: string; now: Date; appIsOpen: boolean }
+): TodayReminderCycle {
+  if (cycle.endedLocalDate && cycle.endedLocalDate !== input.localDate) {
+    cycle.endedLocalDate = undefined;
+  }
+  if (input.appIsOpen
+    && elapsedTodayOccurrenceCount(input.localDate, input.time, input.now) > 0) {
+    cycle.endedLocalDate = input.localDate;
+  }
+  return cycle;
 }
 
 function difference(left: Iterable<number>, right: ReadonlySet<number>): number[] {
@@ -132,7 +177,8 @@ async function installAndVerifyPlan(
 export async function reconcileTodayNotifications(
   db: PeopleOsDatabase,
   adapter: TodayNotificationAdapter,
-  now = new Date()
+  now = new Date(),
+  context: TodayNotificationReconcileContext = liveReconcileContext()
 ): Promise<TodayNotificationRuntimeState> {
   const settings = await getAppSettings(db);
   const permission = await adapter.checkPermission();
@@ -147,11 +193,19 @@ export async function reconcileTodayNotifications(
     };
   }
 
+  const timeZone = currentTimeZone();
+  const cycle = advanceTodayReminderCycle(context.cycle, {
+    localDate: localDateForInstant(now.toISOString(), timeZone),
+    time: settings.todaySummaryNotificationTime,
+    now,
+    appIsOpen: context.appIsOpen
+  });
   const planning = buildTodayNotificationPlanningResult(await readAllData(db), {
     now,
-    timeZone: currentTimeZone(),
+    timeZone,
     time: settings.todaySummaryNotificationTime,
-    activeMode: readActiveRelationshipMode()
+    activeMode: readActiveRelationshipMode(),
+    cycleEndedLocalDate: cycle.endedLocalDate
   });
   const scheduledCount = await installAndVerifyPlan(adapter, planning.entries, pendingIds);
   return {
@@ -211,11 +265,29 @@ async function settingsSignature(): Promise<string> {
     db.get("appSettings", "app"),
     db.get("metadata", "app")
   ]);
+  const now = new Date();
+  const localDate = now.toLocaleDateString("en-CA");
+  // The elapsed-occurrence count changes at most a handful of times a day. It
+  // makes the app notice, while open, that a reminder has just been delivered,
+  // so the rest of that day's ladder is cancelled without polling the engine.
+  let elapsedOccurrences = 0;
+  try {
+    if (settings?.todaySummaryNotificationTime) {
+      elapsedOccurrences = elapsedTodayOccurrenceCount(
+        localDate,
+        settings.todaySummaryNotificationTime,
+        now
+      );
+    }
+  } catch {
+    elapsedOccurrences = 0;
+  }
   return JSON.stringify([
     settings?.revision,
     metadata?.datasetRevision,
     readActiveRelationshipMode(),
-    new Date().toLocaleDateString("en-CA")
+    localDate,
+    elapsedOccurrences
   ]);
 }
 
@@ -238,13 +310,15 @@ export function startTodayNotificationService(): () => void {
     else void runReconcile();
   };
   const onPageHide = () => { void runReconcile(); };
-  const installTapListener = () => {
-    void adapter.addTodayTapListener(() => {
-      window.dispatchEvent(new Event(OPEN_TODAY_FROM_NOTIFICATION_EVENT));
+  const installActionListener = () => {
+    void adapter.addTodayActionListener((action) => {
+      // Not Now needs no work: the rest of the day's ladder is already
+      // installed, and the cycle only ends when PeopleOS is opened.
+      if (action === "open") window.dispatchEvent(new Event(OPEN_TODAY_FROM_NOTIFICATION_EVENT));
     }).then((remove) => {
       if (started && serviceGeneration === generation) {
-        removeTapListener?.();
-        removeTapListener = remove;
+        removeActionListener?.();
+        removeActionListener = remove;
       } else remove();
     }).catch(() => {
       if (!started || serviceGeneration !== generation) return;
@@ -253,12 +327,12 @@ export function startTodayNotificationService(): () => void {
         supported: true,
         error: "PeopleOS could not listen for reminder taps yet."
       });
-      tapListenerRetryTimer = window.setTimeout(installTapListener, 1_000);
+      actionListenerRetryTimer = window.setTimeout(installActionListener, 1_000);
     });
   };
   document.addEventListener("visibilitychange", onVisibilityChange);
   window.addEventListener("pagehide", onPageHide);
-  installTapListener();
+  installActionListener();
   pollTimer = window.setInterval(() => {
     void settingsSignature().then((signature) => {
       if (observedSignature && observedSignature !== signature) requestTodayNotificationReconcile();
@@ -274,9 +348,9 @@ export function startTodayNotificationService(): () => void {
     window.removeEventListener("pagehide", onPageHide);
     window.clearInterval(pollTimer);
     window.clearTimeout(reconcileTimer);
-    window.clearTimeout(tapListenerRetryTimer);
-    removeTapListener?.();
-    removeTapListener = undefined;
+    window.clearTimeout(actionListenerRetryTimer);
+    removeActionListener?.();
+    removeActionListener = undefined;
   };
 }
 

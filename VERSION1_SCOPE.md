@@ -170,7 +170,7 @@ Already contacted is explicit evidence that contact happened, so it creates one 
 
 ### Today summary notifications
 
-Notifications are an optional native iPhone delivery mechanism. They default Off and request normal iOS permission only after the user turns them On. The reminder time defaults to 12:00 local and is editable. The app derives at most 30 anonymous one-off daily occurrences from the same deterministic rules as Today, rebuilding them on launch, foreground/background transition, selected relationship mode, Settings, and dataset changes. A same-day occurrence may use the current Today count; forecast occurrences use “People are waiting on your list today.” Tapping opens Today. Turning reminders Off cancels all pending PeopleOS summaries. No notification action mutates individual reminders or relationship state.
+Notifications are an optional native iPhone delivery mechanism. They default Off and request normal iOS permission only after the user turns them On. The reminder time defaults to 12:00 local and is editable. The app derives at most 30 anonymous one-off occurrences from the same deterministic rules as Today — for each qualifying date, the chosen time and a reminder every three hours, never at or after 22:00 local — rebuilding them on launch, foreground/background transition, selected relationship mode, Settings, and dataset changes. Current-date occurrences may use the current Today count; forecast occurrences use “People are waiting on your list today.” Tapping, or View Today, opens Today; Not Now does nothing. Opening PeopleOS after a notification was sent ends that day's reminders. Turning reminders Off cancels all pending PeopleOS summaries. No notification action mutates individual reminders or relationship state.
 
 Reliable delivery uses Capacitor's native local-notifications adapter backed by `UNUserNotificationCenter`. The browser PWA does not request permission or claim closed-app delivery. There is no backend, APNs/remote push entitlement, server push, or unlimited closed-app evaluation claim. Reopening replenishes the bounded 30-occurrence plan.
 
@@ -184,7 +184,7 @@ Reliable delivery uses Capacitor's native local-notifications adapter backed by 
 - SMS, calling, or email delivery services inside PeopleOS
 - PeopleOS accounts, a hosted application backend, or shared/collaborative workspaces; optional private iCloud replication in the native app is a separate accepted capability
 - Per-Person notifications, one notification per Today card, or names in notification content
-- Per-Person notification time, notification action buttons, or configurable snooze duration
+- Per-Person notification time, notification actions beyond View Today and Not Now, or a configurable reminder interval or cut-off
 - Deals, pipelines, companies as managed accounts, tasks unrelated to a person, campaigns, or analytics dashboards
 - Birthdays as a special recommendation system
 - Automatic merging or general-purpose merge; V1 includes only explicit provisional-Person resolution

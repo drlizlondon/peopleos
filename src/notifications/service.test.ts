@@ -45,7 +45,7 @@ function fakeAdapter(initialPermission: TodayNotificationPermission = "granted")
         if (!droppedScheduleIds.has(entry.id)) pending.add(entry.id);
       });
     }),
-    addTodayTapListener: vi.fn(async () => () => undefined)
+    addTodayActionListener: vi.fn(async () => () => undefined)
   };
   return {
     adapter,

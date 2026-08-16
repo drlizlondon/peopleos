@@ -138,25 +138,73 @@ describe("Today notification planning", () => {
     expect(serialized).not.toContain("follow-up-sarah");
   });
 
-  it("uses the actual count only for a same-day reminder scheduled ahead of time", () => {
+  it("uses the actual count only for the current local date", () => {
     const data = completeData();
     data.followUps[0]!.dueDate = "2026-08-01";
     data.todaySkips = [];
     expect(plan(data)[0]).toMatchObject({
       localDate: "2026-08-01",
+      occurrence: 0,
       body: "1 person is on your list today."
     });
+    expect(plan(data).find((entry) => entry.localDate !== "2026-08-01")?.body)
+      .toBe("People are waiting on your list today.");
 
-    const afterReminder = buildTodayNotificationPlan(data, {
+    // 13:30 local: the chosen 12:00 occurrence has been delivered, and the rest
+    // of that day's ladder stands until the user opens PeopleOS.
+    const afterFirstNotification = buildTodayNotificationPlan(data, {
       now: new Date("2026-08-01T12:30:00.000Z"),
       timeZone,
       time: "12:00",
       activeMode: "all"
     });
-    expect(afterReminder[0]).toMatchObject({
-      localDate: "2026-08-02",
-      body: "People are waiting on your list today."
+    expect(afterFirstNotification[0]).toMatchObject({
+      localDate: "2026-08-01",
+      occurrence: 1,
+      body: "1 person is on your list today."
     });
+    expect(afterFirstNotification[0]?.at.getHours()).toBe(15);
+  });
+
+  it("ends the current day's ladder when the user has opened PeopleOS after a notification", () => {
+    const data = completeData();
+    data.followUps[0]!.dueDate = "2026-08-01";
+    data.todaySkips = [];
+
+    const afterOpening = buildTodayNotificationPlan(data, {
+      now: new Date("2026-08-01T12:30:00.000Z"),
+      timeZone,
+      time: "12:00",
+      activeMode: "all",
+      cycleEndedLocalDate: "2026-08-01"
+    });
+    expect(afterOpening.some((entry) => entry.localDate === "2026-08-01")).toBe(false);
+    expect(afterOpening[0]?.localDate).toBe("2026-08-02");
+    expect(afterOpening[0]?.occurrence).toBe(0);
+  });
+
+  it("repeats every three hours and never schedules a reminder at or after 22:00", () => {
+    const data = completeData();
+    data.followUps[0]!.dueDate = "2026-08-01";
+    data.todaySkips = [];
+
+    const fromNineAm = buildTodayNotificationPlan(data, {
+      now: new Date("2026-08-01T05:00:00.000Z"),
+      timeZone,
+      time: "09:00",
+      activeMode: "all"
+    }).filter((entry) => entry.localDate === "2026-08-01");
+    expect(fromNineAm.map((entry) => entry.at.getHours())).toEqual([9, 12, 15, 18, 21]);
+    expect(fromNineAm.map((entry) => entry.occurrence)).toEqual([0, 1, 2, 3, 4]);
+
+    // 19:30 + 3h would land at 22:30, so the day ends with the chosen time.
+    const fromLateEvening = buildTodayNotificationPlan(data, {
+      now: new Date("2026-08-01T05:00:00.000Z"),
+      timeZone,
+      time: "19:30",
+      activeMode: "all"
+    }).filter((entry) => entry.localDate === "2026-08-01");
+    expect(fromLateEvening.map((entry) => entry.at.getHours())).toEqual([19]);
   });
 
   it("honours the active relationship mode and date-specific Today skips", () => {

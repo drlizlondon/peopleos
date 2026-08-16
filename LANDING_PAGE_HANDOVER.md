@@ -36,7 +36,7 @@ At the time of this snapshot, the product code was credible as a release candida
 - A denied permission leaves reminders off and does not create a repeated prompt loop.
 - The user can change the time or turn reminders off in Settings.
 - PeopleOS schedules only device-local notifications through Apple's notification framework. There is no backend, APNs entitlement or remote push service.
-- The scheduler builds a safely replaceable rolling plan of at most 30 one-off reminders. It only includes dates on which the selected Personal/Professional view has at least one person in Today.
+- The scheduler builds a safely replaceable rolling plan of at most 30 one-off reminders — the chosen time and a reminder every three hours until 22:00. It only includes dates on which the selected Personal/Professional view has at least one person in Today.
 - A same-day reminder uses the current count where practical, with correct singular/plural wording. Forecast reminders use the approved private fallback: `People are waiting on your list today.`
 - Notification payloads contain no person IDs, names, contact details, reasons, notes, affiliations or relationship details.
 - Tapping a PeopleOS reminder opens Today, including a retained cold-start action. A tap is queued if the app is temporarily protecting an unfinished edit.

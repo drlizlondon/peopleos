@@ -93,7 +93,10 @@ export default function NotificationSettingsSection({ settings, onSettingsChange
     <section className="settings-section notification-settings-section" aria-labelledby="settings-notifications">
       <div className="settings-section-heading">
         <h3 id="settings-notifications">Notifications</h3>
-        <p>Get one private summary when people are waiting in Today.</p>
+        <p>
+          Get one private summary when people are waiting in Today, then a reminder every
+          3 hours until you open PeopleOS. Reminders stop at 22:00 and start again tomorrow.
+        </p>
       </div>
       {runtime.supported ? (
         <>

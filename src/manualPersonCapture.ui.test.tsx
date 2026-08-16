@@ -14,6 +14,13 @@ async function resetDatabase() {
   await deletePeopleOsDatabase(DATABASE_NAME);
 }
 
+/** The Profile "Next" label for a date this many days after the current one. */
+function expectedDateLabel(daysFromToday: number): string {
+  const value = new Date();
+  value.setDate(value.getDate() + daysFromToday);
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(value);
+}
+
 async function openCapture(user: ReturnType<typeof userEvent.setup>, throughPeople = false) {
   window.history.replaceState({}, "", throughPeople ? "/people" : "/people/new");
   render(<App />);
@@ -332,7 +339,9 @@ describe("V1-03 manual person capture", () => {
     expect(await screen.findByRole("heading", { name: "Schedule Off" })).toBeInTheDocument();
     const details = screen.getByRole("region", { name: "Person details" });
     expect(within(details).getByText("Not set")).toBeInTheDocument();
-    expect(within(details).getByText(/Aug 20, 2026|20 Aug 2026/)).toBeInTheDocument();
+    // The independent reminder is the "Already contacted" default of 7 days from
+    // the real current date, so the expected label is derived, never hard-coded.
+    expect(within(details).getByText(expectedDateLabel(7))).toBeInTheDocument();
     const data = await readAllData(await getDatabase());
     expect(data.people[0]?.contactCadence).toBeUndefined();
     expect(data.followUps).toEqual(expect.arrayContaining([

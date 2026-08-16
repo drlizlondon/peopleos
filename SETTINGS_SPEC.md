@@ -186,14 +186,14 @@ Explain the fixed rules for recording relationship history and protect the disti
 
 ### Purpose
 
-Offer one privacy-preserving Today summary on a supported runtime without turning notifications into a second reminder system.
+Offer a privacy-preserving daily Today prompt on a supported runtime without turning notifications into a second reminder system.
 
 ### Available options and defaults
 
 | Row | Options | Default |
 |---|---|---|
 | Today summary notifications | Off; On, with separate effective status when permission/capability blocks delivery | Off |
-| Reminder time | Any valid local `HH:mm` time | 12:00 in the current device timezone |
+| Reminder time | Any valid local `HH:mm` time; the day's first notification, after which reminders repeat every 3 hours until 22:00 | 12:00 in the current device timezone |
 | Permission and runtime capability | Informational status | Not requested until the user turns Today summary notifications on |
 
 ### Deterministic behaviour
@@ -201,13 +201,16 @@ Offer one privacy-preserving Today summary on a supported runtime without turnin
 - `todaySummaryNotificationsEnabled` records desired global behavior; effective delivery additionally requires the approved adapter and granted operating-system permission.
 - On a supported runtime, explicitly choosing On requests permission in that same user-initiated flow and persists On only when permission is granted. Denial leaves the preference Off, shows “Permission denied,” schedules nothing, and never re-prompts automatically. Turning Off persists `false` and cancels pending PeopleOS summaries without attempting to change the operating-system permission.
 - An unsupported runtime does not offer a working On action. If a restored backup contains On, show “On preference — unavailable on this device” and schedule nothing. Restored On with requestable permission shows “Permission required”; only an explicit Enable on this device action may request it.
-- The native scheduler forecasts from the same fixed Today eligibility rules and schedules at most 30 one-off daily summaries. It installs and verifies replacements before removing stale requests after launch, foreground/background transition, relationship-mode, Settings, or dataset changes. An empty forecast date produces no notification.
-- The title is “PeopleOS”. A same-day occurrence scheduled before its selected time may say “3 people are on your list today.” Future forecast occurrences use “People are waiting on your list today.” Singular grammar uses “1 person is on your list today.”
+- The native scheduler forecasts from the same fixed Today eligibility rules and schedules at most 30 one-off occurrences. It installs and verifies replacements before removing stale requests after launch, foreground/background transition, relationship-mode, Settings, or dataset changes. An empty forecast date produces no notification.
+- Each forecast date carries a ladder: the user's chosen time, then a reminder every 3 hours. No reminder is placed at or after 22:00 local time, and a chosen time of 20:30 or later simply produces that single occurrence. The whole ladder is installed in advance, because iOS cannot evaluate Today when a notification fires (POS-D048). A five-occurrence ladder therefore forecasts roughly six days within the 30-request budget; reopening PeopleOS replenishes it.
+- The title is “PeopleOS”. Occurrences scheduled for the current local date may say “3 people are on your list today.” Future forecast occurrences use “People are waiting on your list today.” Singular grammar uses “1 person is on your list today.”
 - Bodies and payloads contain no names, contact details, Person or FollowUp identifiers, reasons, notes, affiliations, relationship details, or other personal data.
 - The user-selected reminder time follows the current device timezone when the plan is reconciled. Changing the time cancels and replaces every pending PeopleOS summary.
-- Tapping a summary opens the current Today route. The MVP has no notification action buttons, delivery Snooze, automatic contact action, or notification-only Not today command.
-- If the user ignores 30 summaries without reopening the app, the bounded local plan ends; reopening or foregrounding PeopleOS replenishes it. The MVP does not claim unlimited or live at-delivery evaluation while closed.
-- Notification scheduling and taps never create a TodaySkip, Interaction, FollowUp, FollowUpEvent, ReachOutEvent, or Reach Out transition.
+- Every notification offers two actions. **View Today** opens the current Today route on warm or cold launch, exactly like tapping the body. **Not Now** does nothing: it does not open Today, does not end the cycle, and does not touch data — the next reminder in the already-installed ladder simply arrives. There is no configurable snooze, automatic contact action, or notification-only Not today command.
+- Opening PeopleOS after a notification has been sent ends that local date's cycle and cancels its remaining reminders, whether the user tapped View Today or opened the app themselves. Opening the app *before* the day's first notification does not end the cycle. Dismissing, clearing from Notification Centre, or ignoring a notification is never treated as opening the app. The next calendar day starts a fresh cycle.
+- The cycle state is device-session only — one local date, held in memory, never written to the database, backup, or sync.
+- If the user ignores every scheduled occurrence without reopening the app, the bounded local plan ends; reopening or foregrounding PeopleOS replenishes it. The MVP does not claim unlimited or live at-delivery evaluation while closed.
+- Notification scheduling, taps, actions and cycle transitions never create a TodaySkip, Interaction, FollowUp, FollowUpEvent, ReachOutEvent, or Reach Out transition, and never remove anyone from Today. People leave Today only through the ordinary PeopleOS action. There is no overdue state.
 - The browser PWA does not request notification permission. The On control is available only in the iPhone wrapper whose native adapter proves permission, closed-app scheduling, replacement, cancellation, and warm/cold tap handling.
 
 ### User flows affected
@@ -236,7 +239,7 @@ Make the local-first trust boundary visible and explain protections and limitati
 
 - PeopleOS makes no claim that local IndexedDB is encrypted by the application.
 - Data leaves PeopleOS only through an explicit user action such as backup export, vCard export, or external message handoff.
-- Today summary notification content contains no names, counts, relationship details, or copied Today queue. Notification permission and delivery state remain device-local.
+- Today summary notification content contains no names, relationship details, or copied Today queue; a count is shown only for the current local date. Notification permission and reminder-cycle state remain device-local and are never backed up or synced.
 - V1 has no app PIN, biometric lock, hidden mode, analytics consent, cloud encryption, account, or session setting.
 - External app and file-system security are owned by the device/platform and described accurately.
 
@@ -355,7 +358,7 @@ Migration is deliberately staged. V1-10 adds the Already-contacted default of 14
 - AI, inferred defaults, recommendations based on usage, or “remember my last choice” behavior
 - Theme and cosmetic customization
 - Accounts, sync, provider integrations, analytics, or marketing preferences
-- Per-Person notification settings, names or relationship details in notification content, notification action buttons, and configurable snooze duration
+- Per-Person notification settings, names or relationship details in notification content, notification actions beyond View Today and Not Now, and a configurable reminder interval or cut-off
 - Browser/server push, notification analytics, or a backend solely for notification delivery
 - App PIN, biometric lock, or application-managed encryption
 - Automatic backup, restore merge, or destructive clear-all action

@@ -12,11 +12,15 @@ import { groupRelationshipData, relationshipBundleFromGroups } from "../applicat
 // PeopleOS plan before removing the previous one. That makes reconciliation
 // recoverable if the native scheduler accepts only part of a replacement.
 export const TODAY_NOTIFICATION_LIMIT = 30;
+export const TODAY_REMINDER_INTERVAL_HOURS = 3;
+export const TODAY_REMINDER_CUTOFF_HOUR = 22;
 const TODAY_NOTIFICATION_ID_BASE = 1_500_000_000;
 
 export type TodayNotificationPlanEntry = {
   id: number;
   localDate: string;
+  /** Position in that day's reminder ladder; 0 is the user's chosen time. */
+  occurrence: number;
   at: Date;
   title: "PeopleOS";
   body: string;
@@ -32,6 +36,12 @@ export type TodayNotificationPlanOptions = {
   time: string;
   activeMode: ActiveRelationshipMode;
   limit?: number;
+  /**
+   * The local date whose reminder cycle the user has already ended by opening
+   * PeopleOS after a notification was sent. That day gets no further
+   * occurrences. Dismissing or ignoring a notification never sets this.
+   */
+  cycleEndedLocalDate?: string;
 };
 
 export type TodayNotificationPlanningResult = {
@@ -44,39 +54,79 @@ export type TodayNotificationPlanningResult = {
   incompleteRegularSchedulePersonIds: string[];
 };
 
-function parseTime(time: string): { hour: number; minute: number } {
+type ClockTime = { hour: number; minute: number };
+
+function parseTime(time: string): ClockTime {
   const match = /^(?:[01]\d|2[0-3]):[0-5]\d$/.exec(time);
   if (!match) throw new RangeError("A valid reminder time is required.");
   const [hour, minute] = time.split(":").map(Number);
   return { hour, minute };
 }
 
-function localDateAtTime(localDate: string, time: string): Date {
+/**
+ * One local day's reminder ladder: the user's chosen time, then a reminder
+ * every three hours. A reminder is never placed at or after 22:00 local time.
+ * The chosen time itself is always honoured — the cut-off bounds the repeated
+ * reminders PeopleOS adds, never the time the user asked to be told.
+ */
+export function todayNotificationClockTimes(time: string): ClockTime[] {
+  const first = parseTime(time);
+  const times = [first];
+  for (
+    let hour = first.hour + TODAY_REMINDER_INTERVAL_HOURS;
+    hour < TODAY_REMINDER_CUTOFF_HOUR;
+    hour += TODAY_REMINDER_INTERVAL_HOURS
+  ) times.push({ hour, minute: first.minute });
+  return times;
+}
+
+function localDateAtClockTime(localDate: string, clock: ClockTime): Date {
   const [year, month, day] = localDate.split("-").map(Number);
-  const { hour, minute } = parseTime(time);
-  const at = new Date(year, month - 1, day, hour, minute, 0, 0);
+  const at = new Date(year, month - 1, day, clock.hour, clock.minute, 0, 0);
   if (!Number.isFinite(at.getTime())) throw new RangeError("The reminder date is invalid.");
   return at;
 }
 
-function nextSchedulableLocalDate(now: Date, timeZone: string, time: string): string {
-  const today = localDateForInstant(now.toISOString(), timeZone);
-  return localDateAtTime(today, time).getTime() > now.getTime()
-    ? today
-    : addDaysToLocalDate(today, 1);
+/**
+ * How many of a day's occurrences have already been reached. A non-zero count
+ * means a notification for that day has been sent, so the app being open now
+ * ends that day's cycle.
+ */
+export function elapsedTodayOccurrenceCount(localDate: string, time: string, now: Date): number {
+  return todayNotificationClockTimes(time)
+    .filter((clock) => localDateAtClockTime(localDate, clock).getTime() <= now.getTime())
+    .length;
 }
 
-export function todayNotificationId(localDate: string): number {
+function nextSchedulableLocalDate(
+  now: Date,
+  timeZone: string,
+  time: string,
+  cycleEndedLocalDate: string | undefined
+): string {
+  const today = localDateForInstant(now.toISOString(), timeZone);
+  const hasRemainingOccurrenceToday = today !== cycleEndedLocalDate
+    && todayNotificationClockTimes(time)
+      .some((clock) => localDateAtClockTime(today, clock).getTime() > now.getTime());
+  return hasRemainingOccurrenceToday ? today : addDaysToLocalDate(today, 1);
+}
+
+export function todayNotificationId(localDate: string, occurrence = 0): number {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(localDate)) throw new RangeError("A valid local date is required.");
-  const id = TODAY_NOTIFICATION_ID_BASE + Number(localDate.replaceAll("-", ""));
+  if (!Number.isInteger(occurrence) || occurrence < 0 || occurrence > 9) {
+    throw new RangeError("A reminder occurrence must be a single digit.");
+  }
+  const id = TODAY_NOTIFICATION_ID_BASE + Number(localDate.replaceAll("-", "")) * 10 + occurrence;
   if (!Number.isSafeInteger(id) || id > 2_147_483_647) throw new RangeError("The local date is outside the supported notification range.");
   return id;
 }
 
 export function isTodayNotificationId(id: number): boolean {
   if (!Number.isInteger(id) || id <= TODAY_NOTIFICATION_ID_BASE || id > 2_147_483_647) return false;
-  const encoded = String(id - TODAY_NOTIFICATION_ID_BASE).padStart(8, "0");
-  const match = /^(\d{4})(\d{2})(\d{2})$/.exec(encoded);
+  // The reminder ladder appends an occurrence digit. Identifiers written by the
+  // single-notification release carry the date alone and are still recognised,
+  // so an upgraded install can cancel the plan its previous version installed.
+  const match = /^(\d{4})(\d{2})(\d{2})\d?$/.exec(String(id - TODAY_NOTIFICATION_ID_BASE));
   if (!match) return false;
   const year = Number(match[1]);
   const month = Number(match[2]);
@@ -98,6 +148,13 @@ function countBody(count: number): string {
  * eligibility rules as Today. The forecast contains no relationship data.
  * It is rebuilt whenever the local dataset, selected mode, time or permission
  * intent changes, and whenever the native app returns to the foreground.
+ *
+ * Each forecast day carries its whole reminder ladder. iOS cannot run the Today
+ * engine when a local notification fires, so the ladder is installed in advance:
+ * dismissing, ignoring and Not Now all leave the next reminder standing, which
+ * makes a pre-installed ladder exactly equivalent to reacting to Not Now. Only
+ * opening PeopleOS ends a day's cycle, and the app is by definition running when
+ * that happens, so the remaining occurrences are cancelled at reconciliation.
  */
 export function buildTodayNotificationPlanningResult(
   data: PeopleOsData,
@@ -149,9 +206,15 @@ export function buildTodayNotificationPlanningResult(
     (earliest, candidate) => candidate.localDate < earliest ? candidate.localDate : earliest,
     eligible[0].localDate
   );
-  const firstSchedulableDate = nextSchedulableLocalDate(options.now, options.timeZone, options.time);
+  const firstSchedulableDate = nextSchedulableLocalDate(
+    options.now,
+    options.timeZone,
+    options.time,
+    options.cycleEndedLocalDate
+  );
   let localDate = firstEligibleDate < firstSchedulableDate ? firstSchedulableDate : firstEligibleDate;
   const currentLocalDate = localDateForInstant(options.now.toISOString(), options.timeZone);
+  const clockTimes = todayNotificationClockTimes(options.time);
   const plan: TodayNotificationPlanEntry[] = [];
   const maxAttempts = limit + skippedDates.size + eligible.length + 1;
 
@@ -159,17 +222,23 @@ export function buildTodayNotificationPlanningResult(
     const count = eligible.filter((candidate) => candidate.localDate <= localDate
       && (!candidate.resumesOn || localDate === candidate.localDate || candidate.resumesOn <= localDate)
       && !skipped.has(`${candidate.personId}:${localDate}`)).length;
-    if (count > 0) {
-      plan.push({
-        id: todayNotificationId(localDate),
-        localDate,
-        at: localDateAtTime(localDate, options.time),
-        title: "PeopleOS",
-        body: localDate === currentLocalDate
-          ? countBody(count)
-          : "People are waiting on your list today.",
-        extra: { kind: "today-summary", destination: "today" }
-      });
+    if (count > 0 && localDate !== options.cycleEndedLocalDate) {
+      for (const [occurrence, clockTime] of clockTimes.entries()) {
+        if (plan.length >= limit) break;
+        const at = localDateAtClockTime(localDate, clockTime);
+        if (at.getTime() <= options.now.getTime()) continue;
+        plan.push({
+          id: todayNotificationId(localDate, occurrence),
+          localDate,
+          occurrence,
+          at,
+          title: "PeopleOS",
+          body: localDate === currentLocalDate
+            ? countBody(count)
+            : "People are waiting on your list today.",
+          extra: { kind: "today-summary", destination: "today" }
+        });
+      }
     }
     if (count === 0) {
       const skippedCandidateCanReturnTomorrow = eligible.some((candidate) =>
