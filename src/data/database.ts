@@ -4,6 +4,7 @@ import {
   DATABASE_VERSION,
   DEFAULT_ALREADY_CONTACTED_REMINDER_DAYS,
   DEFAULT_CONVERSATION_STARTERS,
+  isOriginalConversationStarterSet,
   DEFAULT_TODAY_NOTIFICATION_TIME,
   DATA_STORE_NAMES,
   type AppMetadata,
@@ -86,8 +87,12 @@ function migrateAppSettings(settings: AppSettings): AppSettings {
     todaySummaryNotificationsEnabled: legacy.todaySummaryNotificationsEnabled ?? false,
     todaySummaryNotificationTime: legacy.todaySummaryNotificationTime
       ?? DEFAULT_TODAY_NOTIFICATION_TIME,
-    conversationStarters: legacy.conversationStarters
-      ?? DEFAULT_CONVERSATION_STARTERS.map((starter) => ({ ...starter })),
+    // An install still holding the original six untouched starters receives the
+    // larger default set. A list the user has edited is never overwritten.
+    conversationStarters: legacy.conversationStarters === undefined
+      || isOriginalConversationStarterSet(legacy.conversationStarters)
+      ? DEFAULT_CONVERSATION_STARTERS.map((starter) => ({ ...starter }))
+      : legacy.conversationStarters,
     relationshipContexts: legacy.relationshipContexts
       ?? ["personal", "professional"]
   };
@@ -95,6 +100,7 @@ function migrateAppSettings(settings: AppSettings): AppSettings {
     || legacy.todaySummaryNotificationsEnabled === undefined
     || legacy.todaySummaryNotificationTime === undefined
     || legacy.conversationStarters === undefined
+    || isOriginalConversationStarterSet(legacy.conversationStarters)
     || legacy.relationshipContexts === undefined
     ? migrated
     : settings;

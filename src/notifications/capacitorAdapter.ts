@@ -29,6 +29,20 @@ export const TODAY_ACTION_TYPE_ID = "peopleos-today";
 export const VIEW_TODAY_ACTION_ID = "peopleos-view-today";
 export const NOT_NOW_ACTION_ID = "peopleos-not-now";
 
+/**
+ * The reminder sound, as a filename in the iOS app bundle. To change it, drop a
+ * replacement beside `ios/App/App/PeopleOSReminder.wav`, register it in the
+ * Xcode project's Resources build phase, and point this constant at it — no
+ * other file needs to change. iOS accepts `.wav`, `.aiff` and `.caf` up to 30
+ * seconds; anything longer is replaced by the default sound.
+ *
+ * The default iOS alert is a fraction of a second, which is easy to miss. This
+ * one runs about four seconds. A sound cannot help while a Focus mode is
+ * suppressing the notification altogether — that needs the Time Sensitive
+ * entitlement, which requires the paid Apple Developer Program.
+ */
+export const TODAY_NOTIFICATION_SOUND = "PeopleOSReminder.wav";
+
 let registeredActionTypes: Promise<void> | undefined;
 
 /**
@@ -93,7 +107,7 @@ export function createCapacitorTodayNotificationAdapter(): TodayNotificationAdap
           title: entry.title,
           body: entry.body,
           schedule: { at: entry.at },
-          sound: "default",
+          sound: TODAY_NOTIFICATION_SOUND,
           threadIdentifier: "peopleos-today",
           actionTypeId: TODAY_ACTION_TYPE_ID,
           extra: entry.extra

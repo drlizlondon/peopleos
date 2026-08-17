@@ -1,9 +1,11 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const native = vi.hoisted(() => ({ isNative: true, platform: "ios" }));
 
 type ScheduleRequest = {
-  notifications: Array<{ id: number; actionTypeId?: string; title: string; body: string }>;
+  notifications: Array<{ id: number; actionTypeId?: string; sound?: string; title: string; body: string }>;
 };
 
 const scheduleRequests = vi.hoisted(() => [] as ScheduleRequest[]);
@@ -41,6 +43,7 @@ import {
   isTodayNotificationsSupported,
   NOT_NOW_ACTION_ID,
   TODAY_ACTION_TYPE_ID,
+  TODAY_NOTIFICATION_SOUND,
   VIEW_TODAY_ACTION_ID,
   type TodayNotificationAction
 } from "./capacitorAdapter";
@@ -96,6 +99,17 @@ describe("Today notification Capacitor adapter", () => {
     expect(scheduled.notifications).toHaveLength(2);
     expect(scheduled.notifications.every((item) => item.actionTypeId === TODAY_ACTION_TYPE_ID)).toBe(true);
     expect(JSON.stringify(scheduled.notifications)).not.toContain("Sarah");
+  });
+
+  it("plays the bundled reminder sound rather than relying on a missing-file fallback", async () => {
+    const adapter = createCapacitorTodayNotificationAdapter()!;
+    await adapter.schedule([entry(0)]);
+
+    // The plugin turns `sound` into UNNotificationSound(named:), so the value
+    // must name a file that is actually in the app bundle.
+    expect(scheduleRequests.at(-1)!.notifications[0]!.sound).toBe(TODAY_NOTIFICATION_SOUND);
+    expect(TODAY_NOTIFICATION_SOUND).toMatch(/\.(wav|aiff|caf)$/);
+    expect(existsSync(resolve(process.cwd(), "ios/App/App", TODAY_NOTIFICATION_SOUND))).toBe(true);
   });
 
   it("reports opening for a tap and View Today, and Not Now as its own action", async () => {

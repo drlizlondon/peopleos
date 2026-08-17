@@ -44,8 +44,217 @@ export const DEFAULT_CONVERSATION_STARTERS = [
     id: "both-how-are-things",
     template: "Hi {name}, how are things with you?",
     relationshipMode: "both"
+  },
+  // Everything below was added after the first release. New starters are
+  // appended, never inserted: Today picks the first unused starter matching a
+  // Person's mode, so reordering the head would change which message an
+  // existing relationship is offered next.
+  {
+    id: "personal-been-a-while",
+    template: "Hi {name}, it’s been a while — how are you doing?",
+    relationshipMode: "personal"
+  },
+  {
+    id: "personal-popped-into-head",
+    template: "Hey {name}, you popped into my head today. How are you?",
+    relationshipMode: "personal"
+  },
+  {
+    id: "personal-hope-youre-well",
+    template: "Hi {name}, hope you’re keeping well. What have you been up to?",
+    relationshipMode: "personal"
+  },
+  {
+    id: "personal-long-overdue",
+    template: "Hey {name}, this is long overdue — how have things been?",
+    relationshipMode: "personal"
+  },
+  {
+    id: "personal-how-is-everyone",
+    template: "Hi {name}, how is everyone at home?",
+    relationshipMode: "personal"
+  },
+  {
+    id: "personal-proper-catch-up",
+    template: "Hey {name}, are you free for a proper catch-up sometime soon?",
+    relationshipMode: "personal"
+  },
+  {
+    id: "personal-still-owe-you",
+    template: "Hi {name}, I still owe you a proper catch-up. How are you?",
+    relationshipMode: "personal"
+  },
+  {
+    id: "personal-no-agenda",
+    template: "Hey {name}, just checking in — no agenda, I hope you’re well.",
+    relationshipMode: "personal"
+  },
+  {
+    id: "personal-coffee-soon",
+    template: "Hi {name}, fancy a coffee sometime in the next few weeks?",
+    relationshipMode: "personal"
+  },
+  {
+    id: "personal-miss-seeing-you",
+    template: "Hey {name}, I miss seeing you. How have you been?",
+    relationshipMode: "personal"
+  },
+  {
+    id: "personal-kind-week",
+    template: "Hi {name}, I hope this week is treating you kindly. How are things?",
+    relationshipMode: "personal"
+  },
+  {
+    id: "professional-how-is-work",
+    template: "Hi {name}, how is work going at the moment?",
+    relationshipMode: "professional"
+  },
+  {
+    id: "professional-since-we-spoke",
+    template: "Hi {name}, it’s been a while since we spoke — how are things progressing?",
+    relationshipMode: "professional"
+  },
+  {
+    id: "professional-keeping-you-busy",
+    template: "Hi {name}, what’s keeping you busy at the moment?",
+    relationshipMode: "professional"
+  },
+  {
+    id: "professional-stayed-with-me",
+    template: "Hi {name}, our last conversation has stayed with me. How are things now?",
+    relationshipMode: "professional"
+  },
+  {
+    id: "professional-any-news",
+    template: "Hi {name}, any news since we last caught up?",
+    relationshipMode: "professional"
+  },
+  {
+    id: "professional-coffee-or-call",
+    template: "Hi {name}, would you be up for a coffee or a quick call in the next few weeks?",
+    relationshipMode: "professional"
+  },
+  {
+    id: "professional-how-did-it-go",
+    template: "Hi {name}, how did everything go in the end?",
+    relationshipMode: "professional"
+  },
+  {
+    id: "professional-settling-in",
+    template: "Hi {name}, how are you settling into things?",
+    relationshipMode: "professional"
+  },
+  {
+    id: "professional-your-work",
+    template: "Hi {name}, I was thinking about what you’re working on. How is it coming along?",
+    relationshipMode: "professional"
+  },
+  {
+    id: "professional-quick-hello",
+    template: "Hi {name}, just a quick hello — I didn’t want too long to pass without one.",
+    relationshipMode: "professional"
+  },
+  {
+    id: "professional-anything-i-can-help",
+    template: "Hi {name}, how are things going? Do let me know if there’s anything I can help with.",
+    relationshipMode: "professional"
+  },
+  {
+    id: "professional-reconnect",
+    template: "Hi {name}, I’d love to reconnect properly. How does your diary look?",
+    relationshipMode: "professional"
+  },
+  {
+    id: "professional-since-we-met",
+    template: "Hi {name}, it was good to meet you. How have things been since?",
+    relationshipMode: "professional"
+  },
+  {
+    id: "professional-year-ahead",
+    template: "Hi {name}, how is the year shaping up for you?",
+    relationshipMode: "professional"
+  },
+  {
+    id: "both-hope-youre-good",
+    template: "Hi {name}, I hope you’re good. What’s been happening?",
+    relationshipMode: "both"
+  },
+  {
+    id: "both-on-my-mind",
+    template: "Hi {name}, you were on my mind today. How are you?",
+    relationshipMode: "both"
+  },
+  {
+    id: "both-quick-check-in",
+    template: "Hi {name}, a quick check-in — how are you doing?",
+    relationshipMode: "both"
+  },
+  {
+    id: "both-far-too-long",
+    template: "Hi {name}, it’s been far too long. How are you?",
+    relationshipMode: "both"
+  },
+  {
+    id: "both-whats-been-happening",
+    template: "Hi {name}, what’s been happening with you lately?",
+    relationshipMode: "both"
+  },
+  {
+    id: "both-hows-your-week",
+    template: "Hi {name}, how has your week been?",
+    relationshipMode: "both"
+  },
+  {
+    id: "both-no-agenda",
+    template: "Hi {name}, no agenda — I just wanted to see how you are.",
+    relationshipMode: "both"
+  },
+  {
+    id: "both-find-a-time",
+    template: "Hi {name}, shall we find a time to catch up properly?",
+    relationshipMode: "both"
+  },
+  {
+    id: "both-still-here",
+    template: "Hi {name}, just so you know I’m still here and thinking of you. How are things?",
+    relationshipMode: "both"
+  },
+  {
+    id: "both-how-are-you-really",
+    template: "Hi {name}, how are you — really?",
+    relationshipMode: "both"
+  },
+  {
+    id: "both-good-to-hear",
+    template: "Hi {name}, it would be good to hear from you. How have things been?",
+    relationshipMode: "both"
   }
 ] as const satisfies readonly ConversationStarter[];
+
+/**
+ * The six starters the first release shipped with. A stored list that still
+ * matches these exactly has never been edited, so it can safely be replaced by
+ * the larger default set. An edited list belongs to the user and is left alone.
+ */
+const ORIGINAL_DEFAULT_CONVERSATION_STARTERS = [
+  ["personal-thinking-of-you", "Hey {name}, just thinking of you today."],
+  ["personal-how-have-you-been", "Hi {name}, how have you been lately?"],
+  ["personal-whats-new", "Hey {name}, what’s new with you?"],
+  ["professional-check-in", "Hi {name}, I wanted to check in and see how things are going."],
+  ["professional-catch-up", "Hi {name}, I’ve been meaning to catch up — how are things?"],
+  ["both-how-are-things", "Hi {name}, how are things with you?"]
+] as const;
+
+export function isOriginalConversationStarterSet(
+  starters: readonly ConversationStarter[] | undefined
+): boolean {
+  return starters !== undefined
+    && starters.length === ORIGINAL_DEFAULT_CONVERSATION_STARTERS.length
+    && starters.every((starter, index) => {
+      const [id, template] = ORIGINAL_DEFAULT_CONVERSATION_STARTERS[index]!;
+      return starter.id === id && starter.template === template;
+    });
+}
 
 export type ContactCadenceUnit = "days" | "weeks" | "months";
 
