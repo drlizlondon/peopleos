@@ -88,13 +88,31 @@ function localDateAtClockTime(localDate: string, clock: ClockTime): Date {
 }
 
 /**
- * How many of a day's occurrences have already been reached. A non-zero count
- * means a notification for that day has been sent, so the app being open now
- * ends that day's cycle.
+ * How many of a day's occurrences have already been reached, whether or not
+ * PeopleOS had scheduled them. Used only to notice, while the app is open, that
+ * a rung has just passed and the plan is worth rebuilding.
  */
 export function elapsedTodayOccurrenceCount(localDate: string, time: string, now: Date): number {
   return todayNotificationClockTimes(time)
     .filter((clock) => localDateAtClockTime(localDate, clock).getTime() <= now.getTime())
+    .length;
+}
+
+/**
+ * How many of a day's occurrences were actually delivered: reached, and not
+ * before the plan was armed. An occurrence earlier than `armedFrom` was never
+ * installed — reminders were off, or the time was only just chosen — so it must
+ * never be mistaken for a notification the user saw and ignored.
+ */
+export function deliveredTodayOccurrenceCount(
+  localDate: string,
+  time: string,
+  now: Date,
+  armedFrom: Date
+): number {
+  return todayNotificationClockTimes(time)
+    .map((clock) => localDateAtClockTime(localDate, clock).getTime())
+    .filter((instant) => instant <= now.getTime() && instant >= armedFrom.getTime())
     .length;
 }
 

@@ -13,6 +13,7 @@ import type { TodayNotificationAdapter, TodayNotificationPermission } from "./ca
 import { todayNotificationId, type TodayNotificationPlanEntry } from "./policy";
 import {
   reconcileTodayNotifications,
+  type ReminderCycleStorage,
   type TodayNotificationReconcileContext,
   type TodayReminderCycle
 } from "./service";
@@ -103,11 +104,23 @@ async function openSeededDatabase(
   return db;
 }
 
+/** jsdom here exposes a localStorage object with no methods, so tests inject. */
+function memoryStorage(): ReminderCycleStorage {
+  const values = new Map<string, string>();
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => { values.set(key, value); },
+    removeItem: (key) => { values.delete(key); }
+  };
+}
+
+let storage = memoryStorage();
+
 function context(
   appIsOpen: boolean,
   cycle: TodayReminderCycle = {}
 ): TodayNotificationReconcileContext {
-  return { appIsOpen, cycle };
+  return { appIsOpen, cycle, storage };
 }
 
 /** The occurrences iOS is currently holding, oldest first. */
@@ -119,6 +132,7 @@ function scheduledClockTimes(pending: Set<number>, entries: TodayNotificationPla
 }
 
 beforeEach(async () => {
+  storage = memoryStorage();
   await closeDatabase();
   await deletePeopleOsDatabase(DATABASE_NAME);
 });
@@ -236,6 +250,43 @@ describe("Today reminder cycle", () => {
     await reconcileTodayNotifications(db, native.adapter, at("09:30"), context(true, cycle));
     expect(cycle.endedLocalDate).toBe(DUE_DATE);
     expect(scheduledClockTimes(native.pending, native.scheduled)
+      .some((entry) => entry.startsWith(DUE_DATE))).toBe(false);
+  });
+
+  it("still schedules the rest of today when reminders are turned on after the chosen time", async () => {
+    const db = await openSeededDatabase("armed-late");
+    const native = fakeAdapter();
+    const cycle: TodayReminderCycle = {};
+
+    // 14:00, with a 09:00 reminder time: the 09:00 and 12:00 rungs have passed,
+    // but PeopleOS never scheduled them, so they were never delivered and must
+    // not silence the rest of the day.
+    await reconcileTodayNotifications(db, native.adapter, at("14:00"), context(true, cycle));
+
+    expect(cycle.endedLocalDate).toBeUndefined();
+    expect(scheduledClockTimes(native.pending, native.scheduled).slice(0, 3)).toEqual([
+      "2026-08-01 15:00",
+      "2026-08-01 18:00",
+      "2026-08-01 21:00"
+    ]);
+  });
+
+  it("remembers an ended cycle across a cold launch", async () => {
+    const db = await openSeededDatabase("cold-launch");
+    const native = fakeAdapter();
+    const cycle: TodayReminderCycle = {};
+    await reconcileTodayNotifications(db, native.adapter, at("08:00"), context(true, cycle));
+    await reconcileTodayNotifications(db, native.adapter, at("09:30"), context(true, cycle));
+    expect(cycle.endedLocalDate).toBe(DUE_DATE);
+
+    // Tapping View Today relaunches the app, so the service starts from an
+    // empty cycle. It must still know the user has already opened PeopleOS.
+    const relaunched = fakeAdapter();
+    const afterRelaunch: TodayReminderCycle = {};
+    await reconcileTodayNotifications(db, relaunched.adapter, at("09:35"), context(true, afterRelaunch));
+
+    expect(afterRelaunch.endedLocalDate).toBe(DUE_DATE);
+    expect(scheduledClockTimes(relaunched.pending, relaunched.scheduled)
       .some((entry) => entry.startsWith(DUE_DATE))).toBe(false);
   });
 

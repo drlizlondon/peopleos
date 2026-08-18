@@ -13,6 +13,7 @@ import {
 } from "./capacitorAdapter";
 import {
   buildTodayNotificationPlanningResult,
+  deliveredTodayOccurrenceCount,
   elapsedTodayOccurrenceCount,
   type TodayNotificationPlanEntry
 } from "./policy";
@@ -34,11 +35,23 @@ export type TodayNotificationRuntimeState = {
  * alone, and the next calendar day starts a fresh cycle. It is device-session
  * state, never written to the database, backup or sync.
  */
-export type TodayReminderCycle = { endedLocalDate?: string };
+export type TodayReminderCycle = {
+  endedLocalDate?: string;
+  /**
+   * When the current plan was armed. Occurrences earlier than this were never
+   * installed, so they were never delivered.
+   */
+  armedFrom?: string;
+};
+
+export const TODAY_REMINDER_CYCLE_KEY = "peopleos.todayReminderCycle.v1";
+
+export type ReminderCycleStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 export type TodayNotificationReconcileContext = {
   appIsOpen: boolean;
   cycle: TodayReminderCycle;
+  storage?: ReminderCycleStorage;
 };
 
 type RuntimeListener = (state: TodayNotificationRuntimeState) => void;
@@ -60,6 +73,64 @@ let removeActionListener: (() => void) | undefined;
 let actionListenerRetryTimer: number | undefined;
 let serviceGeneration = 0;
 const serviceReminderCycle: TodayReminderCycle = {};
+
+function cycleStorage(provided?: ReminderCycleStorage): ReminderCycleStorage | undefined {
+  if (provided) return provided;
+  return typeof localStorage !== "undefined"
+    && typeof localStorage.getItem === "function"
+    && typeof localStorage.setItem === "function"
+    ? localStorage
+    : undefined;
+}
+
+/**
+ * The cycle survives a cold launch — tapping View Today relaunches the app, and
+ * that must still count as opening it. It lives in device-local storage only:
+ * never in the database, a backup, or iCloud.
+ */
+function loadReminderCycle(
+  cycle: TodayReminderCycle,
+  storage?: ReminderCycleStorage
+): TodayReminderCycle {
+  if (cycle.armedFrom !== undefined || cycle.endedLocalDate !== undefined) return cycle;
+  try {
+    const stored: unknown = JSON.parse(cycleStorage(storage)?.getItem(TODAY_REMINDER_CYCLE_KEY) ?? "null");
+    if (stored && typeof stored === "object") {
+      const { endedLocalDate, armedFrom } = stored as TodayReminderCycle;
+      if (typeof endedLocalDate === "string") cycle.endedLocalDate = endedLocalDate;
+      if (typeof armedFrom === "string") cycle.armedFrom = armedFrom;
+    }
+  } catch {
+    // A corrupt value simply re-arms the cycle.
+  }
+  return cycle;
+}
+
+function saveReminderCycle(cycle: TodayReminderCycle, storage?: ReminderCycleStorage): void {
+  try {
+    cycleStorage(storage)?.setItem(TODAY_REMINDER_CYCLE_KEY, JSON.stringify(cycle));
+  } catch {
+    // Storage being unavailable costs cold-launch accuracy, nothing more.
+  }
+}
+
+/**
+ * Re-arm from now. Turning reminders on, turning them off, and choosing a new
+ * time are all explicit instructions to use the schedule as it stands from this
+ * moment — not to honour a cycle the previous settings ended.
+ */
+export function resetTodayReminderCycle(
+  cycle: TodayReminderCycle = serviceReminderCycle,
+  storage?: ReminderCycleStorage
+): void {
+  cycle.endedLocalDate = undefined;
+  cycle.armedFrom = undefined;
+  try {
+    cycleStorage(storage)?.removeItem(TODAY_REMINDER_CYCLE_KEY);
+  } catch {
+    // Nothing to recover: the in-memory cycle is already reset.
+  }
+}
 
 function publish(next: TodayNotificationRuntimeState): TodayNotificationRuntimeState {
   runtimeState = next;
@@ -109,15 +180,25 @@ function liveReconcileContext(): TodayNotificationReconcileContext {
  */
 export function advanceTodayReminderCycle(
   cycle: TodayReminderCycle,
-  input: { localDate: string; time: string; now: Date; appIsOpen: boolean }
+  input: {
+    localDate: string;
+    time: string;
+    now: Date;
+    appIsOpen: boolean;
+    storage?: ReminderCycleStorage;
+  }
 ): TodayReminderCycle {
+  loadReminderCycle(cycle, input.storage);
   if (cycle.endedLocalDate && cycle.endedLocalDate !== input.localDate) {
     cycle.endedLocalDate = undefined;
   }
+  const armedFrom = cycle.armedFrom ? new Date(cycle.armedFrom) : input.now;
+  cycle.armedFrom ??= input.now.toISOString();
   if (input.appIsOpen
-    && elapsedTodayOccurrenceCount(input.localDate, input.time, input.now) > 0) {
+    && deliveredTodayOccurrenceCount(input.localDate, input.time, input.now, armedFrom) > 0) {
     cycle.endedLocalDate = input.localDate;
   }
+  saveReminderCycle(cycle, input.storage);
   return cycle;
 }
 
@@ -185,6 +266,7 @@ export async function reconcileTodayNotifications(
   const pendingIds = await adapter.pendingIds();
   if (!settings.todaySummaryNotificationsEnabled || permission !== "granted") {
     await cancelAndVerify(adapter, pendingIds);
+    resetTodayReminderCycle(context.cycle, context.storage);
     return {
       supported: true,
       permission,
@@ -198,7 +280,8 @@ export async function reconcileTodayNotifications(
     localDate: localDateForInstant(now.toISOString(), timeZone),
     time: settings.todaySummaryNotificationTime,
     now,
-    appIsOpen: context.appIsOpen
+    appIsOpen: context.appIsOpen,
+    storage: context.storage
   });
   const planning = buildTodayNotificationPlanningResult(await readAllData(db), {
     now,
@@ -402,6 +485,7 @@ export async function enableTodayNotifications(
     return saved;
   }
   const saved = await saveSettings(settings, true, settings.todaySummaryNotificationTime);
+  resetTodayReminderCycle();
   requestTodayNotificationReconcile(0);
   return saved;
 }
@@ -446,6 +530,7 @@ export async function changeTodayNotificationTime(
   time: string
 ): Promise<AppSettings> {
   const saved = await saveSettings(settings, settings.todaySummaryNotificationsEnabled, time);
+  resetTodayReminderCycle();
   requestTodayNotificationReconcile(0);
   return saved;
 }
