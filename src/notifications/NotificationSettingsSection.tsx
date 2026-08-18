@@ -32,6 +32,65 @@ function statusText(settings: AppSettings | undefined, runtime: TodayNotificatio
     : "On · Nothing is waiting in Today";
 }
 
+/**
+ * iOS decides on its own whether a notification makes a sound, buzzes, or stays
+ * on screen, and offers no API to read any of it. So this is guidance, never a
+ * status claim — PeopleOS must not tell the user something is on when it cannot
+ * know. Only the app's own Settings page can be opened: `prefs:root=` deep links
+ * into other panes are private API and get apps rejected, so the rest is written
+ * directions.
+ */
+const IPHONE_SETUP_STEPS = [
+  {
+    id: "haptics",
+    where: "Settings → Sounds & Haptics → Haptics",
+    action: "Always Play",
+    why: "Out of the box an iPhone only buzzes in Silent mode. This makes reminders buzz either way."
+  },
+  {
+    id: "banner-style",
+    where: "Settings → Notifications → PeopleOS → Banner Style",
+    action: "Persistent",
+    why: "A reminder then stays on screen until you deal with it, instead of vanishing after a few seconds."
+  },
+  {
+    id: "focus",
+    where: "Settings → Focus",
+    action: "Allow PeopleOS, or turn Focus off",
+    why: "A Focus silences reminders completely — no sound, no buzz, no banner."
+  },
+  {
+    id: "vibration",
+    where: "Settings → Accessibility → Touch → Vibration",
+    action: "On",
+    why: "A master switch. Nothing on the phone vibrates while it is off."
+  }
+] as const;
+
+function IPhoneReminderSetup() {
+  return (
+    <div className="notification-setup">
+      <h4 id="settings-notification-setup">Make reminders harder to miss</h4>
+      <p className="muted-copy">
+        Your iPhone, not PeopleOS, decides whether a reminder makes a sound, buzzes or stays on
+        screen. PeopleOS cannot check these for you — iOS does not allow it — so here is exactly
+        what to change.
+      </p>
+      <ol className="notification-setup-steps" aria-labelledby="settings-notification-setup">
+        {IPHONE_SETUP_STEPS.map((step) => (
+          <li key={step.id}>
+            <span className="notification-setup-where">{step.where}</span>
+            <strong className="notification-setup-action">{step.action}</strong>
+            <span className="muted-copy">{step.why}</span>
+          </li>
+        ))}
+      </ol>
+      {/* Capacitor hands unknown schemes to iOS, which opens the app's own page. */}
+      <a className="settings-action" href="app-settings:">Open iPhone Settings</a>
+    </div>
+  );
+}
+
 export default function NotificationSettingsSection({ settings, onSettingsChanged }: Props) {
   const [runtime, setRuntime] = useState(getTodayNotificationRuntimeState);
   const [timeDraft, setTimeDraft] = useState(settings?.todaySummaryNotificationTime ?? "12:00");
@@ -139,6 +198,7 @@ export default function NotificationSettingsSection({ settings, onSettingsChange
           {runtime.permission === "denied" && (
             <p className="muted-copy">Notifications are denied for PeopleOS. You can allow them in iPhone Settings.</p>
           )}
+          <IPhoneReminderSetup />
         </>
       ) : (
         <p className="muted-copy">Local reminders are available in the iPhone app. The web app does not request notification permission.</p>

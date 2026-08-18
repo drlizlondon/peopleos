@@ -512,6 +512,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   outline-offset: 2px;
 }
 .notification-toggle-row input[role="switch"]:disabled { cursor: wait; opacity: 0.58; }
+.notification-setup { padding: 14px 18px 16px; border-top: 1px solid var(--line); }
+.notification-setup h4 { margin: 0; font-size: 0.94rem; letter-spacing: -0.01em; }
+.notification-setup > .muted-copy { margin: 6px 0 0; }
+.notification-setup .settings-action { margin: 12px 0 0; }
+.notification-setup-steps { margin: 12px 0 0; padding: 0 0 0 20px; display: grid; gap: 12px; }
+.notification-setup-steps li { padding-left: 2px; }
+.notification-setup-steps li > * { display: block; }
+.notification-setup-where { font-size: 0.86rem; font-weight: 650; }
+.notification-setup-action { margin: 2px 0 3px; color: var(--forest); }
+.notification-setup-steps .muted-copy { margin: 0; font-size: 0.84rem; line-height: 1.45; }
 .notification-time-row input {
   min-height: 40px;
   padding: 7px 9px;

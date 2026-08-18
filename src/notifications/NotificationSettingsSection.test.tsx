@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_CONVERSATION_STARTERS, type AppSettings } from "../domain/schema";
@@ -113,6 +113,36 @@ describe("Today notification Settings", () => {
     />);
     expect(screen.getByText("On · Regular contact needs a start date")).toBeInTheDocument();
     expect(screen.queryByText("On · Nothing is waiting in Today")).not.toBeInTheDocument();
+  });
+
+  it("tells the user exactly which iPhone settings to change, without claiming to know them", () => {
+    mocks.runtime.permission = "granted";
+    render(<NotificationSettingsSection
+      settings={{ ...settings, todaySummaryNotificationsEnabled: true }}
+      onSettingsChanged={vi.fn()}
+    />);
+
+    const steps = screen.getByRole("list", { name: "Make reminders harder to miss" });
+    expect(within(steps).getAllByRole("listitem")).toHaveLength(4);
+    expect(within(steps).getByText("Settings → Sounds & Haptics → Haptics")).toBeInTheDocument();
+    expect(within(steps).getByText("Always Play")).toBeInTheDocument();
+    expect(within(steps).getByText("Persistent")).toBeInTheDocument();
+    expect(screen.getByText(/PeopleOS cannot check these for you/i)).toBeInTheDocument();
+  });
+
+  it("opens the app's own iPhone Settings page and never a private Settings deep link", () => {
+    render(<NotificationSettingsSection settings={settings} onSettingsChanged={vi.fn()} />);
+    const link = screen.getByRole("link", { name: "Open iPhone Settings" });
+    // prefs:root= deep links into other panes are private API and get apps rejected.
+    expect(link).toHaveAttribute("href", "app-settings:");
+    expect(document.body.innerHTML).not.toContain("prefs:root");
+  });
+
+  it("hides the iPhone setup guidance on the web, where none of it applies", () => {
+    mocks.runtime.supported = false;
+    render(<NotificationSettingsSection settings={settings} onSettingsChanged={vi.fn()} />);
+    expect(screen.queryByRole("link", { name: "Open iPhone Settings" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Make reminders harder to miss/i)).not.toBeInTheDocument();
   });
 
   it("reloads settings changed by iCloud instead of repeatedly saving a stale revision", async () => {

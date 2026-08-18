@@ -211,6 +211,7 @@ Offer a privacy-preserving daily Today prompt on a supported runtime without tur
 - The cycle state is device-session only — one local date, held in memory, never written to the database, backup, or sync.
 - If the user ignores every scheduled occurrence without reopening the app, the bounded local plan ends; reopening or foregrounding PeopleOS replenishes it. The MVP does not claim unlimited or live at-delivery evaluation while closed.
 - Notification scheduling, taps, actions and cycle transitions never create a TodaySkip, Interaction, FollowUp, FollowUpEvent, ReachOutEvent, or Reach Out transition, and never remove anyone from Today. People leave Today only through the ordinary PeopleOS action. There is no overdue state.
+- Settings shows an iPhone setup panel listing the operating-system settings that decide whether a reminder is noticeable: Sounds & Haptics → Haptics → Always Play, Notifications → PeopleOS → Banner Style → Persistent, Focus, and Accessibility → Touch → Vibration. iOS exposes no API to read any of them, so the panel is written guidance and must never present itself as a status. Its only action opens the app's own iPhone Settings page via `app-settings:`; `prefs:root=` deep links into other panes are private API and are forbidden. The panel does not appear on the web.
 - The browser PWA does not request notification permission. The On control is available only in the iPhone wrapper whose native adapter proves permission, closed-app scheduling, replacement, cancellation, and warm/cold tap handling.
 
 ### User flows affected
